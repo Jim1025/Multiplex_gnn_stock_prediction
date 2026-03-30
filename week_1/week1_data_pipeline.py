@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 # ════════════════════════════════════════════════════════
 # 0. 設定
 # ════════════════════════════════════════════════════════
-END_DATE   = datetime.today().strftime("%Y-%m-%d")
+END_DATE   = "2025-12-31"
 START_DATE = "2019-01-01"          # 5 年以上，確保充足樣本
 
 os.makedirs("data/raw",       exist_ok=True)

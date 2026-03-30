@@ -1,0 +1,6 @@
+﻿ticker,total_rows,ffill_Close,roll_Close,zero_Volume,remain_Close,long_gaps,outlier_price,outlier_ret,ohlc_violations,adf_close_p,adf_logret_p,logret_stationary,logret_std
+NASDAQ,1759,0,0,0,0,0,0,1,0,0.9513,0.0,True,0.015004
+SP500,1759,0,0,0,0,0,0,1,0,0.957,0.0,True,0.012417
+TAIEX,1698,0,0,0,0,0,0,2,0,0.9737,0.0,True,0.011733
+USDTWD,1821,0,0,0,0,0,0,3,89,0.6375,0.0,True,0.003751
+VIX,1759,0,0,0,0,0,89,5,1,0.0,0.0,True,0.072109
