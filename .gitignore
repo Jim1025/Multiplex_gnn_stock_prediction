@@ -1,0 +1,12 @@
+
+# macOS
+.DS_Store
+
+# Data files (should be regenerated from scripts)
+data/raw/
+data/processed/
+data/graphs/
+
+# Legacy folders
+week_1/
+
