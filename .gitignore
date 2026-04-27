@@ -14,3 +14,7 @@ week_1/
 venv/
 __pycache__/
 *.pyc
+# Python virtual environments
+.venv/
+venv/
+env/
