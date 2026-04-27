@@ -3,6 +3,7 @@
 .DS_Store
 
 # Data files (should be regenerated from scripts)
+data/
 data/raw/
 data/processed/
 data/graphs/
