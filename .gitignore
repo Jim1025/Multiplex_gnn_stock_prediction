@@ -10,3 +10,7 @@ data/graphs/
 # Legacy folders
 week_1/
 
+# .gitignore
+venv/
+__pycache__/
+*.pyc
