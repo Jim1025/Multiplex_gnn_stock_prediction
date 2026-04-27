@@ -24,8 +24,8 @@ from pathlib import Path
 # 設定：ADR-台股配對表 + 資料路徑
 # ════════════════════════════════════════════════════════════
 
-ADR_DIR  = "data/processed/adr"
-TW_DIR   = "data/processed/tw"
+ADR_DIR  = "src/data/processed/adr"
+TW_DIR   = "src/data/processed/tw"
 
 # ADR ticker → 台股代碼（1-to-1 對應）
 PAIR_MAP = {
