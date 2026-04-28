@@ -6,7 +6,7 @@ PAIR_MAP = {
     "CHT":   {"tw": "2412", "tier": 1, "market": "NYSE",   "industry": "電信",   "company": "中華電信"},
     "IMOS":  {"tw": "8150", "tier": 1, "market": "NASDAQ", "industry": "半導體", "company": "南茂"},
     "AUOTY": {"tw": "2409", "tier": 2, "market": "OTC",    "industry": "光電",   "company": "友達"},
-    "ASUUY": {"tw": "2357", "tier": 2, "market": "OTC",    "industry": "電子",   "company": "華碩"},
+    # "ASUUY": {"tw": "2357", "tier": 2, "market": "OTC",    "industry": "電子",   "company": "華碩"},
     "HNHPF": {"tw": "2317", "tier": 2, "market": "OTC",    "industry": "電子",   "company": "鴻海"},
 }
 
