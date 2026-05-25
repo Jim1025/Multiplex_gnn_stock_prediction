@@ -27,15 +27,15 @@ test_no_lookahead.py — Look-ahead Bias 防護測試套件 v2.0
   T6  test_train_test_split_no_leakage
 
 第二組：features 層追溯欄位防護（v2.0 新增）
-  T7  test_no_consecutive_identical_log_returns
+  T7  test_no_consecutive_identical_log_returns（只偵測非零連續相同）
   T8  test_imputation_flag_exists
   T9  test_log_return_recomputation_consistency
   T10 test_no_future_imputation
 
-第三組：預留位置（graph_builder.py 動工後補）
-  T11 test_graph_window_no_lookahead       [TODO]
-  T12 test_a12_strictly_diagonal           [TODO]
-  T13 test_node_features_use_correct_date  [TODO]
+第三組：graph_builder 圖層測試（v2.0 新增）
+  T11 test_graph_window_no_lookahead（視窗不含 target_date）
+  T12 test_a12_strictly_diagonal（A12 嚴格對角）
+  T13 test_node_features_use_correct_date（節點特徵日期正確）
 """
 
 import os
@@ -367,11 +367,23 @@ def test_train_test_split_no_leakage(adr_ticker, tw_code):
 @pytest.mark.parametrize("adr_ticker,tw_code", get_available_pairs())
 def test_no_consecutive_identical_log_returns(adr_ticker, tw_code):
     """
-    T7：偵測連續 3 日完全相同的 log_return（污染指標）
+    T7：偵測「非零」連續 3 日相同的 log_return（污染指標）
 
-    若連續 3 日 log_return 完全相同，極可能是 ffill 污染 log_return 本身
-    （違反政策原則 1）。但需排除 is_imputed=True 的列，因為政策允許
-    補值列的 log_return = 0（且連續補值必然產生連續 0）。
+    重要的金融意義區分：
+      ✅ 連續多日 log_return = 0（合法）：
+         代表「平盤收盤」，即連續多日 Close 完全相同。
+         在低波動股票（電信、傳產）與小型股常見，是真實市場行為。
+         診斷顯示 2412/2317 等標的此現象 100% 為平盤收盤。
+
+      ❌ 連續多日 log_return = 非零相同值（ffill 污染）：
+         若 pipeline 對 log_return 直接 ffill 而非由 Close 重算，
+         會產生「同一個非零數字延續多日」，違反政策原則 1。
+         此情況在自然市場中機率近乎為零。
+
+    排除：
+      - is_imputed=True 的列（補值列的 log_return=0 是政策允許的）
+      - is_long_gap=True 的列
+      - log_return 為 0 的事件（合法的平盤收盤）
     """
     for label, ticker in [("ADR", adr_ticker), ("TW", tw_code)]:
         path = _adr_path(ticker) if label == "ADR" else _tw_path(ticker)
@@ -388,20 +400,25 @@ def test_no_consecutive_identical_log_returns(adr_ticker, tw_code):
         if len(lr) < 100:
             continue
 
-        # 連續 3 筆完全相同 → 可疑
+        # 連續 3 筆完全相同
         same_with_prev1 = (lr.values[1:]   == lr.values[:-1])
         same_with_prev2 = (lr.values[2:]   == lr.values[1:-1])
-        # 兩個布林陣列長度差 1，需對齊
         triple_match = same_with_prev1[1:] & same_with_prev2
-        
+
+        # ★ 關鍵修正：只計算「非零」的連續相同（排除合法平盤收盤）
         triple_values = lr.values[2:][triple_match]
-        nonzero_triple = (triple_values != 0).sum()  # ★ 只計算非零事件
+        nonzero_triple = (triple_values != 0).sum()
+
+        # 同時統計零值事件數，作為診斷資訊（不觸發失敗）
+        zero_triple = (triple_values == 0).sum()
+
         ratio = nonzero_triple / max(len(lr) - 2, 1)
-        
         assert ratio < IDENTICAL_LR_RATIO, (
-            f"[{adr_ticker}→{tw_code}] {label} ({ticker}) 連續 3 日相同 "
-            f"log_return 比例 {ratio:.2%} > {IDENTICAL_LR_RATIO:.0%}，"
-            f"疑似 log_return 直接 ffill 污染"
+            f"[{adr_ticker}→{tw_code}] {label} ({ticker}) 連續 3 日「非零」"
+            f"相同 log_return 比例 {ratio:.2%} > {IDENTICAL_LR_RATIO:.0%}，"
+            f"疑似 log_return 直接 ffill 污染。"
+            f"\n  非零事件數：{nonzero_triple}（疑似污染）"
+            f"\n  零值事件數：{zero_triple}（合法平盤收盤）"
         )
 
 
@@ -502,28 +519,328 @@ def test_no_future_imputation(adr_ticker, tw_code):
 
 
 # ════════════════════════════════════════════════════════════
-# 第三組：graph_builder 預留位置（T11–T13）
+# 第三組：graph_builder 圖層測試（T11–T13）
 # ════════════════════════════════════════════════════════════
 
-# 以下測試將於 graph_builder.py 動工後實作。預留 stub 讓 pytest 顯示
-# 為 SKIPPED，提醒開發者這些測試尚未涵蓋。
+# 圖快照目錄（與 graph_builder.py 預設一致）
+GRAPH_SNAPSHOT_DIR = "data/graphs/snapshots"
 
-@pytest.mark.skip(reason="待 graph_builder.py 完成後實作")
+# 抽樣設定：不需要每張都驗，取頭、中、尾各幾張
+GRAPH_SAMPLE_HEAD = 3
+GRAPH_SAMPLE_MID  = 5
+GRAPH_SAMPLE_TAIL = 3
+
+
+def _get_snapshot_sample() -> list:
+    """
+    從圖快照目錄中取頭、中、尾三段樣本。
+    回傳 .pt 檔路徑清單。若目錄不存在回傳空清單。
+    """
+    snap_dir = Path(GRAPH_SNAPSHOT_DIR)
+    if not snap_dir.exists():
+        return []
+    files = sorted(snap_dir.glob("graph_*.pt"))
+    if len(files) == 0:
+        return []
+
+    n = len(files)
+    head = files[:GRAPH_SAMPLE_HEAD]
+    tail = files[-GRAPH_SAMPLE_TAIL:]
+    if n > GRAPH_SAMPLE_HEAD + GRAPH_SAMPLE_TAIL + GRAPH_SAMPLE_MID:
+        rng = np.random.default_rng(seed=42)
+        mid_pool = files[GRAPH_SAMPLE_HEAD : n - GRAPH_SAMPLE_TAIL]
+        mid = list(rng.choice(mid_pool, size=GRAPH_SAMPLE_MID, replace=False))
+    else:
+        mid = files[GRAPH_SAMPLE_HEAD : n - GRAPH_SAMPLE_TAIL]
+
+    # 去重並排序
+    seen = set()
+    result = []
+    for f in head + sorted(mid) + tail:
+        if f not in seen:
+            seen.add(f)
+            result.append(f)
+    return result
+
+
+def _load_snapshot(path):
+    """安全載入一張圖快照。"""
+    import torch
+    return torch.load(path, weights_only=False)
+
+
 def test_graph_window_no_lookahead():
-    """T11：圖快照的回看視窗不可包含 target_date 及之後的資料"""
-    pass
+    """
+    T11：圖快照的回看視窗不可包含 target_date 及之後的資料
+
+    對抽樣的快照逐一驗證：
+      ① window_end < target_date（嚴格早於，核心防護）
+      ② window_end 與 target_date 之間日曆日不超過 10 天（合理距離）
+      ③ window 期間在 features CSV 中實際有 ≈ lookback_days 筆交易日
+         （用 XTAI 交易日驗證，而非 pd.bdate_range，後者不含台灣假期）
+
+    注意：graph_builder 的 corr_window=60 指的是「XTAI 交易日 60 筆」，
+    而非「日曆工作日 60 天」。因此 window_start ~ window_end 的日曆跨度
+    通常 > 60（因為中間有台灣國定假日被跳過）。
+    """
+    samples = _get_snapshot_sample()
+    if not samples:
+        pytest.skip(f"找不到圖快照於 {GRAPH_SNAPSHOT_DIR}，跳過圖層測試")
+
+    # 載入一支 TW 的 features CSV 作為「XTAI 交易日基準」
+    pair_map = PAIR_MAP
+    first_tw_code = next(iter(pair_map.values()))
+    tw_csv_path = _tw_path(first_tw_code)
+    if not tw_csv_path.exists():
+        pytest.skip(f"TW features CSV 不存在：{tw_csv_path}")
+    tw_df = pd.read_csv(tw_csv_path, index_col="Date",
+                        parse_dates=True).sort_index()
+    tw_dates_set = set(tw_df.index)
+
+    fail_msgs = []
+    for path in samples:
+        data = _load_snapshot(path)
+
+        target  = pd.Timestamp(data.target_date)
+        w_start = pd.Timestamp(data.window_start)
+        w_end   = pd.Timestamp(data.window_end)
+        lookback = data.lookback_days
+
+        # 檢查 1：window_end 嚴格早於 target_date（核心防護）
+        if w_end >= target:
+            fail_msgs.append(
+                f"  [{path.stem}] window_end={w_end.date()} "
+                f">= target_date={target.date()}（Look-ahead Bias！）"
+            )
+
+        # 檢查 2：window_end 與 target_date 之間距離合理
+        gap_days = (target - w_end).days
+        if gap_days > 10:
+            fail_msgs.append(
+                f"  [{path.stem}] target - window_end = {gap_days} 天，"
+                f"差距異常大（可能有缺漏）"
+            )
+
+        # 檢查 3：window 內的 XTAI 交易日數 ≈ lookback_days
+        # 用 features CSV 的日期索引計算，而非 pd.bdate_range
+        tw_in_window = [d for d in tw_dates_set
+                        if w_start <= d <= w_end]
+        actual_trading_days = len(tw_in_window)
+
+        # 容忍 ±3 天（ADR 與 TW 交易日差異 + 邊界效應）
+        if abs(actual_trading_days - lookback) > 3:
+            fail_msgs.append(
+                f"  [{path.stem}] 視窗內 XTAI 交易日 {actual_trading_days} "
+                f"≠ lookback_days={lookback}（差距 > 3）"
+            )
+
+    assert not fail_msgs, (
+        f"T11 Look-ahead Bias 圖層偵測失敗！\n"
+        f"  共驗證 {len(samples)} 張快照，{len(fail_msgs)} 項違反：\n"
+        + "\n".join(fail_msgs)
+    )
 
 
-@pytest.mark.skip(reason="待 graph_builder.py 完成後實作")
 def test_a12_strictly_diagonal():
-    """T12：A12 跨層連接矩陣必須嚴格對角，無跨公司洩漏"""
-    pass
+    """
+    T12：A12 跨層連接矩陣必須嚴格對角，無跨公司洩漏
+
+    對抽樣的快照逐一驗證：
+      ① A12 edge_index 的 src[i] == dst[i]（嚴格一對一）
+      ② A12 覆蓋所有節點（0 ~ n_nodes-1）
+      ③ 無重複邊
+    """
+    import torch
+
+    samples = _get_snapshot_sample()
+    if not samples:
+        pytest.skip(f"找不到圖快照於 {GRAPH_SNAPSHOT_DIR}，跳過圖層測試")
+
+    fail_msgs = []
+    for path in samples:
+        data = _load_snapshot(path)
+
+        # 取得 A12 邊
+        a12_type = ("adr", "cross", "tw")
+        if a12_type not in data.edge_types:
+            fail_msgs.append(f"  [{path.stem}] 缺少 A12 邊類型 {a12_type}")
+            continue
+
+        a12 = data[a12_type].edge_index
+        n_nodes = data["adr"].x.shape[0]
+
+        # 檢查 1：邊數 = 節點數
+        if a12.shape[1] != n_nodes:
+            fail_msgs.append(
+                f"  [{path.stem}] A12 邊數 {a12.shape[1]} ≠ 節點數 {n_nodes}"
+            )
+            continue
+
+        # 檢查 2：嚴格對角（src == dst for every edge）
+        for k in range(a12.shape[1]):
+            src, dst = int(a12[0, k]), int(a12[1, k])
+            if src != dst:
+                fail_msgs.append(
+                    f"  [{path.stem}] A12 第 {k} 條邊 src={src} ≠ dst={dst}"
+                    f"（跨公司洩漏！）"
+                )
+
+        # 檢查 3：覆蓋所有節點
+        src_set = set(a12[0].tolist())
+        expected = set(range(n_nodes))
+        if src_set != expected:
+            missing = expected - src_set
+            fail_msgs.append(
+                f"  [{path.stem}] A12 未覆蓋節點 {missing}"
+            )
+
+        # 檢查 4：無重複邊
+        edge_pairs = [(int(a12[0, k]), int(a12[1, k]))
+                      for k in range(a12.shape[1])]
+        if len(set(edge_pairs)) != len(edge_pairs):
+            fail_msgs.append(f"  [{path.stem}] A12 有重複邊")
+
+    assert not fail_msgs, (
+        f"T12 A12 跨層洩漏偵測失敗！\n"
+        f"  共驗證 {len(samples)} 張快照，{len(fail_msgs)} 項違反：\n"
+        + "\n".join(fail_msgs)
+    )
 
 
-@pytest.mark.skip(reason="待 graph_builder.py 完成後實作")
 def test_node_features_use_correct_date():
-    """T13：圖快照中 L1 節點用 t 日特徵，L2 節點用 t-1 日特徵"""
-    pass
+    """
+    T13：圖快照中節點特徵取自 window_end 那天的資料
+
+    驗證方式：
+      ① 讀回 features CSV 中 window_end 那天的值
+      ② 與快照中 data["adr"].x / data["tw"].x 逐一比對
+      ③ 容忍 NaN 填 0 的差異（long_gap 列的處理）
+    """
+    import torch
+
+    samples = _get_snapshot_sample()
+    if not samples:
+        pytest.skip(f"找不到圖快照於 {GRAPH_SNAPSHOT_DIR}，跳過圖層測試")
+
+    # 載入 PAIR_MAP
+    pair_map = PAIR_MAP   # 已在模組層級載入
+
+    adr_tickers = list(pair_map.keys())
+    tw_codes    = list(pair_map.values())
+
+    # 載入所有 features CSV（快取）
+    adr_dfs = {}
+    tw_dfs  = {}
+    for ticker in adr_tickers:
+        p = _adr_path(ticker)
+        if p.exists():
+            adr_dfs[ticker] = pd.read_csv(p, index_col="Date",
+                                           parse_dates=True).sort_index()
+    for code in tw_codes:
+        p = _tw_path(code)
+        if p.exists():
+            tw_dfs[code] = pd.read_csv(p, index_col="Date",
+                                        parse_dates=True).sort_index()
+
+    if not adr_dfs or not tw_dfs:
+        pytest.skip("features CSV 不足以做交叉驗證")
+
+    # 9 維特徵欄位名
+    feat_cols = [
+        "log_return", "RSI_14",
+        "MACD", "MACD_signal", "MACD_hist",
+        "BB_pos", "MA5_dev", "MA20_dev",
+        "log_volume_z",
+    ]
+
+    fail_msgs = []
+    for path in samples:
+        data = _load_snapshot(path)
+        w_end = pd.Timestamp(data.window_end)
+
+        # 驗證 ADR 端
+        for i, ticker in enumerate(adr_tickers):
+            if ticker not in adr_dfs:
+                continue
+            df = adr_dfs[ticker]
+
+            # graph_builder 取 window_end 或之前最近的有效日
+            valid_dates = df.index[df.index <= w_end]
+            if len(valid_dates) == 0:
+                continue
+            actual_date = valid_dates[-1]
+
+            # 從 CSV 讀出的值
+            try:
+                csv_vals = df.loc[actual_date, feat_cols].values.astype(float)
+            except KeyError:
+                continue
+
+            # 從快照讀出的值
+            snap_vals = data["adr"].x[i].numpy()
+
+            # 逐維比對（容忍 NaN→0 的填充差異）
+            for j, col in enumerate(feat_cols):
+                csv_v  = csv_vals[j]
+                snap_v = snap_vals[j]
+
+                if np.isnan(csv_v):
+                    # CSV 是 NaN → 快照應填 0（graph_builder 的 NAN_FILL_VALUE）
+                    if snap_v != 0.0:
+                        fail_msgs.append(
+                            f"  [{path.stem}] ADR {ticker}[{col}] "
+                            f"CSV=NaN 但快照={snap_v:.4f}（應為 0.0）"
+                        )
+                else:
+                    diff = abs(csv_v - snap_v)
+                    if diff > 1e-5:
+                        fail_msgs.append(
+                            f"  [{path.stem}] ADR {ticker}[{col}] "
+                            f"CSV={csv_v:.6f} ≠ 快照={snap_v:.6f}（差 {diff:.2e}）"
+                        )
+
+        # 驗證 TW 端（同邏輯）
+        for i, code in enumerate(tw_codes):
+            if code not in tw_dfs:
+                continue
+            df = tw_dfs[code]
+            valid_dates = df.index[df.index <= w_end]
+            if len(valid_dates) == 0:
+                continue
+            actual_date = valid_dates[-1]
+
+            try:
+                csv_vals = df.loc[actual_date, feat_cols].values.astype(float)
+            except KeyError:
+                continue
+
+            snap_vals = data["tw"].x[i].numpy()
+
+            for j, col in enumerate(feat_cols):
+                csv_v  = csv_vals[j]
+                snap_v = snap_vals[j]
+
+                if np.isnan(csv_v):
+                    if snap_v != 0.0:
+                        fail_msgs.append(
+                            f"  [{path.stem}] TW {code}[{col}] "
+                            f"CSV=NaN 但快照={snap_v:.4f}（應為 0.0）"
+                        )
+                else:
+                    diff = abs(csv_v - snap_v)
+                    if diff > 1e-5:
+                        fail_msgs.append(
+                            f"  [{path.stem}] TW {code}[{col}] "
+                            f"CSV={csv_v:.6f} ≠ 快照={snap_v:.6f}（差 {diff:.2e}）"
+                        )
+
+    assert not fail_msgs, (
+        f"T13 節點特徵日期一致性檢查失敗！\n"
+        f"  共驗證 {len(samples)} 張快照，{len(fail_msgs)} 項不一致：\n"
+        + "\n".join(fail_msgs[:10])
+        + (f"\n  ... 另有 {len(fail_msgs)-10} 項"
+           if len(fail_msgs) > 10 else "")
+    )
 
 
 # ════════════════════════════════════════════════════════════
@@ -552,10 +869,12 @@ def _diagnose():
         print(f"❌ 找不到任何配對檔案於 {ADR_DIR} / {TW_DIR}")
         return 1
 
-    print(f"\n[test_no_lookahead 診斷] 共 {len(pairs)} 組配對，10 項測試\n")
+    print(f"\n[test_no_lookahead 診斷] 共 {len(pairs)} 組配對，13 項測試\n")
 
     # 對應每個 test 的函式
-    tests = [
+    # T1–T10：逐配對跑（需要 adr_ticker, tw_code 參數）
+    # T11–T13：全域跑（不需要配對參數）
+    pair_tests = [
         ("T1  no_nan_excl_long_gap",
          test_no_nan_after_alignment_excluding_long_gap),
         ("T2  adr_t_eq_prev_day",
@@ -578,6 +897,15 @@ def _diagnose():
          test_no_future_imputation),
     ]
 
+    global_tests = [
+        ("T11 graph_no_lookahead",
+         test_graph_window_no_lookahead),
+        ("T12 a12_diagonal",
+         test_a12_strictly_diagonal),
+        ("T13 node_feat_date",
+         test_node_features_use_correct_date),
+    ]
+
     # 表頭
     pair_labels = [f"{a}→{t}" for a, t in pairs]
     col_w = 12
@@ -588,7 +916,7 @@ def _diagnose():
     summary = {p: {"pass": 0, "fail": 0, "skip": 0, "error": 0} for p in pair_labels}
     fail_details = []
 
-    for test_name, func in tests:
+    for test_name, func in pair_tests:
         row = f"{test_name:<28}"
         for (a, t), lbl in zip(pairs, pair_labels):
             status, msg = _run_one_test(func, a, t)
@@ -614,6 +942,31 @@ def _diagnose():
     if any(summary[lbl]["skip"] for lbl in pair_labels):
         print(stat_skip)
 
+    # ── T11–T13 全域測試（不逐配對跑）─────────────────────
+    print(f"\n{'Test':<28}{'Status':<12}")
+    print("-" * 40)
+
+    global_fail = 0
+    for test_name, func in global_tests:
+        try:
+            func()
+            status, msg = "PASS", ""
+        except pytest.skip.Exception as e:
+            status, msg = "SKIP", str(e)
+        except AssertionError as e:
+            status, msg = "FAIL", str(e).split("\n")[0][:80]
+            global_fail += 1
+        except Exception as e:
+            status, msg = "ERROR", f"{type(e).__name__}: {e}"
+            global_fail += 1
+
+        symbol = {"PASS": "✓", "FAIL": "✗", "SKIP": "—", "ERROR": "!"}[status]
+        print(f"{test_name:<28}{symbol}")
+        if status in ("FAIL", "ERROR"):
+            fail_details.append((test_name, "global", status, msg))
+
+    print("-" * 40)
+
     # 失敗細節
     if fail_details:
         print("\n失敗細節：")
@@ -622,7 +975,7 @@ def _diagnose():
 
     # 整體結論
     total_fail = sum(summary[lbl]["fail"] + summary[lbl]["error"]
-                     for lbl in pair_labels)
+                     for lbl in pair_labels) + global_fail
     if total_fail == 0:
         print(f"\n✅ 全部通過")
         return 0
