@@ -1,0 +1,17 @@
+﻿Metric,Value
+Number of nodes per layer,7
+Number of snapshots,1643
+Correlation window (trading days),60
+Correlation threshold |ρ|,0.3
+L1 ADR: mean directed edges,24.1
+L1 ADR: mean undirected pairs,12.0
+L1 ADR: mean density (%),57.3
+L1 ADR: min/max undirected pairs,3 / 21
+L2 TW: mean directed edges,20.9
+L2 TW: mean undirected pairs,10.5
+L2 TW: mean density (%),49.8
+L2 TW: min/max undirected pairs,1 / 21
+A12 cross-layer edges,7
+L1-L2 density correlation (ρ),0.757
+Snapshots with imputed nodes,0
+Snapshots with long-gap nodes,0
