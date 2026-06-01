@@ -1,4 +1,52 @@
 data:
   start_date: 2019-01-01
   end_date: 2025-12-31
-  
+  snapshot_dir: data/graphs/snapshots
+  features_dir: data/features
+  split:
+    train_end: 1150   # indices 0–1149  (70%)
+    val_end:   1397   # indices 1150–1396 (15%)
+    # test:    indices 1397–1642         (15%)
+
+model:
+  lstm:
+    input_dim: 9          # F = 9 維技術指標特徵
+    hidden_dim: 64
+    num_layers: 1
+    T_history: 20         # 回看 20 個交易日
+    bidirectional: false  # 預測任務不看未來
+    dropout: 0.1
+  gat:
+    hidden_dim: 64
+    num_layers: 2
+    num_heads: 4
+    dropout: 0.1
+    use_edge_attr: true   # 邊權 |ρ| 餵入 attention
+    concat: true          # heads 用 concat（最後一層改 average）
+  projection:
+    d_prime: 32           # 共同潛在維度
+    activation: gelu
+    layer_norm: true
+  fusion:
+    attention_hidden: 64
+    gate_activation: sigmoid
+  prediction_head:
+    hidden_dim: 64
+    dropout: 0.2
+
+loss_weights:
+  mse: 1.0
+  rank: 0.1
+  align: 0.1
+
+align_loss:
+  enabled: true
+  temperature: 0.1
+
+training:
+  seed: 42
+  max_epochs: 100
+  patience: 10        # early stopping on val IC
+  batch_size: 32
+  lr: 0.001
+  weight_decay: 0.0001
