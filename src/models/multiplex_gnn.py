@@ -110,12 +110,13 @@ class MAGNET(nn.Module):
         """
         Args:
             batch (dict):
-                "x_seq_L1"      : [B, T, n, F]  ADR 歷史序列
-                "x_seq_L2"      : [B, T, n, F]  TW  歷史序列
-                "edge_index_L1" : [2, E1]
-                "edge_attr_L1"  : [E1, 1]
-                "edge_index_L2" : [2, E2]
-                "edge_attr_L2"  : [E2, 1]
+                "x_seq_L1"      : [B, T, n, F]   ADR 歷史序列
+                "x_seq_L2"      : [B, T, n, F]   TW  歷史序列
+                "edge_index_L1" : list[Tensor[2, E_b]] 長度 B（每張快照邊數不同）
+                                  或單一 Tensor [2, E1]（會自動廣播給所有 batch）
+                "edge_attr_L1"  : list[Tensor[E_b, 1]] 同上對應
+                "edge_index_L2" : list[Tensor[2, E_b]]
+                "edge_attr_L2"  : list[Tensor[E_b, 1]]
                 "y"             : [B, n]  (選填，推論時可不傳)
 
         Returns:
@@ -130,10 +131,10 @@ class MAGNET(nn.Module):
         """
         x_L1 = batch["x_seq_L1"]          # [B, T, n, F]
         x_L2 = batch["x_seq_L2"]          # [B, T, n, F]
-        ei_L1 = batch["edge_index_L1"]    # [2, E1]
-        ea_L1 = batch["edge_attr_L1"]     # [E1, 1]
-        ei_L2 = batch["edge_index_L2"]    # [2, E2]
-        ea_L2 = batch["edge_attr_L2"]     # [E2, 1]
+        ei_L1 = batch["edge_index_L1"]    # list[Tensor] 或 Tensor
+        ea_L1 = batch["edge_attr_L1"]
+        ei_L2 = batch["edge_index_L2"]
+        ea_L2 = batch["edge_attr_L2"]
 
         B = x_L1.size(0)
         n = x_L1.size(2)
@@ -177,26 +178,29 @@ class MAGNET(nn.Module):
     @staticmethod
     def _apply_gat_batched(
         gat: GATEncoder,
-        h:   Tensor,           # [B, n, H_lstm]
-        edge_index: Tensor,    # [2, E]  單張快照索引（無 batch offset）
-        edge_attr:  Tensor,    # [E, 1]
+        h:   Tensor,                                # [B, n, H_lstm]
+        edge_index: Tensor | list[Tensor],          # 每張快照的邊（list）或共用張量
+        edge_attr:  Tensor | list[Tensor],
     ) -> Tensor:
         """
-        對 batch 中每張快照逐一跑 GAT。
-        目前 batch 內的快照共用同一組 edge_index（因圖結構在 DataLoader
-        中尚未做 batch-graph stacking），逐一迭代保持語義清晰。
+        對 batch 中每張快照逐一跑 GAT。每張快照的 edge_index/edge_attr
+        可能不同（list 形式，來自 multiplex_collate）；
+        也支援所有快照共用同一組邊（單張量形式，例如手動構造的測試用 batch）。
 
-        後續若改用 torch_geometric.data.Batch，可改為一次性呼叫。
+        後續若需更高 throughput，可改用 torch_geometric.data.Batch 一次性處理。
 
         Returns:
             out : [B, n, H_gat]
         """
         B = h.size(0)
+        is_list_form = isinstance(edge_index, (list, tuple))
+
         outs = []
         for b in range(B):
-            out_b = gat(h[b], edge_index, edge_attr)   # [n, H_gat]
-            outs.append(out_b)
-        return torch.stack(outs, dim=0)  # [B, n, H_gat]
+            ei = edge_index[b] if is_list_form else edge_index
+            ea = edge_attr[b]  if is_list_form else edge_attr
+            outs.append(gat(h[b], ei, ea))  # [n, H_gat]
+        return torch.stack(outs, dim=0)     # [B, n, H_gat]
 
     # ------------------------------------------------------------------
     # 便利方法：計算損失

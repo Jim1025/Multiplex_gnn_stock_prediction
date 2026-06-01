@@ -844,6 +844,109 @@ def test_node_features_use_correct_date():
 
 
 # ════════════════════════════════════════════════════════════
+# T14：MultiplexDataset 組裝的 T 步歷史序列無 Look-ahead
+# Corresponds to IMPLEMENTATION_SPEC §10 Step 6
+# ════════════════════════════════════════════════════════════
+
+def test_dataset_sequence_no_lookahead():
+    """
+    T14: MultiplexDataset 在組裝 LSTM 輸入序列時，
+    必須嚴格保證最後一列日期 < target_date（即 ≤ target_date - 1 交易日）。
+
+    抽樣策略：頭中尾各取若干張快照。
+    """
+    pytest.importorskip("yaml")
+    from src.dataset.multiplex_dataset import (
+        MultiplexDataset, ADR_TICKERS, TW_CODES, TECH_COLS,
+    )
+
+    project_root = Path(__file__).resolve().parents[1]
+    ds = MultiplexDataset(
+        snapshot_dir=str(project_root / "data" / "graphs" / "snapshots"),
+        features_dir=str(project_root / "data" / "features"),
+        T=20,
+        split="all",
+        config_path=str(project_root / "configs" / "base.yaml"),
+    )
+
+    n = len(ds)
+    # 頭 3 + 中段 5 + 尾 3（共 11 張）
+    rng = np.random.default_rng(42)
+    head_idx = list(range(3))
+    tail_idx = list(range(n - 3, n))
+    mid_idx  = rng.choice(range(3, n - 3), size=5, replace=False).tolist()
+    sample_idxs = sorted(set(head_idx + tail_idx + mid_idx))
+
+    # 預載 CSV 拿到每市場的「< target_date 最後交易日」
+    adr_dfs = {t: pd.read_csv(_adr_path(t), index_col=0, parse_dates=True) for t in ADR_TICKERS}
+    tw_dfs  = {c: pd.read_csv(_tw_path(c),  index_col=0, parse_dates=True) for c in TW_CODES}
+
+    fail_msgs: list[str] = []
+    for idx in sample_idxs:
+        item = ds[idx]
+        target_date = pd.Timestamp(item["target_date"])
+
+        # x_seq_L1 [T, n, F]：對每個 ticker，最後一步應等於 < target_date 的最後一筆 CSV 值
+        x1 = item["x_seq_L1"].numpy()
+        x2 = item["x_seq_L2"].numpy()
+
+        # ADR 端
+        for j, ticker in enumerate(ADR_TICKERS):
+            df = adr_dfs[ticker]
+            past = df.loc[df.index < target_date]
+            if past.empty:
+                continue
+            last_csv_date = past.index[-1]
+            # 嚴格守護：最後一筆 < target_date
+            if last_csv_date >= target_date:
+                fail_msgs.append(
+                    f"[idx={idx}, {ticker}] last_csv_date={last_csv_date.date()} "
+                    f">= target_date={target_date.date()}"
+                )
+                continue
+            # x_seq 最後一步應 == CSV 該日的 9 維特徵（NaN→0）
+            csv_vals = past.loc[last_csv_date, TECH_COLS].values.astype(float)
+            csv_vals = np.nan_to_num(csv_vals, nan=0.0, posinf=0.0, neginf=0.0)
+            seq_last = x1[-1, j, :]
+            diff = np.abs(csv_vals - seq_last).max()
+            if diff > 1e-5:
+                fail_msgs.append(
+                    f"[idx={idx}, ADR {ticker}] x_seq[-1] ≠ CSV last "
+                    f"(diff={diff:.2e}, last_csv_date={last_csv_date.date()})"
+                )
+
+        # TW 端
+        for j, code in enumerate(TW_CODES):
+            df = tw_dfs[code]
+            past = df.loc[df.index < target_date]
+            if past.empty:
+                continue
+            last_csv_date = past.index[-1]
+            if last_csv_date >= target_date:
+                fail_msgs.append(
+                    f"[idx={idx}, {code}] last_csv_date={last_csv_date.date()} "
+                    f">= target_date={target_date.date()}"
+                )
+                continue
+            csv_vals = past.loc[last_csv_date, TECH_COLS].values.astype(float)
+            csv_vals = np.nan_to_num(csv_vals, nan=0.0, posinf=0.0, neginf=0.0)
+            seq_last = x2[-1, j, :]
+            diff = np.abs(csv_vals - seq_last).max()
+            if diff > 1e-5:
+                fail_msgs.append(
+                    f"[idx={idx}, TW {code}] x_seq[-1] ≠ CSV last "
+                    f"(diff={diff:.2e}, last_csv_date={last_csv_date.date()})"
+                )
+
+    assert not fail_msgs, (
+        f"T14 Dataset 序列 Look-ahead 守護失敗！\n"
+        f"  共驗證 {len(sample_idxs)} 張快照，{len(fail_msgs)} 項不一致：\n"
+        + "\n".join(fail_msgs[:10])
+        + (f"\n  ... 另有 {len(fail_msgs)-10} 項" if len(fail_msgs) > 10 else "")
+    )
+
+
+# ════════════════════════════════════════════════════════════
 # 獨立執行模式（不需 pytest）
 # ════════════════════════════════════════════════════════════
 
@@ -904,6 +1007,8 @@ def _diagnose():
          test_a12_strictly_diagonal),
         ("T13 node_feat_date",
          test_node_features_use_correct_date),
+        ("T14 dataset_seq_no_lookahead",
+         test_dataset_sequence_no_lookahead),
     ]
 
     # 表頭
