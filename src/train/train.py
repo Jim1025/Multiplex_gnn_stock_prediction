@@ -21,8 +21,11 @@ Early Stopping：monitor = val IC（越大越好）；patience = config.training
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -47,6 +50,52 @@ from src.train.utils import (
     save_checkpoint,
     set_seed,
 )
+
+
+# ---------------------------------------------------------------------------
+# 工具：友善 run slug + INDEX.csv 維護
+# ---------------------------------------------------------------------------
+
+RUNS_ROOT = Path("runs")
+
+INDEX_COLS = [
+    "slug", "run_id", "tag", "start_time", "end_time", "status",
+    "n_epochs", "best_epoch", "best_val_IC",
+    "test_IC", "test_RankIC", "test_ICIR", "test_MSE",
+]
+
+
+def _make_run_slug(start_time_ms: int, tag: str, runs_root: Path) -> str:
+    """{YYYYMMDD}_{HHMM}_{tag}[_${n}]，避開 runs_root 已存在的目錄名。"""
+    dt = datetime.fromtimestamp(start_time_ms / 1000.0)
+    base = f"{dt.strftime('%Y%m%d_%H%M')}_{tag}"
+    slug = base
+    i = 2
+    runs_root.mkdir(parents=True, exist_ok=True)
+    existing = {p.name for p in runs_root.iterdir() if p.is_dir()}
+    while slug in existing:
+        slug = f"{base}_{i}"
+        i += 1
+    return slug
+
+
+def _iso(ms: int) -> str:
+    if not ms:
+        return ""
+    return datetime.fromtimestamp(ms / 1000.0).isoformat(timespec="seconds")
+
+
+def _append_index_row(row: dict, runs_root: Path = RUNS_ROOT) -> None:
+    """把一列 append 進 runs/INDEX.csv；不存在則先寫 header。"""
+    runs_root.mkdir(parents=True, exist_ok=True)
+    path = runs_root / "INDEX.csv"
+    write_header = not path.exists()
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=INDEX_COLS)
+        if write_header:
+            w.writeheader()
+        # 只寫已知欄位，其餘忽略
+        w.writerow({k: row.get(k, "") for k in INDEX_COLS})
 
 
 # ---------------------------------------------------------------------------
@@ -207,15 +256,26 @@ def train(
     mlflow.set_tracking_uri(mf_cfg.get("tracking_uri", "file:./mlruns"))
     mlflow.set_experiment(mf_cfg.get("experiment_name", "MAGNET_M4_baseline"))
 
-    # checkpoint 路徑
-    ckpt_root = Path("checkpoints")
-    pred_root = Path("predictions")
-    ckpt_root.mkdir(parents=True, exist_ok=True)
-    pred_root.mkdir(parents=True, exist_ok=True)
-
     with mlflow.start_run(run_name=tag) as run:
         run_id = run.info.run_id
+
+        # ── 建立友善 slug + run 資料夾 ───────────────────────────
+        # 集中式佈局：runs/<slug>/{checkpoints,predictions,figures}/
+        slug = _make_run_slug(run.info.start_time, tag, RUNS_ROOT)
+        run_dir = RUNS_ROOT / slug
+        (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (run_dir / "predictions").mkdir(parents=True, exist_ok=True)
+        (run_dir / "figures").mkdir(parents=True, exist_ok=True)
+
+        # MLflow 端設 tag，方便反向查找
+        mlflow.set_tag("magnet.slug", slug)
+
         print(f"[mlflow] run_id={run_id}")
+        print(f"[runs]   slug={slug}  →  {run_dir}/")
+
+        # 凍結訓練當下的 config 快照（M5/M6 對照、論文重現必備）
+        with open(run_dir / "config_snapshot.yaml", "w") as f:
+            yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
 
         # log all hyperparams
         params_flat = _flatten({
@@ -234,10 +294,8 @@ def train(
         best_val_ic   = -float("inf")
         best_epoch    = -1
         patience_cnt  = 0
-        ckpt_dir      = ckpt_root / run_id
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        best_ckpt_path  = ckpt_dir / "best.pt"
-        final_ckpt_path = ckpt_dir / "final.pt"
+        best_ckpt_path  = run_dir / "checkpoints" / "best.pt"
+        final_ckpt_path = run_dir / "checkpoints" / "final.pt"
 
         for epoch in range(max_epochs):
             train_stats = train_one_epoch(
@@ -322,19 +380,62 @@ def train(
             "best_val_IC":   best_val_ic,
         })
 
-        # ── 上傳 artifacts ─────────────────────────────────────────
+        # ── Predictions：本地寫入 runs/<slug>/predictions/，並上傳 MLflow ──
+        test_pred_path = run_dir / "predictions" / "test_predictions.csv"
+        val_pred_path  = run_dir / "predictions" / "val_predictions.csv"
+        test_stats["predictions"].to_csv(test_pred_path, index=False)
+        val_pred_dump = evaluate(model, val_loader, device, criterion=criterion)["predictions"]
+        val_pred_dump.to_csv(val_pred_path, index=False)
+
         if bool(mf_cfg.get("log_artifacts", True)):
-            test_pred_path = pred_root / f"{run_id}_test_predictions.csv"
-            val_pred_path  = pred_root / f"{run_id}_val_predictions.csv"
-            test_stats["predictions"].to_csv(test_pred_path, index=False)
-            val_pred_dump = evaluate(model, val_loader, device, criterion=criterion)["predictions"]
-            val_pred_dump.to_csv(val_pred_path, index=False)
             mlflow.log_artifact(str(test_pred_path), artifact_path="predictions")
             mlflow.log_artifact(str(val_pred_path),  artifact_path="predictions")
             if best_ckpt_path.exists():
                 mlflow.log_artifact(str(best_ckpt_path), artifact_path="checkpoints")
             mlflow.log_artifact(str(final_ckpt_path), artifact_path="checkpoints")
+            mlflow.log_artifact(str(run_dir / "config_snapshot.yaml"))
 
+        # ── 寫 meta.json + 補 INDEX.csv 一列 ─────────────────────
+        end_ms = int(time.time() * 1000)
+        meta = {
+            "slug":       slug,
+            "run_id":     run_id,
+            "tag":        tag,
+            "start_time": _iso(run.info.start_time),
+            "end_time":   _iso(end_ms),
+            "status":     "FINISHED",
+            "n_epochs":   epoch + 1,
+            "best_epoch": best_epoch,
+            "best_val_IC": float(best_val_ic) if best_val_ic > -float("inf") else None,
+            "test_metrics": {
+                "IC":     float(test_stats["IC"]),
+                "RankIC": float(test_stats["RankIC"]),
+                "ICIR":   float(test_stats["ICIR"]) if not np.isnan(test_stats["ICIR"]) else None,
+                "MSE":    float(test_stats["MSE"]),
+                "MAE":    float(test_stats["MAE"]),
+                "RMSE":   float(test_stats["RMSE"]),
+            },
+        }
+        with open(run_dir / "meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
+
+        _append_index_row({
+            "slug":        slug,
+            "run_id":      run_id,
+            "tag":         tag,
+            "start_time":  _iso(run.info.start_time),
+            "end_time":    _iso(end_ms),
+            "status":      "FINISHED",
+            "n_epochs":    epoch + 1,
+            "best_epoch":  best_epoch,
+            "best_val_IC": round(float(best_val_ic), 6) if best_val_ic > -float("inf") else "",
+            "test_IC":     round(float(test_stats["IC"]),     6),
+            "test_RankIC": round(float(test_stats["RankIC"]), 6),
+            "test_ICIR":   round(float(test_stats["ICIR"]),   6) if not np.isnan(test_stats["ICIR"]) else "",
+            "test_MSE":    round(float(test_stats["MSE"]),    8),
+        })
+
+        print(f"\n[runs] meta.json + INDEX.csv 已更新 → {run_dir}/")
         return run_id
 
 
@@ -357,3 +458,4 @@ if __name__ == "__main__":
     args = _parse_args()
     run_id = train(config_path=args.config, epochs=args.epochs, tag=args.tag)
     print(f"\n✅ Done. MLflow run_id = {run_id}")
+    print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

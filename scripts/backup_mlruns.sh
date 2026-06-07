@@ -55,7 +55,7 @@ done
 
 # ── 收集要備份的路徑（只挑存在的）──────────────────────────────────
 INCLUDE=()
-for p in mlruns checkpoints predictions configs/base.yaml; do
+for p in mlruns runs configs/base.yaml; do
     if [[ -e "$p" ]]; then
         INCLUDE+=("$p")
     fi

@@ -20,8 +20,7 @@ __pycache__/
 venv/
 env/
 
-# Training outputs (M4)
+# Training outputs (M4 + runs refactor)
 mlruns/
-checkpoints/
-predictions/
+runs/
 backups/
