@@ -19,3 +19,9 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Training outputs (M4)
+mlruns/
+checkpoints/
+predictions/
+backups/

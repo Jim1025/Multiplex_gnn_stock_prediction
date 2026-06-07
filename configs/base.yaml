@@ -46,7 +46,19 @@ align_loss:
 training:
   seed: 42
   max_epochs: 100
-  patience: 10        # early stopping on val IC
+  patience: 10           # early stopping on val IC
   batch_size: 32
   lr: 0.001
   weight_decay: 0.0001
+  device: auto           # auto | cpu | mps | cuda
+  num_workers: 0         # MPS 上建議 0（multiprocessing 不穩）
+  pin_memory: false
+  grad_clip: 1.0         # 梯度裁剪上限
+  log_every_n_steps: 10  # console print 頻率
+  min_delta: 0.0         # IC 改善判定下限
+  early_stop_metric: IC  # 監控 val 上的 IC（越大越好）
+
+mlflow:
+  experiment_name: MAGNET_M4_baseline
+  tracking_uri: file:./mlruns
+  log_artifacts: true
