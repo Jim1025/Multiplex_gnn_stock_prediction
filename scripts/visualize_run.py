@@ -182,20 +182,20 @@ def plot_loss_curves(client: MlflowClient, run_id: str, out_path: Path, run_tag:
     ax.legend(loc="best", fontsize=9)
     ax.set_yscale("log")
 
-    # ── val losses
+    # ── val losses（與左圖對稱：同樣 4 個 loss 分量）
     ax = axes[1]
     for key, label, color in [
         ("val/loss_total", "total", "#1f77b4"),
         ("val/loss_mse",   "mse",   "#ff7f0e"),
-        ("val/MSE",        "MSE",   "#9467bd"),
-        ("val/MAE",        "MAE",   "#8c564b"),
+        ("val/loss_rank",  "rank",  "#2ca02c"),
+        ("val/loss_align", "align", "#d62728"),
     ]:
         steps, vals = get_metric_history(client, run_id, key)
         if steps:
             ax.plot(steps, vals, label=label, color=color, linewidth=1.8)
-    ax.set_title(f"Val Loss / Regression — run={run_tag}")
+    ax.set_title(f"Val Loss — run={run_tag}")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Value")
+    ax.set_ylabel("Loss")
     ax.legend(loc="best", fontsize=9)
     ax.set_yscale("log")
 
@@ -506,12 +506,13 @@ def plot_rank_bucket_returns(pred_df: pd.DataFrame, out_path: Path, run_tag: str
     spread = top - bottom
     mono   = _spearman(stats["rank"].to_numpy(), stats["mean_y"].to_numpy())
 
-    fig.suptitle(
-        f"Rank Bucket Analysis — run={run_tag}    "
-        f"top-bottom spread = {spread:+.5f}    "
-        f"monotonicity (Spearman rank vs mean_y) = {mono:+.3f}",
-        fontsize=11, y=1.02,
-    )
+    # 主標題 + 副標題（兩行）
+    fig.suptitle(f"Rank Bucket Analysis — run={run_tag}",
+                 fontsize=12, y=1.04)
+    fig.text(0.5, 0.97,
+             f"top-bottom spread = {spread:+.5f}    "
+             f"monotonicity (Spearman rank vs mean_y) = {mono:+.3f}",
+             ha="center", va="bottom", fontsize=11, color="#444444")
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close(fig)
@@ -580,7 +581,7 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
 
     ax.set_title(
         f"Hypothetical Long-Short Cumulative Return — run={run_tag}\n"
-        f"⚠️ n=7 stocks × {len(ddf)} days; diagnostic only — not tradable",
+        f"n=7 stocks × {len(ddf)} days; diagnostic only — not tradable",
         fontsize=11,
     )
     ax.set_xlabel("Date")
@@ -766,11 +767,13 @@ def visualize_single_run(
     run_id: str,
     run: "mlflow.entities.Run",
 ) -> None:
-    run_tag = run.data.tags.get("mlflow.runName", run_id[:8])
+    short_tag = run.data.tags.get("mlflow.runName", run_id[:8])
+    # 圖標題後綴一律使用完整 slug，方便追溯到精確 run
+    run_tag = slug
     out_dir = RUNS_ROOT / slug / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[viz] slug={slug}  tag={run_tag}  → {out_dir}/")
+    print(f"\n[viz] slug={slug}  tag={short_tag}  → {out_dir}/")
 
     # ── 1. loss curves
     plot_loss_curves(client, run_id, out_dir / "01_loss_curves.png", run_tag)
