@@ -56,11 +56,12 @@ def evaluate(
     daily_ys:     list[np.ndarray] = []
     pred_rows:    list[dict] = []
 
-    loss_total_sum = 0.0
-    loss_mse_sum   = 0.0
-    loss_rank_sum  = 0.0
-    loss_align_sum = 0.0
-    n_loss_samples = 0   # 以 batch B 為單位的加權因子
+    loss_total_sum    = 0.0
+    loss_mse_sum      = 0.0
+    loss_rank_sum     = 0.0
+    loss_align_sum    = 0.0
+    loss_variance_sum = 0.0
+    n_loss_samples    = 0   # 以 batch B 為單位的加權因子
 
     # TW ticker 順序作為輸出標籤（預測目標為 TW(t+1) log_return）
     tw_labels = TW_CODES
@@ -78,11 +79,12 @@ def evaluate(
                 h_L2=extras.get("h_L2"),
             )
             B = y.size(0)
-            loss_total_sum += float(loss.item()) * B
-            loss_mse_sum   += comps["mse"]   * B
-            loss_rank_sum  += comps["rank"]  * B
-            loss_align_sum += comps["align"] * B
-            n_loss_samples += B
+            loss_total_sum    += float(loss.item()) * B
+            loss_mse_sum      += comps["mse"]   * B
+            loss_rank_sum     += comps["rank"]  * B
+            loss_align_sum    += comps["align"] * B
+            loss_variance_sum += comps.get("variance", 0.0) * B
+            n_loss_samples    += B
 
         # 攤平成「每日 cross-section」
         yh_np = y_hat.detach().cpu().numpy()  # [B, n]
@@ -119,9 +121,10 @@ def evaluate(
     }
 
     if criterion is not None and n_loss_samples > 0:
-        result["loss_total"] = loss_total_sum / n_loss_samples
-        result["loss_mse"]   = loss_mse_sum   / n_loss_samples
-        result["loss_rank"]  = loss_rank_sum  / n_loss_samples
-        result["loss_align"] = loss_align_sum / n_loss_samples
+        result["loss_total"]    = loss_total_sum    / n_loss_samples
+        result["loss_mse"]      = loss_mse_sum      / n_loss_samples
+        result["loss_rank"]     = loss_rank_sum     / n_loss_samples
+        result["loss_align"]    = loss_align_sum    / n_loss_samples
+        result["loss_variance"] = loss_variance_sum / n_loss_samples
 
     return result

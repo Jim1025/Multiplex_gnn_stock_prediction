@@ -88,9 +88,12 @@ class CombinedLoss(nn.Module):
 
     def __init__(self, loss_cfg: dict, align_cfg: dict) -> None:
         super().__init__()
-        self.lambda_mse   = loss_cfg.get("mse",   1.0)
-        self.lambda_rank  = loss_cfg.get("rank",  0.1)
-        self.lambda_align = loss_cfg.get("align", 0.1)
+        self.lambda_mse      = loss_cfg.get("mse",      1.0)
+        self.lambda_rank     = loss_cfg.get("rank",     0.1)
+        self.lambda_align    = loss_cfg.get("align",    0.1)
+        # M4.5 Phase 2: variance penalty 對抗 prediction collapse
+        # 罰「ŷ 標準差遠小於 y 標準差」的塌縮模式
+        self.lambda_variance = loss_cfg.get("variance", 0.0)
         self.align_enabled = align_cfg.get("enabled", True)
         self.temperature  = align_cfg.get("temperature", 0.1)
         self.mse = nn.MSELoss()
@@ -158,6 +161,37 @@ class CombinedLoss(nn.Module):
         return loss
 
     # ------------------------------------------------------------------
+    # ℒ_variance : 預測標準差對齊真實標準差（M4.5 Phase 2）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _variance_loss(y_hat: Tensor, y: Tensor) -> Tensor:
+        """
+        Variance alignment penalty。
+
+        動機：純 MSE 鼓勵「預測接近平均值」的塌縮解（prediction collapse）。
+        在 M4.5 Phase 1 觀察到 std(ŷ)/std(y) ≈ 0.14，模型實質上輸出近常數。
+
+        定義：對每個 batch 中的每個 sample（一張快照），計算 ŷ 和 y 跨 n 檔
+        股票的 std，懲罰兩者差距。
+
+            ℒ_var = E_b [ (std_n(ŷ_b) - std_n(y_b))² ]
+
+        Shapes:
+            y_hat, y : [n] 或 [B, n]
+
+        Returns:
+            scalar loss（已對 batch 平均）
+        """
+        # 統一升維到 [B, n]
+        if y_hat.dim() == 1:
+            y_hat = y_hat.unsqueeze(0)
+            y     = y.unsqueeze(0)
+        # 對 n 維算 std（即一張快照內 7 檔股票的橫截面 std）
+        std_yh = y_hat.std(dim=-1, unbiased=False)   # [B]
+        std_y  = y.std(dim=-1,     unbiased=False)   # [B]
+        return ((std_yh - std_y) ** 2).mean()
+
+    # ------------------------------------------------------------------
     # forward
     # ------------------------------------------------------------------
     def forward(
@@ -176,18 +210,25 @@ class CombinedLoss(nn.Module):
 
         Returns:
             total_loss : scalar
-            components : dict{"mse", "rank", "align"}  各分量（供 logging）
+            components : dict{"mse", "rank", "align", "variance"}  各分量（供 logging）
         """
         l_mse  = self.mse(y_hat, y)
         l_rank = self._rank_loss(y_hat, y)
+        l_var  = self._variance_loss(y_hat, y)
 
         l_align = torch.tensor(0.0, device=y.device)
         if self.align_enabled and h_L1 is not None and h_L2 is not None:
             l_align = self._align_loss(h_L1, h_L2)
 
         total = (
-            self.lambda_mse   * l_mse
-            + self.lambda_rank  * l_rank
-            + self.lambda_align * l_align
+            self.lambda_mse      * l_mse
+            + self.lambda_rank     * l_rank
+            + self.lambda_align    * l_align
+            + self.lambda_variance * l_var
         )
-        return total, {"mse": l_mse.item(), "rank": l_rank.item(), "align": l_align.item()}
+        return total, {
+            "mse":      l_mse.item(),
+            "rank":     l_rank.item(),
+            "align":    l_align.item(),
+            "variance": l_var.item(),
+        }

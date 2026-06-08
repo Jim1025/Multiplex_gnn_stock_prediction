@@ -36,20 +36,21 @@ model:
 
 loss_weights:
   mse: 1.0
-  rank: 0.1
-  align: 0.1
+  rank: 0.5             # M4.5 Phase 1: 0.1 → 0.5（強迫學排序）
+  align: 0.0            # M4.5 Phase 1: 0.1 → 0.0（關掉反向學的 align loss）
+  variance: 0.1         # M4.5 Phase 2: 新增，對抗 prediction collapse（std(ŷ)→std(y)）
 
 align_loss:
-  enabled: true
+  enabled: false        # M4.5 Phase 1: 同步停用
   temperature: 0.1
 
 training:
   seed: 42
   max_epochs: 100
-  patience: 10           # early stopping on val IC
+  patience: 15           # M4.5 Phase 1: 10 → 15（給更多耐心觀察收斂）
   batch_size: 32
-  lr: 0.001
-  weight_decay: 0.0001
+  lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
+  weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
   device: auto           # auto | cpu | mps | cuda
   num_workers: 0         # MPS 上建議 0（multiprocessing 不穩）
   pin_memory: false

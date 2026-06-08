@@ -129,11 +129,12 @@ def train_one_epoch(
 ) -> dict:
     model.train()
 
-    total_sum = 0.0
-    mse_sum   = 0.0
-    rank_sum  = 0.0
-    align_sum = 0.0
-    n_samples = 0
+    total_sum    = 0.0
+    mse_sum      = 0.0
+    rank_sum     = 0.0
+    align_sum    = 0.0
+    variance_sum = 0.0
+    n_samples    = 0
 
     t0 = time.time()
     for step, batch in enumerate(loader):
@@ -155,25 +156,28 @@ def train_one_epoch(
         optimizer.step()
 
         B = y.size(0)
-        total_sum += float(loss.item()) * B
-        mse_sum   += comps["mse"]   * B
-        rank_sum  += comps["rank"]  * B
-        align_sum += comps["align"] * B
-        n_samples += B
+        total_sum    += float(loss.item()) * B
+        mse_sum      += comps["mse"]   * B
+        rank_sum     += comps["rank"]  * B
+        align_sum    += comps["align"] * B
+        variance_sum += comps.get("variance", 0.0) * B
+        n_samples    += B
 
         if (step + 1) % max(1, log_every) == 0:
             avg = total_sum / max(1, n_samples)
             print(
                 f"  [epoch {epoch:03d} step {step+1:04d}/{len(loader):04d}] "
                 f"loss_total={avg:.5f}  "
-                f"(mse={comps['mse']:.5f} rank={comps['rank']:.5f} align={comps['align']:.5f})"
+                f"(mse={comps['mse']:.5f} rank={comps['rank']:.5f} "
+                f"align={comps['align']:.5f} var={comps.get('variance', 0.0):.5f})"
             )
 
     return {
-        "loss_total": total_sum / max(1, n_samples),
-        "loss_mse":   mse_sum   / max(1, n_samples),
-        "loss_rank":  rank_sum  / max(1, n_samples),
-        "loss_align": align_sum / max(1, n_samples),
+        "loss_total":    total_sum    / max(1, n_samples),
+        "loss_mse":      mse_sum      / max(1, n_samples),
+        "loss_rank":     rank_sum     / max(1, n_samples),
+        "loss_align":    align_sum    / max(1, n_samples),
+        "loss_variance": variance_sum / max(1, n_samples),
         "epoch_time_sec": time.time() - t0,
     }
 
@@ -309,17 +313,19 @@ def train(
 
             # MLflow log
             mlflow.log_metrics({
-                "train/loss_total": train_stats["loss_total"],
-                "train/loss_mse":   train_stats["loss_mse"],
-                "train/loss_rank":  train_stats["loss_rank"],
-                "train/loss_align": train_stats["loss_align"],
+                "train/loss_total":    train_stats["loss_total"],
+                "train/loss_mse":      train_stats["loss_mse"],
+                "train/loss_rank":     train_stats["loss_rank"],
+                "train/loss_align":    train_stats["loss_align"],
+                "train/loss_variance": train_stats["loss_variance"],
                 "train/epoch_time_sec": train_stats["epoch_time_sec"],
-                "val/loss_total":   val_stats.get("loss_total", float("nan")),
-                "val/loss_mse":     val_stats.get("loss_mse",   float("nan")),
-                "val/loss_rank":    val_stats.get("loss_rank",  float("nan")),
-                "val/loss_align":   val_stats.get("loss_align", float("nan")),
-                "val/MSE":          val_stats["MSE"],
-                "val/MAE":          val_stats["MAE"],
+                "val/loss_total":      val_stats.get("loss_total",    float("nan")),
+                "val/loss_mse":        val_stats.get("loss_mse",      float("nan")),
+                "val/loss_rank":       val_stats.get("loss_rank",     float("nan")),
+                "val/loss_align":      val_stats.get("loss_align",    float("nan")),
+                "val/loss_variance":   val_stats.get("loss_variance", float("nan")),
+                "val/MSE":             val_stats["MSE"],
+                "val/MAE":             val_stats["MAE"],
                 "val/IC":           val_stats["IC"],
                 "val/RankIC":       val_stats["RankIC"],
                 "val/ICIR":         val_stats["ICIR"] if not np.isnan(val_stats["ICIR"]) else 0.0,

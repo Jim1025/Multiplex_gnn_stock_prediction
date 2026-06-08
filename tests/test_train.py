@@ -127,6 +127,42 @@ def test_metrics_ic_basic() -> None:
     assert abs(reg["MSE"] - expected_mse) < 1e-9
 
 
+def test_combinedloss_variance_penalty() -> None:
+    """variance penalty 應在 ŷ 為常數時最大、ŷ 振幅=y 時為 0、且可微。"""
+    from src.models.prediction_head import CombinedLoss
+
+    loss_cfg  = {"mse": 1.0, "rank": 0.0, "align": 0.0, "variance": 1.0}
+    align_cfg = {"enabled": False, "temperature": 0.1}
+    crit = CombinedLoss(loss_cfg, align_cfg)
+
+    y = torch.tensor([[-0.02, -0.01, 0.0, 0.01, 0.02, 0.03, -0.03]])    # std ≈ 0.0196
+    std_y = float(y.std(dim=-1, unbiased=False).item())
+
+    # Case A: ŷ 為常數（pred collapse）→ variance penalty 應 ≈ std(y)²
+    y_hat_const = torch.zeros_like(y, requires_grad=True)
+    _, comps_a = crit(y_hat=y_hat_const, y=y)
+    assert abs(comps_a["variance"] - std_y**2) < 1e-6, (
+        f"常數預測時 var loss 應 = std(y)² = {std_y**2:.6f}，得到 {comps_a['variance']:.6f}"
+    )
+
+    # Case B: ŷ == y → variance penalty = 0
+    y_hat_perfect = y.clone().detach().requires_grad_(True)
+    _, comps_b = crit(y_hat=y_hat_perfect, y=y)
+    assert abs(comps_b["variance"]) < 1e-6, (
+        f"完美預測時 var loss 應 = 0，得到 {comps_b['variance']:.6f}"
+    )
+
+    # Case C: 可微分（梯度非 None 且 finite）
+    y_hat_grad = torch.zeros_like(y, requires_grad=True)
+    total, _ = crit(y_hat=y_hat_grad, y=y)
+    total.backward()
+    assert y_hat_grad.grad is not None
+    assert torch.isfinite(y_hat_grad.grad).all()
+    # 常數預測的梯度應為 0（mse 對常數的梯度），由 variance penalty 提供推力
+    # 因為 std(const) 對 const 微分為 0，variance penalty 的梯度也為 0
+    # 所以這裡只檢查不爆 NaN，不要求 grad 非零
+
+
 # ---------------------------------------------------------------------------
 # Test 2: evaluator no NaN
 # ---------------------------------------------------------------------------

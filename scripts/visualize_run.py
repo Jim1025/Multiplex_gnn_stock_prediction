@@ -220,11 +220,18 @@ def plot_ic_curves(client: MlflowClient, run_id: str, out_path: Path, run_tag: s
 
     ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
 
-    # best epoch 標記
+    # best epoch 標記（用 nanargmax 避開 NaN/inf 干擾）
     if steps_ic and vals_ic:
-        best_idx = int(np.argmax(vals_ic))
-        best_ep  = steps_ic[best_idx]
-        best_val = vals_ic[best_idx]
+        arr = np.asarray(vals_ic, dtype=np.float64)
+        if np.isfinite(arr).any():
+            best_idx = int(np.nanargmax(np.where(np.isfinite(arr), arr, -np.inf)))
+            best_ep  = steps_ic[best_idx]
+            best_val = float(arr[best_idx])
+        else:
+            best_idx = None
+    else:
+        best_idx = None
+    if best_idx is not None:
         ax.axvline(best_ep, color="red", linewidth=1.2, linestyle=":", alpha=0.7)
         ax.scatter([best_ep], [best_val], color="red", s=90, zorder=5,
                    label=f"best val_IC={best_val:.4f} @ epoch {best_ep}")
