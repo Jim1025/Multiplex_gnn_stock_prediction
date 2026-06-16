@@ -158,6 +158,44 @@ def per_ticker_ic(pred_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# slug → 顯示用短標籤
+# ---------------------------------------------------------------------------
+
+def short_tag_from_slug(slug_or_tag: str) -> str:
+    """從完整 slug 取出簡短 phase 識別碼，用於圖表 title/legend 顯示。
+
+    範例：
+      '20260607_1634_full'                          → 'full'
+      '20260608_2354_opt_p2_variance_penalty'       → 'opt_p2'
+      '20260608_1200_opt_p1_loss_reweight'          → 'opt_p1'
+      '20260609_0900_opt_p3_lr_sched_icir'          → 'opt_p3'
+      '20260607_1500_sanity'                        → 'sanity'
+
+    規則：
+      1. 去掉 YYYYMMDD_HHMM 前綴
+      2. 若剩下部分是 ['opt', 'pN', ...] 形式 → 保留前兩段 (opt_pN)
+      3. 否則 → 只保留第一段
+
+    註：runs/<slug>/ 目錄結構維持完整 slug，僅圖內顯示用此短標籤。
+    """
+    if not slug_or_tag:
+        return "run"
+    parts = slug_or_tag.split("_")
+    # 去掉日期時間前綴 YYYYMMDD_HHMM
+    if len(parts) >= 3 and len(parts[0]) == 8 and parts[0].isdigit():
+        parts = parts[2:]
+    if not parts:
+        return slug_or_tag
+    # 形如 'opt_pN_…' → 保留 opt_pN
+    if (len(parts) >= 2 and parts[0] == "opt"
+            and len(parts[1]) >= 2 and parts[1][0] == "p"
+            and parts[1][1:].isdigit()):
+        return f"{parts[0]}_{parts[1]}"
+    # 其他 tag → 只保留第一段（如 'full', 'sanity'…）
+    return parts[0]
+
+
+# ---------------------------------------------------------------------------
 # 繪圖：單一 run
 # ---------------------------------------------------------------------------
 
@@ -177,8 +215,8 @@ def plot_loss_curves(client: MlflowClient, run_id: str, out_path: Path, run_tag:
         if steps:
             ax.plot(steps, vals, label=label, color=color, linewidth=1.8)
     ax.set_title(f"Train Loss — run={run_tag}")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
+    ax.set_xlabel("Epoch  (1 epoch = full train pass)")
+    ax.set_ylabel("Loss  (per-sample mean, unitless)")
     ax.legend(loc="best", fontsize=9)
     ax.set_yscale("log")
 
@@ -194,8 +232,8 @@ def plot_loss_curves(client: MlflowClient, run_id: str, out_path: Path, run_tag:
         if steps:
             ax.plot(steps, vals, label=label, color=color, linewidth=1.8)
     ax.set_title(f"Val Loss — run={run_tag}")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
+    ax.set_xlabel("Epoch  (1 epoch = full train pass)")
+    ax.set_ylabel("Loss  (per-sample mean, unitless)")
     ax.legend(loc="best", fontsize=9)
     ax.set_yscale("log")
 
@@ -237,8 +275,8 @@ def plot_ic_curves(client: MlflowClient, run_id: str, out_path: Path, run_tag: s
                    label=f"best val_IC={best_val:.4f} @ epoch {best_ep}")
 
     ax.set_title(f"Validation IC / RankIC — run={run_tag}")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Correlation")
+    ax.set_xlabel("Epoch  (1 epoch = full train pass)")
+    ax.set_ylabel("Correlation  (unitless, [-1, 1])")
     ax.legend(loc="best", fontsize=10)
 
     plt.tight_layout()
@@ -265,8 +303,8 @@ def plot_test_daily_ic(pred_df: pd.DataFrame, out_path: Path, run_tag: str) -> N
         ax.axhline(ic_vals.mean(), color="red", linewidth=1.2,
                    label=f"mean IC = {ic_vals.mean():.4f}")
     ax.set_title(f"Test Daily IC — run={run_tag}")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Cross-section correlation")
+    ax.set_xlabel("Date (test period)")
+    ax.set_ylabel("Daily cross-section IC  (unitless, [-1, 1])")
     ax.tick_params(axis="x", rotation=30)
     ax.legend(loc="best", fontsize=9)
 
@@ -278,8 +316,8 @@ def plot_test_daily_ic(pred_df: pd.DataFrame, out_path: Path, run_tag: str) -> N
                    label=f"mean = {ic_vals.mean():.4f}\nstd = {ic_vals.std(ddof=1):.4f}")
     ax.axvline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
     ax.set_title(f"Distribution of Daily IC (n={ic_vals.size} days)")
-    ax.set_xlabel("Daily IC")
-    ax.set_ylabel("Frequency")
+    ax.set_xlabel("Daily IC  (unitless, [-1, 1])")
+    ax.set_ylabel("Frequency  (count of days)")
     ax.legend(loc="best", fontsize=9)
 
     plt.tight_layout()
@@ -305,8 +343,8 @@ def plot_test_scatter(pred_df: pd.DataFrame, out_path: Path, run_tag: str) -> No
     ax.set_ylim(-lim, lim)
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(f"Pooled — Pearson r={r:.4f}, n={len(y)}")
-    ax.set_xlabel("True log_return (y)")
-    ax.set_ylabel("Predicted (ŷ)")
+    ax.set_xlabel("True log_return  y  (unitless)")
+    ax.set_ylabel("Predicted log_return  ŷ  (unitless)")
     ax.legend(loc="best", fontsize=9)
 
     # ── 預測分佈 vs 真實分佈
@@ -315,8 +353,8 @@ def plot_test_scatter(pred_df: pd.DataFrame, out_path: Path, run_tag: str) -> No
     ax.hist(y,  bins=bins, alpha=0.55, color="#1f77b4", label="y (true)",      edgecolor="black", linewidth=0.3)
     ax.hist(yh, bins=bins, alpha=0.55, color="#ff7f0e", label="ŷ (predicted)", edgecolor="black", linewidth=0.3)
     ax.set_title("Distribution: y vs ŷ")
-    ax.set_xlabel("log_return")
-    ax.set_ylabel("Frequency")
+    ax.set_xlabel("log_return  (unitless)")
+    ax.set_ylabel("Frequency  (count of samples)")
     ax.legend(loc="best", fontsize=9)
 
     fig.suptitle(f"Test — run={run_tag}", fontsize=11, y=1.02)
@@ -337,7 +375,8 @@ def plot_per_ticker_ic(pred_df: pd.DataFrame, out_path: Path, run_tag: str) -> N
     ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
     ax.set_xticks(x)
     ax.set_xticklabels(tdf["ticker"], rotation=0)
-    ax.set_ylabel("Correlation")
+    ax.set_xlabel("TW ticker code")
+    ax.set_ylabel("Correlation  (unitless, [-1, 1])")
     ax.set_title(f"Per-Ticker IC on Test Set — run={run_tag}")
     ax.legend(loc="best", fontsize=10)
 
@@ -392,6 +431,11 @@ def plot_per_ticker_timeseries(pred_df: pd.DataFrame, out_path: Path, run_tag: s
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
+    # 共用 x/y 軸標籤（每張子圖個別補，避免 suptitle 擋到）
+    for ax in axes[:n]:
+        ax.set_xlabel("Date (test period)", fontsize=8)
+        ax.set_ylabel("log_return", fontsize=8)
+
     fig.suptitle(f"Per-Ticker Predictions vs Truth (Test Set) — run={run_tag}",
                  fontsize=12, y=1.00)
     plt.tight_layout()
@@ -435,7 +479,8 @@ def plot_direction_accuracy(pred_df: pd.DataFrame, out_path: Path, run_tag: str)
     ax.set_xticks(x)
     ax.set_xticklabels(df["ticker"], rotation=0)
     ax.set_ylim(0, max(0.7, df["hit_rate"].max() * 1.15 if not df["hit_rate"].isna().all() else 0.7))
-    ax.set_ylabel("Direction hit rate")
+    ax.set_xlabel("TW ticker code")
+    ax.set_ylabel("Direction hit rate  (proportion, [0, 1])")
     ax.set_title(f"Direction Prediction Accuracy — run={run_tag}  "
                  f"(excludes |y|<1e-6 days)")
     ax.legend(loc="best", fontsize=9)
@@ -486,8 +531,8 @@ def plot_rank_bucket_returns(pred_df: pd.DataFrame, out_path: Path, run_tag: str
            label="mean realized y (±95% CI)")
     ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
     ax.set_xticks(x)
-    ax.set_xlabel("Rank by ŷ within day  (1 = highest predicted)")
-    ax.set_ylabel("Mean realized log_return")
+    ax.set_xlabel("Rank by ŷ within day  (1 = highest predicted, 7 = lowest)")
+    ax.set_ylabel("Mean realized log_return  (unitless)")
     ax.set_title("Realized return by predicted rank")
     ax.legend(loc="best", fontsize=9)
     for xi, v in zip(x, stats["mean_y"]):
@@ -502,23 +547,28 @@ def plot_rank_bucket_returns(pred_df: pd.DataFrame, out_path: Path, run_tag: str
             markersize=7, label="mean y (realized)")
     ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
     ax.set_xticks(x)
-    ax.set_xlabel("Rank by ŷ within day")
-    ax.set_ylabel("Mean log_return")
+    ax.set_xlabel("Rank by ŷ within day  (1 = highest predicted, 7 = lowest)")
+    ax.set_ylabel("Mean log_return  (unitless)")
     ax.set_title("Predicted vs Realized by Rank")
     ax.legend(loc="best", fontsize=9)
 
     # ── 計算 top-bottom spread 與 monotonicity（Spearman rank vs rank）
+    # 註：rank=1 代表「ŷ 最高」（finance 慣例），完美模型 rank↑ 時 mean_y↓
+    #     → 原始 Spearman(rank, mean_y) 在完美模型 = -1
+    # 為了讓讀者直觀「正值 = 好」，額外提供 directional_monotonicity = -mono
     top    = stats["mean_y"].iloc[0]
     bottom = stats["mean_y"].iloc[-1]
     spread = top - bottom
     mono   = _spearman(stats["rank"].to_numpy(), stats["mean_y"].to_numpy())
+    dir_mono = -mono   # 衍生指標：+1 = 完美單調預測，-1 = 完全反向
 
     # 主標題 + 副標題（兩行）
     fig.suptitle(f"Rank Bucket Analysis — run={run_tag}",
                  fontsize=12, y=1.04)
     fig.text(0.5, 0.97,
              f"top-bottom spread = {spread:+.5f}    "
-             f"monotonicity (Spearman rank vs mean_y) = {mono:+.3f}",
+             f"directional_monotonicity = {dir_mono:+.3f}  "
+             f"(raw Spearman = {mono:+.3f}; +1 = perfect)",
              ha="center", va="bottom", fontsize=11, color="#444444")
     plt.tight_layout()
     plt.savefig(out_path)
@@ -536,17 +586,24 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
     """
     daily_rows = []
     for date, g in pred_df.groupby("target_date"):
-        ranked = g.sort_values("y_hat", ascending=False)
-        top    = ranked.iloc[0]
-        bottom = ranked.iloc[-1]
+        ranked_pred = g.sort_values("y_hat", ascending=False)
+        top    = ranked_pred.iloc[0]
+        bottom = ranked_pred.iloc[-1]
         passive_mean = g["y"].mean()
         # long top, short bottom（等權 0.5 / -0.5 → 淨曝險 0）
         ls_ret = top["y"] - bottom["y"]
+
+        # ★ Oracle（上帝視角）：當天買入實際漲最多、做空實際跌最多
+        #   這是給定 n=7 cross-section 下「事後最強」的 long-short 上限基準
+        ranked_true = g.sort_values("y", ascending=False)
+        oracle_ret = ranked_true.iloc[0]["y"] - ranked_true.iloc[-1]["y"]
+
         daily_rows.append({
             "target_date": date,
             "long_short":  ls_ret,
             "passive":     passive_mean,
             "long_only_top": top["y"],
+            "oracle_ls":   oracle_ret,
         })
     ddf = pd.DataFrame(daily_rows).sort_values("target_date").reset_index(drop=True)
     ddf["target_date"] = pd.to_datetime(ddf["target_date"])
@@ -555,6 +612,7 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
     ddf["cum_ls"]      = ddf["long_short"].cumsum()
     ddf["cum_passive"] = ddf["passive"].cumsum()
     ddf["cum_long_top"] = ddf["long_only_top"].cumsum()
+    ddf["cum_oracle"]  = ddf["oracle_ls"].cumsum()
 
     # 統計
     def _stats(daily: np.ndarray) -> dict:
@@ -570,10 +628,20 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
 
     s_ls      = _stats(ddf["long_short"].to_numpy())
     s_passive = _stats(ddf["passive"].to_numpy())
+    s_oracle  = _stats(ddf["oracle_ls"].to_numpy())
+
+    # 模型相對 oracle 的「捕獲率」：累積 ls 報酬 / 累積 oracle 報酬
+    capture = (s_ls["total"] / s_oracle["total"]) if abs(s_oracle["total"]) > 1e-9 else float("nan")
 
     fig, ax = plt.subplots(figsize=(12, 5))
+    # Oracle 上界（金色虛線）
+    ax.plot(ddf["target_date"], ddf["cum_oracle"],
+            label=f"ORACLE long-best short-worst  "
+                  f"(Σ={s_oracle['total']:+.3f}, Sharpe={s_oracle['sharpe']:+.2f}) "
+                  f"— upper bound",
+            color="#FFD700", linewidth=2.2, linestyle="--", alpha=0.9)
     ax.plot(ddf["target_date"], ddf["cum_ls"],
-            label=f"long-top short-bottom  "
+            label=f"model long-top short-bottom  "
                   f"(Σ={s_ls['total']:+.3f}, Sharpe={s_ls['sharpe']:+.2f}, "
                   f"MaxDD={s_ls['maxdd']:+.3f})",
             color="#1f77b4", linewidth=2.0)
@@ -582,17 +650,18 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
                   f"(Σ={s_passive['total']:+.3f}, Sharpe={s_passive['sharpe']:+.2f})",
             color="gray", linewidth=1.5, linestyle="--", alpha=0.85)
     ax.plot(ddf["target_date"], ddf["cum_long_top"],
-            label="long-only top-1",
+            label="model long-only top-1",
             color="#2ca02c", linewidth=1.0, linestyle=":", alpha=0.7)
     ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.5)
 
     ax.set_title(
         f"Hypothetical Long-Short Cumulative Return — run={run_tag}\n"
-        f"n=7 stocks × {len(ddf)} days; diagnostic only — not tradable",
+        f"n=7 stocks × {len(ddf)} days; oracle capture rate = "
+        f"{(capture * 100):.1f}%; diagnostic only — not tradable",
         fontsize=11,
     )
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Cumulative log_return")
+    ax.set_xlabel("Date (test period)")
+    ax.set_ylabel("Cumulative log_return  (sum of daily log_return)")
     ax.legend(loc="best", fontsize=9)
     ax.tick_params(axis="x", rotation=25)
 
@@ -606,9 +675,15 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
 # ---------------------------------------------------------------------------
 
 def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
-    """跨 run 對照：test IC / RankIC / ICIR / MSE。優先用 INDEX.csv 取得 slug。"""
+    """跨 run 對照：test IC / RankIC / ICIR / MSE。優先用 INDEX.csv 取得 slug。
+
+    顯示順序：依 INDEX.csv 的 row 順序（即訓練時間先後），由左至右排列。
+    標籤：只顯示 slug 的後綴（如 'full', 'opt_p2'），略去日期前綴。
+    """
     index = load_index()
     by_id = {row["run_id"]: row for row in index}
+    # INDEX 順序（先訓練的在前）作為展示順序
+    index_order = {row["run_id"]: i for i, row in enumerate(index)}
 
     summary = []
     for run in runs:
@@ -616,10 +691,12 @@ def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
         if "test/IC" not in m:
             continue
         row = by_id.get(run.info.run_id, {})
-        label = row.get("slug") or run.data.tags.get("magnet.slug") \
+        slug = row.get("slug") or run.data.tags.get("magnet.slug") \
                 or run.data.tags.get("mlflow.runName", run.info.run_id[:8])
         summary.append({
-            "label":       label,
+            "label":       short_tag_from_slug(slug),
+            "full_slug":   slug,
+            "order":       index_order.get(run.info.run_id, 1e9),  # 不在 INDEX 中的排最後
             "tag":         row.get("tag") or run.data.tags.get("mlflow.runName", ""),
             "test_IC":     m.get("test/IC",     float("nan")),
             "test_RankIC": m.get("test/RankIC", float("nan")),
@@ -632,25 +709,32 @@ def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
         print("[compare] 沒有可比較的 run（缺 test/IC）")
         return
 
-    df = pd.DataFrame(summary)
-    print("\n[compare] 摘要表：")
-    print(df.to_string(index=False))
+    # 依 INDEX 順序（訓練時間先後）由左至右排
+    df = pd.DataFrame(summary).sort_values("order").reset_index(drop=True)
+    print("\n[compare] 摘要表（顯示順序 = 訓練時間先後）：")
+    print(df[["label", "full_slug", "test_IC", "test_RankIC",
+              "test_ICIR", "test_MSE", "best_val_IC"]].to_string(index=False))
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 8))
-    labels = [r["label"] for r in summary]
+    labels = df["label"].tolist()   # 已依 INDEX 順序排好
     x = np.arange(len(labels))
 
-    for ax, key, title, color in [
-        (axes[0, 0], "test_IC",     "Test IC (Pearson)",   "#1f77b4"),
-        (axes[0, 1], "test_RankIC", "Test RankIC (Spearman)", "#2ca02c"),
-        (axes[1, 0], "test_ICIR",   "Test ICIR",           "#ff7f0e"),
-        (axes[1, 1], "test_MSE",    "Test MSE (lower better)", "#d62728"),
+    for ax, key, title, ylabel, color in [
+        (axes[0, 0], "test_IC",     "Test IC (Pearson)",
+         "Information correlation",                "#1f77b4"),
+        (axes[0, 1], "test_RankIC", "Test RankIC (Spearman)",
+         "Rank information correlation",           "#2ca02c"),
+        (axes[1, 0], "test_ICIR",   "Test ICIR",
+         "IC / std(IC)",                        "#ff7f0e"),
+        (axes[1, 1], "test_MSE",    "Test MSE (lower better)",
+         "MSE",                              "#d62728"),
     ]:
         vals = df[key].to_numpy()
         ax.bar(x, vals, color=color, alpha=0.85)
         ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=15, fontsize=9)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_ylabel(ylabel)
         ax.set_title(title)
         for xi, v in zip(x, vals):
             if np.isfinite(v):
@@ -775,12 +859,12 @@ def visualize_single_run(
     run: "mlflow.entities.Run",
 ) -> None:
     short_tag = run.data.tags.get("mlflow.runName", run_id[:8])
-    # 圖標題後綴一律使用完整 slug，方便追溯到精確 run
-    run_tag = slug
+    # runs/<slug>/ 目錄保留完整 slug；圖標題改用短標籤（opt_pN / full / sanity…）
+    run_tag = short_tag_from_slug(slug)
     out_dir = RUNS_ROOT / slug / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[viz] slug={slug}  tag={short_tag}  → {out_dir}/")
+    print(f"\n[viz] slug={slug}  tag={short_tag}  display={run_tag}  → {out_dir}/")
 
     # ── 1. loss curves
     plot_loss_curves(client, run_id, out_dir / "01_loss_curves.png", run_tag)
