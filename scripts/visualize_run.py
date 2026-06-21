@@ -674,15 +674,27 @@ def plot_long_short_equity(pred_df: pd.DataFrame, out_path: Path, run_tag: str) 
 # 繪圖：跨 run 對照
 # ---------------------------------------------------------------------------
 
-def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
+def plot_compare_runs(
+    client: MlflowClient,
+    runs: list,
+    out_path: Path,
+    top_k: int = 8,
+) -> None:
     """跨 run 對照：test IC / RankIC / ICIR / MSE。優先用 INDEX.csv 取得 slug。
 
-    顯示順序：依 INDEX.csv 的 row 順序（即訓練時間先後），由左至右排列。
-    標籤：只顯示 slug 的後綴（如 'full', 'opt_p2'），略去日期前綴。
+    擴展性策略（避免 N 個 run 後圖表崩潰）：
+      - 過濾：當 run 數 > top_k 時，只保留
+        (a) baseline（label='full'）
+        (b) 當前 winner（test_IC 最高那個）
+        (c) test_IC top-K 的 run
+        其餘以 suptitle 註記 `+ N more runs hidden (max IC=X)`。
+      - Winner 高亮：所有 4 個子圖中 winner 的 bar 用金色 + 黑邊。
+
+    Args:
+        top_k: 保留 top-K by test_IC，預設 8。可透過 CLI `--top-k` 覆寫。
     """
     index = load_index()
     by_id = {row["run_id"]: row for row in index}
-    # INDEX 順序（先訓練的在前）作為展示順序
     index_order = {row["run_id"]: i for i, row in enumerate(index)}
 
     summary = []
@@ -696,7 +708,7 @@ def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
         summary.append({
             "label":       short_tag_from_slug(slug),
             "full_slug":   slug,
-            "order":       index_order.get(run.info.run_id, 1e9),  # 不在 INDEX 中的排最後
+            "order":       index_order.get(run.info.run_id, 1e9),
             "tag":         row.get("tag") or run.data.tags.get("mlflow.runName", ""),
             "test_IC":     m.get("test/IC",     float("nan")),
             "test_RankIC": m.get("test/RankIC", float("nan")),
@@ -709,28 +721,59 @@ def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
         print("[compare] 沒有可比較的 run（缺 test/IC）")
         return
 
-    # 依 INDEX 順序（訓練時間先後）由左至右排
-    df = pd.DataFrame(summary).sort_values("order").reset_index(drop=True)
+    full_df = pd.DataFrame(summary)
+
+    # 找 winner（test_IC 最高，NaN 排除）
+    valid = full_df[full_df["test_IC"].notna()]
+    winner_label = full_df.loc[valid["test_IC"].idxmax(), "label"] if not valid.empty else None
+
+    # 過濾：top-K + baseline + winner（≤ top_k 時不過濾）
+    if len(full_df) <= top_k:
+        df = full_df.sort_values("order").reset_index(drop=True)
+        n_hidden = 0
+        hidden_max_ic = float("nan")
+    else:
+        keep_labels: set[str] = set()
+        if "full" in full_df["label"].values:
+            keep_labels.add("full")
+        if winner_label is not None:
+            keep_labels.add(winner_label)
+        keep_labels |= set(valid.nlargest(top_k, "test_IC")["label"])
+
+        df = full_df[full_df["label"].isin(keep_labels)] \
+                   .sort_values("order").reset_index(drop=True)
+        hidden_df = full_df[~full_df["label"].isin(keep_labels)]
+        n_hidden = len(hidden_df)
+        hidden_valid = hidden_df[hidden_df["test_IC"].notna()]
+        hidden_max_ic = float(hidden_valid["test_IC"].max()) if not hidden_valid.empty else float("nan")
+
     print("\n[compare] 摘要表（顯示順序 = 訓練時間先後）：")
     print(df[["label", "full_slug", "test_IC", "test_RankIC",
               "test_ICIR", "test_MSE", "best_val_IC"]].to_string(index=False))
+    if n_hidden:
+        print(f"[compare] 已隱藏 {n_hidden} 個 run（hidden max test_IC = {hidden_max_ic:+.4f}）")
+    if winner_label:
+        print(f"[compare] winner（test_IC 最高）= {winner_label}（金色高亮）")
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 8))
-    labels = df["label"].tolist()   # 已依 INDEX 順序排好
+    labels = df["label"].tolist()
     x = np.arange(len(labels))
+    is_winner = [lbl == winner_label for lbl in labels]
+    winner_color = "#E2C000"   # gold
 
-    for ax, key, title, ylabel, color in [
+    for ax, key, title, ylabel, default_color in [
         (axes[0, 0], "test_IC",     "Test IC (Pearson)",
-         "Information correlation",                "#1f77b4"),
+         "Information correlation",        "#1f77b4"),
         (axes[0, 1], "test_RankIC", "Test RankIC (Spearman)",
-         "Rank information correlation",           "#2ca02c"),
+         "Rank information correlation",   "#2ca02c"),
         (axes[1, 0], "test_ICIR",   "Test ICIR",
-         "IC / std(IC)",                        "#ff7f0e"),
+         "IC / std(IC)",                   "#ff7f0e"),
         (axes[1, 1], "test_MSE",    "Test MSE (lower better)",
-         "MSE",                              "#d62728"),
+         "MSE",                            "#d62728"),
     ]:
         vals = df[key].to_numpy()
-        ax.bar(x, vals, color=color, alpha=0.85)
+        bar_colors = [winner_color if w else default_color for w in is_winner]
+        ax.bar(x, vals, color=bar_colors, alpha=0.9,)
         ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--", alpha=0.6)
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=9)
@@ -741,7 +784,18 @@ def plot_compare_runs(client: MlflowClient, runs: list, out_path: Path) -> None:
                 ax.text(xi, v, f"{v:+.4f}", ha="center",
                         va="bottom" if v >= 0 else "top", fontsize=8)
 
-    fig.suptitle("MAGNET — Cross-Run Comparison (Test Set)", fontsize=12, y=1.00)
+    # 主標題 + 副標題（隱藏數量 + winner）
+    fig.suptitle("MAGNET — Cross-Run Comparison (Test Set)",
+                 fontsize=12, y=1.02)
+    subtitle_parts = []
+    if winner_label:
+        subtitle_parts.append(f"winner = {winner_label} (gold)")
+    if n_hidden:
+        subtitle_parts.append(f"+ {n_hidden} runs hidden (max test_IC = {hidden_max_ic:+.4f})")
+    if subtitle_parts:
+        fig.text(0.5, 0.985, "  •  ".join(subtitle_parts),
+                 ha="center", va="bottom", fontsize=10, color="#444444")
+
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close(fig)
@@ -915,6 +969,9 @@ def main() -> int:
                         help="MLflow experiment 名稱")
     parser.add_argument("--tracking-uri", type=str, default="file:./mlruns",
                         help="MLflow tracking URI（預設 file:./mlruns）")
+    parser.add_argument("--top-k", type=int, default=8,
+                        help="跨 run 對照圖最多顯示幾個 run（按 test_IC 排序；"
+                             "baseline 'full' 與 winner 永遠保留）")
     args = parser.parse_args()
 
     client = _client(args.tracking_uri)
@@ -962,7 +1019,8 @@ def main() -> int:
     if args.all or args.compare or len(targets) > 1:
         cmp_dir = RUNS_ROOT / "comparison"
         cmp_dir.mkdir(parents=True, exist_ok=True)
-        plot_compare_runs(client, runs, cmp_dir / "99_compare_runs.png")
+        plot_compare_runs(client, runs, cmp_dir / "99_compare_runs.png",
+                          top_k=args.top_k)
         print(f"\n[viz] cross-run comparison → {cmp_dir}/99_compare_runs.png")
 
     print(f"\n✅ 完成。圖片寫入 runs/<slug>/figures/ 與 runs/comparison/")
