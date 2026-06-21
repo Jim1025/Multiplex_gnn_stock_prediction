@@ -190,14 +190,25 @@ def train(
     config_path: str = "configs/base.yaml",
     epochs:      Optional[int] = None,
     tag:         str = "full",
+    mse_weight:        Optional[float] = None,
+    rank_weight:       Optional[float] = None,
+    variance_weight:   Optional[float] = None,
+    lr_override:       Optional[float] = None,
+    early_stop_metric: Optional[str]   = None,
+    use_scheduler:     bool            = True,
 ) -> str:
     """
     主訓練流程。
 
     Args:
-        config_path: configs/base.yaml
-        epochs:      若提供，覆寫 config.training.max_epochs（sanity 用）
-        tag:         MLflow run name（"sanity" | "full" | ...）
+        config_path:       configs/base.yaml
+        epochs:            若提供，覆寫 config.training.max_epochs（sanity 用）
+        tag:               MLflow run name（"sanity" | "full" | "opt_pN_..." | ...）
+        mse_weight:        若提供，覆寫 cfg.loss_weights.mse
+        rank_weight:       若提供，覆寫 cfg.loss_weights.rank
+        variance_weight:   若提供，覆寫 cfg.loss_weights.variance
+        lr_override:       若提供，覆寫 cfg.training.lr
+        early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
 
     Returns:
         mlflow_run_id (str)
@@ -205,6 +216,26 @@ def train(
     # ── 讀 config ──────────────────────────────────────────────────
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
+
+    # ── CLI 覆寫（None 表示不動；mutate cfg 讓下游 build_criterion / lr / 快照都生效）
+    _overrides: list[str] = []
+    if mse_weight is not None:
+        cfg["loss_weights"]["mse"] = float(mse_weight)
+        _overrides.append(f"mse={mse_weight}")
+    if rank_weight is not None:
+        cfg["loss_weights"]["rank"] = float(rank_weight)
+        _overrides.append(f"rank={rank_weight}")
+    if variance_weight is not None:
+        cfg["loss_weights"]["variance"] = float(variance_weight)
+        _overrides.append(f"variance={variance_weight}")
+    if lr_override is not None:
+        cfg["training"]["lr"] = float(lr_override)
+        _overrides.append(f"lr={lr_override}")
+    if early_stop_metric is not None:
+        cfg["training"]["early_stop_metric"] = early_stop_metric
+        _overrides.append(f"early_stop_metric={early_stop_metric}")
+    if _overrides:
+        print(f"[cli-override] {', '.join(_overrides)}")
 
     t_cfg  = cfg["training"]
     mf_cfg = cfg["mlflow"]
@@ -256,6 +287,27 @@ def train(
     criterion = build_criterion(cfg).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_dec)
 
+    # M5 Step 4: CosineAnnealingWarmRestarts（可用 --no-scheduler 關閉做 ablation）
+    # T_0=10 → 第一個 cycle 10 個 epoch；T_mult=2 → 之後每 cycle 長度加倍
+    # 動機：opt_p2/p7-p10 觀察到 LR=1e-3 持續訓練，模型在 epoch 2-8 衝高 val IC 後就崩
+    #       cosine warm restart 讓 LR 在 cycle 末期降低 → 收斂更穩
+    if use_scheduler:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=10, T_mult=2,
+        )
+        print(f"[scheduler] CosineAnnealingWarmRestarts(T_0=10, T_mult=2)")
+    else:
+        scheduler = None
+        print(f"[scheduler] disabled (--no-scheduler)")
+
+    # M5 Step 4: 從 cfg 讀 early stop monitor（CLI 已可透過 --early-stop-metric 覆寫）
+    # IC 為預設；ICIR 用於避免「單天 lucky IC 但訊號不穩」的假性峰值
+    es_metric = str(t_cfg.get("early_stop_metric", "IC")).upper()
+    if es_metric not in ("IC", "ICIR"):
+        print(f"[warn] unknown early_stop_metric={es_metric}, fallback to IC")
+        es_metric = "IC"
+    print(f"[early-stop] monitor = val/{es_metric}  (NaN 時 fallback val/IC)")
+
     # ── MLflow setup ──────────────────────────────────────────────
     mlflow.set_tracking_uri(mf_cfg.get("tracking_uri", "file:./mlruns"))
     mlflow.set_experiment(mf_cfg.get("experiment_name", "MAGNET_M4_baseline"))
@@ -295,7 +347,8 @@ def train(
         mlflow.log_params({k: str(v) for k, v in params_flat.items()})
 
         # ── 訓練迴圈 ───────────────────────────────────────────────
-        best_val_ic   = -float("inf")
+        best_monitor  = -float("inf")   # monitor 值（依 es_metric 為 IC 或 ICIR）
+        best_val_ic   = -float("inf")   # 對應 epoch 的 IC（保留供 INDEX/log 寫入）
         best_epoch    = -1
         patience_cnt  = 0
         best_ckpt_path  = run_dir / "checkpoints" / "best.pt"
@@ -309,7 +362,8 @@ def train(
             )
 
             val_stats = evaluate(model, val_loader, device, criterion=criterion)
-            val_ic = val_stats["IC"]
+            val_ic   = val_stats["IC"]
+            val_icir = val_stats["ICIR"]
 
             # MLflow log
             mlflow.log_metrics({
@@ -341,22 +395,35 @@ def train(
                 f"({train_stats['epoch_time_sec']:.1f}s)"
             )
 
-            # Early stopping on val IC（越大越好）
-            improved = (not np.isnan(val_ic)) and (val_ic > best_val_ic + min_delta)
+            # Early stopping on configurable metric（越大越好）
+            # 選 monitor 值：ICIR NaN 時退回 IC
+            if es_metric == "ICIR" and not np.isnan(val_icir):
+                monitor_val = val_icir
+            else:
+                monitor_val = val_ic
+
+            improved = (not np.isnan(monitor_val)) and (monitor_val > best_monitor + min_delta)
             if improved:
-                best_val_ic = val_ic
-                best_epoch  = epoch
+                best_monitor = monitor_val
+                best_val_ic  = val_ic           # 紀錄該 epoch 的 IC（INDEX 用）
+                best_epoch   = epoch
                 patience_cnt = 0
                 save_checkpoint(best_ckpt_path, model, optimizer,
                                 epoch=epoch, best_val_ic=best_val_ic,
                                 extras={"val_stats": {k: v for k, v in val_stats.items()
                                                         if k not in ("predictions", "daily_IC", "daily_RankIC")}})
-                print(f"    ↑ new best val_IC={best_val_ic:.4f} (epoch {epoch}) → saved")
+                print(f"    ↑ new best val_{es_metric}={best_monitor:.4f} "
+                      f"(val_IC={best_val_ic:.4f}, epoch {epoch}) → saved")
             else:
                 patience_cnt += 1
                 if patience_cnt >= patience:
-                    print(f"[early stopping] patience {patience} reached at epoch {epoch}")
+                    print(f"[early stopping] val_{es_metric} no improvement for "
+                          f"{patience} epochs, stopping at epoch {epoch}")
                     break
+
+            # M5 Step 4: 推進 LR scheduler（cosine warm restart）
+            if scheduler is not None:
+                scheduler.step()
 
         # 存 final
         save_checkpoint(final_ckpt_path, model, optimizer,
@@ -452,18 +519,41 @@ def train(
 # ---------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="MAGNET M4 訓練主程式")
+    p = argparse.ArgumentParser(description="MAGNET 訓練主程式")
     p.add_argument("--config", type=str, default="configs/base.yaml",
                    help="YAML 路徑（預設 configs/base.yaml）")
     p.add_argument("--epochs", type=int, default=None,
-                   help="覆寫 config.training.max_epochs（sanity 用 3）")
+                   help="覆寫 cfg.training.max_epochs（sanity 用 3）")
     p.add_argument("--tag", type=str, default="full",
-                   help="MLflow run name（建議 sanity / full / ablation_xxx）")
+                   help="MLflow run name / runs/ slug 後綴（建議 opt_pN_<desc>）")
+    # M5 sprint：超參覆寫（None = 沿用 yaml 設定）
+    p.add_argument("--mse-weight",      type=float, default=None,
+                   help="覆寫 cfg.loss_weights.mse")
+    p.add_argument("--rank-weight",     type=float, default=None,
+                   help="覆寫 cfg.loss_weights.rank")
+    p.add_argument("--variance-weight", type=float, default=None,
+                   help="覆寫 cfg.loss_weights.variance")
+    p.add_argument("--lr",              type=float, default=None,
+                   help="覆寫 cfg.training.lr")
+    p.add_argument("--early-stop-metric", choices=["IC", "ICIR"], default=None,
+                   help="覆寫 cfg.training.early_stop_metric（IC 預設）")
+    p.add_argument("--no-scheduler", action="store_true",
+                   help="關閉 CosineAnnealingWarmRestarts（用於 Step 4 ablation）")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    run_id = train(config_path=args.config, epochs=args.epochs, tag=args.tag)
+    run_id = train(
+        config_path=args.config,
+        epochs=args.epochs,
+        tag=args.tag,
+        mse_weight=args.mse_weight,
+        rank_weight=args.rank_weight,
+        variance_weight=args.variance_weight,
+        lr_override=args.lr,
+        early_stop_metric=args.early_stop_metric,
+        use_scheduler=not args.no_scheduler,
+    )
     print(f"\n✅ Done. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

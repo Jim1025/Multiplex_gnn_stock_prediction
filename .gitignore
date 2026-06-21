@@ -24,3 +24,4 @@ env/
 mlruns/
 runs/
 backups/
+.sprint_logs/
