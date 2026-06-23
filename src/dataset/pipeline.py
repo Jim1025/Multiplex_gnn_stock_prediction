@@ -126,12 +126,12 @@ class PipelineReport:
     logret_std:       float = 0.0
 
     def print_summary(self):
-        ok = "✅" if self.logret_stationary else "⚠️"
+        ok = "OK" if self.logret_stationary else "WARN"
         sf_c  = self.n_safe_ffill.get("Close", 0)
         ft_c  = self.n_soft_ffill.get("Close", 0)
         remain_c = self.n_remain.get("Close", 0)
         # 政策 §4 Level 0：補值率過高警示
-        warn = "❗" if self.imputation_rate > 0.05 else ""
+        warn = "!" if self.imputation_rate > 0.05 else ""
         print(
             f"  {ok} [{self.ticker}]  rows={self.total_rows}  "
             f"cal={self.market_calendar}  "
@@ -411,7 +411,7 @@ class DataPipeline:
                 rows.append(report.to_dict())
                 report.print_summary()
             except Exception as e:
-                print(f"  ✗ {ticker}：{e}")
+                print(f"  [FAIL] {ticker}：{e}")
                 rows.append({"ticker": ticker, "error": str(e)})
 
         summary  = pd.DataFrame(rows)

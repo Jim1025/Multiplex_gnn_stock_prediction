@@ -555,5 +555,5 @@ if __name__ == "__main__":
         early_stop_metric=args.early_stop_metric,
         use_scheduler=not args.no_scheduler,
     )
-    print(f"\n✅ Done. MLflow run_id = {run_id}")
+    print(f"\nDone. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

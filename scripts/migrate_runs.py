@@ -183,7 +183,7 @@ def migrate_one_run(run, taken_slugs: set[str]) -> Optional[dict]:
     with open(run_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"  ✓ Migrated {slug}  (run_id={run_id[:8]}..., {n_moved} files moved)")
+    print(f"  Migrated {slug}  (run_id={run_id[:8]}..., {n_moved} files moved)")
     return _row_from_run(run, slug)
 
 
@@ -237,7 +237,7 @@ def main() -> int:
 
     exp = client.get_experiment_by_name(EXPERIMENT)
     if exp is None:
-        print(f"❌ 找不到 experiment '{EXPERIMENT}'", file=sys.stderr)
+        print(f"[FAIL] 找不到 experiment '{EXPERIMENT}'", file=sys.stderr)
         return 1
 
     runs = client.search_runs(
@@ -247,14 +247,14 @@ def main() -> int:
     )
 
     print("─" * 60)
-    print(f"📦 MAGNET 訓練紀錄遷移（hash → slug）")
+    print(f"MAGNET 訓練紀錄遷移（hash → slug）")
     print(f"  experiment : {EXPERIMENT}")
     print(f"  runs       : {len(runs)}")
     print(f"  runs root  : {RUNS_ROOT}")
     print("─" * 60)
 
     if not runs:
-        print("⚠️  沒有任何 run 可遷移")
+        print("[WARN] 沒有任何 run 可遷移")
         return 0
 
     # 預掃描已存在的 slug 防衝突
@@ -272,11 +272,11 @@ def main() -> int:
 
     write_index(rows)
     print("─" * 60)
-    print(f"✓ INDEX.csv built with {len(rows)} rows → {RUNS_ROOT / 'INDEX.csv'}")
+    print(f"INDEX.csv built with {len(rows)} rows → {RUNS_ROOT / 'INDEX.csv'}")
     print("─" * 60)
 
     # 摘要表
-    print("\n📋 摘要")
+    print("\n摘要")
     fmt = "{:<28} {:<8} {:<10} {:>10} {:>10}"
     print(fmt.format("slug", "tag", "status", "best_val_IC", "test_IC"))
     for r in rows:

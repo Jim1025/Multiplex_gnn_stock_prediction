@@ -109,7 +109,7 @@ class FeatureReport:
     warnings:         List[str] = field(default_factory=list)
 
     def print_summary(self):
-        flag = "✅" if not self.warnings else "⚠️"
+        flag = "OK" if not self.warnings else "WARN"
         print(
             f"  {flag} [{self.ticker}]  rows={self.total_rows}  "
             f"features={self.feature_count}/9  "
@@ -119,7 +119,7 @@ class FeatureReport:
             f"long_gap_rows={self.long_gap_rows}"
         )
         for w in self.warnings:
-            print(f"      ⚠ {w}")
+            print(f"      [WARN] {w}")
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -244,7 +244,7 @@ class FeatureBuilder:
                 reports.append(report)
                 report.print_summary()
             except Exception as e:
-                print(f"  ✗ [{ticker}]：{type(e).__name__}: {e}")
+                print(f"  [FAIL] [{ticker}]：{type(e).__name__}: {e}")
 
         # 寫批次報告
         if reports:
@@ -444,7 +444,7 @@ def main():
     warned = [r for r in all_reports if r.warnings]
     if warned:
         print("\n" + "=" * 70)
-        print(f"⚠️ 共 {len(warned)} 個標的有警告")
+        print(f"[WARN] 共 {len(warned)} 個標的有警告")
         print("=" * 70)
         for r in warned:
             print(f"  [{r.ticker}]")

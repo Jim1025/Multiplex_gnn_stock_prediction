@@ -370,12 +370,12 @@ def test_no_consecutive_identical_log_returns(adr_ticker, tw_code):
     T7：偵測「非零」連續 3 日相同的 log_return（污染指標）
 
     重要的金融意義區分：
-      ✅ 連續多日 log_return = 0（合法）：
+      連續多日 log_return = 0（合法）：
          代表「平盤收盤」，即連續多日 Close 完全相同。
          在低波動股票（電信、傳產）與小型股常見，是真實市場行為。
          診斷顯示 2412/2317 等標的此現象 100% 為平盤收盤。
 
-      ❌ 連續多日 log_return = 非零相同值（ffill 污染）：
+      [FAIL] 連續多日 log_return = 非零相同值（ffill 污染）：
          若 pipeline 對 log_return 直接 ffill 而非由 Close 重算，
          會產生「同一個非零數字延續多日」，違反政策原則 1。
          此情況在自然市場中機率近乎為零。
@@ -969,7 +969,7 @@ def _diagnose():
     pairs = get_available_pairs()
 
     if not pairs:
-        print(f"❌ 找不到任何配對檔案於 {ADR_DIR} / {TW_DIR}")
+        print(f"[FAIL] 找不到任何配對檔案於 {ADR_DIR} / {TW_DIR}")
         return 1
 
     print(f"\n[test_no_lookahead 診斷] 共 {len(pairs)} 組配對，13 項測試\n")
@@ -1025,7 +1025,7 @@ def _diagnose():
         row = f"{test_name:<28}"
         for (a, t), lbl in zip(pairs, pair_labels):
             status, msg = _run_one_test(func, a, t)
-            symbol = {"PASS": "✓", "FAIL": "✗", "SKIP": "—", "ERROR": "!"}[status]
+            symbol = {"PASS": "OK", "FAIL": "FAIL", "SKIP": "—", "ERROR": "!"}[status]
             row += f"{symbol:<{col_w}}"
             summary[lbl][status.lower()] += 1
             if status in ("FAIL", "ERROR"):
@@ -1065,7 +1065,7 @@ def _diagnose():
             status, msg = "ERROR", f"{type(e).__name__}: {e}"
             global_fail += 1
 
-        symbol = {"PASS": "✓", "FAIL": "✗", "SKIP": "—", "ERROR": "!"}[status]
+        symbol = {"PASS": "OK", "FAIL": "FAIL", "SKIP": "—", "ERROR": "!"}[status]
         print(f"{test_name:<28}{symbol}")
         if status in ("FAIL", "ERROR"):
             fail_details.append((test_name, "global", status, msg))
@@ -1082,10 +1082,10 @@ def _diagnose():
     total_fail = sum(summary[lbl]["fail"] + summary[lbl]["error"]
                      for lbl in pair_labels) + global_fail
     if total_fail == 0:
-        print(f"\n✅ 全部通過")
+        print(f"\n全部通過")
         return 0
     else:
-        print(f"\n❌ 共 {total_fail} 項失敗")
+        print(f"\n[FAIL] 共 {total_fail} 項失敗")
         return 1
 
 

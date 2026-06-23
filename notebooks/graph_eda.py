@@ -187,7 +187,7 @@ def plot_edge_density_timeseries(df: pd.DataFrame, fig_dir: str):
     plt.tight_layout()
     plt.savefig(Path(fig_dir) / "01_edge_density_timeseries.png")
     plt.close()
-    print("  ✅ 01_edge_density_timeseries.png")
+    print("  01_edge_density_timeseries.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -233,7 +233,7 @@ def plot_correlation_heatmaps(corr_mats: dict, fig_dir: str):
                  fontsize=14, fontweight="bold", y=1.02)
     plt.savefig(Path(fig_dir) / "02_correlation_heatmap.png")
     plt.close()
-    print("  ✅ 02_correlation_heatmap.png")
+    print("  02_correlation_heatmap.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -275,7 +275,7 @@ def plot_edge_count_distribution(df: pd.DataFrame, fig_dir: str):
     plt.tight_layout()
     plt.savefig(Path(fig_dir) / "03_edge_count_distribution.png")
     plt.close()
-    print("  ✅ 03_edge_count_distribution.png")
+    print("  03_edge_count_distribution.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -306,7 +306,7 @@ def plot_threshold_sensitivity(fig_dir: str):
             layer_data[layer] = pd.DataFrame(series).dropna()
 
     if not layer_data:
-        print("  ⚠ 無法載入 features CSV，跳過閾值敏感性分析")
+        print("  [WARN] 無法載入 features CSV，跳過閾值敏感性分析")
         return
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -356,7 +356,7 @@ def plot_threshold_sensitivity(fig_dir: str):
     plt.tight_layout()
     plt.savefig(Path(fig_dir) / "04_threshold_sensitivity.png")
     plt.close()
-    print("  ✅ 04_threshold_sensitivity.png")
+    print("  04_threshold_sensitivity.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -373,7 +373,7 @@ def plot_node_degree_distribution(fig_dir: str):
     snap_dir = Path(SNAPSHOT_DIR)
     files = sorted(snap_dir.glob("graph_*.pt"))
     if not files:
-        print("  ⚠ 找不到快照，跳過節點度數分析")
+        print("  [WARN] 找不到快照，跳過節點度數分析")
         return
 
     # 抽樣 100 張快照
@@ -426,7 +426,7 @@ def plot_node_degree_distribution(fig_dir: str):
     plt.tight_layout()
     plt.savefig(Path(fig_dir) / "05_node_degree_distribution.png")
     plt.close()
-    print("  ✅ 05_node_degree_distribution.png")
+    print("  05_node_degree_distribution.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -465,7 +465,7 @@ def plot_l1_vs_l2_scatter(df: pd.DataFrame, fig_dir: str):
     plt.tight_layout()
     plt.savefig(Path(fig_dir) / "06_l1_vs_l2_scatter.png")
     plt.close()
-    print("  ✅ 06_l1_vs_l2_scatter.png")
+    print("  06_l1_vs_l2_scatter.png")
 
 
 # ════════════════════════════════════════════════════════════
@@ -539,7 +539,7 @@ def main():
 
     # 載入 metadata
     if not Path(METADATA_PATH).exists():
-        print(f"❌ 找不到 {METADATA_PATH}")
+        print(f"[FAIL] 找不到 {METADATA_PATH}")
         print(f"   請先執行 graph_builder.py 產出圖快照")
         return 1
 
@@ -560,7 +560,7 @@ def main():
     if corr_mats:
         plot_correlation_heatmaps(corr_mats, FIG_DIR)
     else:
-        print("  ⚠ 無法載入 features CSV，跳過相關係數熱圖")
+        print("  [WARN] 無法載入 features CSV，跳過相關係數熱圖")
 
     # ── 圖表 3：邊數分布 ────────────────────────────────────
     plot_edge_count_distribution(df, FIG_DIR)
@@ -578,7 +578,7 @@ def main():
     generate_summary_table(df, FIG_DIR)
 
     print("\n" + "=" * 60)
-    print("✅ EDA 完成")
+    print("EDA 完成")
     print(f"   共 6 張圖表 + 1 份摘要表 → {FIG_DIR}/")
     print("=" * 60)
     return 0

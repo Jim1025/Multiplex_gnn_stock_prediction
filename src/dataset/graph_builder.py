@@ -386,7 +386,7 @@ class MultiplexGraphBuilder:
             report_path, index=False, encoding="utf-8-sig"
         )
 
-        print(f"\n  ✅ 產出快照：{n_success} 張")
+        print(f"\n  產出快照：{n_success} 張")
         print(f"  — 跳過：{n_skip} 張（暖機期等原因）")
         print(f"  報告 → {report_path}")
 

@@ -327,5 +327,5 @@ else:
     print(f"  SKIP: 找不到 target={target_d.date()} 的快照")
 
 print("\n" + "=" * 70)
-print("✅ 所有 5 項關鍵驗證通過")
+print("所有 5 項關鍵驗證通過")
 print("=" * 70)

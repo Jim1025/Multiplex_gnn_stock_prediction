@@ -30,14 +30,14 @@ cd "$PROJECT_ROOT"
 
 # ── 預檢 ───────────────────────────────────────────────────────────
 if [[ ! -d "mlruns" ]]; then
-    echo "❌ 找不到 mlruns/，請在 project root 跑此腳本" >&2
+    echo "[FAIL] 找不到 mlruns/，請在 project root 跑此腳本" >&2
     exit 1
 fi
 
 # 統計待備份內容
 N_RUNS=$(find mlruns -mindepth 2 -maxdepth 2 -type d ! -name ".trash" | wc -l | tr -d ' ')
 if [[ "$N_RUNS" == "0" ]]; then
-    echo "⚠️  mlruns/ 內沒有任何 run，仍會備份空目錄。"
+    echo "[WARN] mlruns/ 內沒有任何 run，仍會備份空目錄。"
 fi
 
 # ── 決定輸出檔名 ───────────────────────────────────────────────────
@@ -62,7 +62,7 @@ for p in mlruns runs configs/base.yaml; do
 done
 
 echo "─────────────────────────────────────────────"
-echo "📦 MAGNET MLflow 備份"
+echo "MAGNET MLflow 備份"
 echo "─────────────────────────────────────────────"
 echo "Project root : $PROJECT_ROOT"
 echo "Backup dir   : $BACKUP_DIR"
@@ -88,10 +88,10 @@ else
 fi
 
 echo ""
-echo "✅ 備份完成"
+echo "備份完成"
 echo "  檔案 : $OUT_FILE"
 echo "  大小 : $SIZE"
 echo "  sha256: $SHA"
 echo ""
-echo "💡 還原指令："
+echo "還原指令："
 echo "    tar -xzf \"$OUT_FILE\" -C /path/to/restore/dir"

@@ -311,10 +311,10 @@ def print_terminal_summary(results: List[PairAuditResult]) -> None:
     print(header)
     print("-" * 95)
 
-    icon = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌", "SKIP": "—"}
+    icon = {"PASS": "OK", "WARN": "WARN", "FAIL": "FAIL", "SKIP": "—"}
     for r in results:
-        la = "✓" if r.lookahead_check_pass else (
-             "—" if r.status == "SKIP" else "✗")
+        la = "OK" if r.lookahead_check_pass else (
+             "—" if r.status == "SKIP" else "FAIL")
         print(
             f"{icon.get(r.status, '?'):<5}"
             f"{r.adr_ticker:<8}{r.tw_code:<7}"
@@ -378,8 +378,8 @@ def write_markdown_report(results: List[PairAuditResult], path: Path) -> None:
     )
     lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | :---: |")
     for r in results:
-        icon = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌", "SKIP": "—"}.get(r.status, "?")
-        la = "✓" if r.lookahead_check_pass else ("—" if r.status == "SKIP" else "✗")
+        icon = {"PASS": "OK", "WARN": "WARN", "FAIL": "FAIL", "SKIP": "—"}.get(r.status, "?")
+        la = "OK" if r.lookahead_check_pass else ("—" if r.status == "SKIP" else "FAIL")
         lines.append(
             f"| {icon} | {r.adr_ticker} | {r.tw_code} | "
             f"{r.adr_days} | {r.tw_days} | {r.common_days} | "
@@ -436,13 +436,13 @@ def write_markdown_report(results: List[PairAuditResult], path: Path) -> None:
     # 後續建議
     lines.append("## 三、後續行動建議\n")
     if n_fail > 0:
-        lines.append(f"- ❌ 有 {n_fail} 組配對 FAIL，**進入 features.py 前必須修正**。")
+        lines.append(f"- [FAIL] 有 {n_fail} 組配對 FAIL，**進入 features.py 前必須修正**。")
     if n_warn > 0:
-        lines.append(f"- ⚠️ 有 {n_warn} 組配對樣本偏少，建議檢視是否從 PAIR_MAP 暫時移除。")
+        lines.append(f"- [WARN] 有 {n_warn} 組配對樣本偏少，建議檢視是否從 PAIR_MAP 暫時移除。")
     if n_skip > 0:
         lines.append(f"- — 有 {n_skip} 組配對檔案缺漏，請補齊資料下載。")
     if n_fail == 0 and n_warn == 0 and n_skip == 0:
-        lines.append("- ✅ 全部通過，可進入 features.py 開發。")
+        lines.append("- 全部通過，可進入 features.py 開發。")
 
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -486,7 +486,7 @@ def main():
     # 回傳非零 exit code 若有 FAIL
     n_fail = sum(1 for r in results if r.status == "FAIL")
     if n_fail > 0:
-        print(f"\n❌ 有 {n_fail} 組配對審計失敗。")
+        print(f"\n[FAIL] 有 {n_fail} 組配對審計失敗。")
         return 1
     return 0
 

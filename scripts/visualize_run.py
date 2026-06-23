@@ -875,7 +875,7 @@ def _resolve_row(row: dict, runs_by_id: dict) -> Optional[tuple[str, str, "mlflo
     rid = row["run_id"]
     run = runs_by_id.get(rid)
     if run is None:
-        print(f"⚠️  INDEX.csv 中的 run_id={rid[:8]}... 在 MLflow 內找不到", file=sys.stderr)
+        print(f"[WARN] INDEX.csv 中的 run_id={rid[:8]}... 在 MLflow 內找不到", file=sys.stderr)
         return None
     return row["slug"], rid, run
 
@@ -922,39 +922,39 @@ def visualize_single_run(
 
     # ── 1. loss curves
     plot_loss_curves(client, run_id, out_dir / "01_loss_curves.png", run_tag)
-    print("  ✓ 01_loss_curves.png")
+    print("  01_loss_curves.png")
 
     # ── 2. IC curves
     plot_ic_curves(client, run_id, out_dir / "02_ic_curves.png", run_tag)
-    print("  ✓ 02_ic_curves.png")
+    print("  02_ic_curves.png")
 
     # ── 3-5. 需要 predictions CSV
     test_csv = _find_predictions_csv(slug, run_id, "test")
     if test_csv is None:
-        print(f"  ⚠️  找不到 {slug} 的 test predictions CSV，跳過 03-05")
+        print(f"  [WARN] 找不到 {slug} 的 test predictions CSV，跳過 03-05")
         return
     pred_df = pd.read_csv(test_csv)
 
     plot_test_daily_ic(pred_df, out_dir / "03_test_daily_ic.png", run_tag)
-    print("  ✓ 03_test_daily_ic.png")
+    print("  03_test_daily_ic.png")
 
     plot_test_scatter(pred_df, out_dir / "04_test_scatter.png", run_tag)
-    print("  ✓ 04_test_scatter.png")
+    print("  04_test_scatter.png")
 
     plot_per_ticker_ic(pred_df, out_dir / "05_per_ticker_ic.png", run_tag)
-    print("  ✓ 05_per_ticker_ic.png")
+    print("  05_per_ticker_ic.png")
 
     plot_per_ticker_timeseries(pred_df, out_dir / "06_per_ticker_timeseries.png", run_tag)
-    print("  ✓ 06_per_ticker_timeseries.png")
+    print("  06_per_ticker_timeseries.png")
 
     plot_direction_accuracy(pred_df, out_dir / "07_direction_accuracy.png", run_tag)
-    print("  ✓ 07_direction_accuracy.png")
+    print("  07_direction_accuracy.png")
 
     plot_rank_bucket_returns(pred_df, out_dir / "08_rank_bucket_returns.png", run_tag)
-    print("  ✓ 08_rank_bucket_returns.png")
+    print("  08_rank_bucket_returns.png")
 
     plot_long_short_equity(pred_df, out_dir / "09_long_short_equity.png", run_tag)
-    print("  ✓ 09_long_short_equity.png")
+    print("  09_long_short_equity.png")
 
 
 def main() -> int:
@@ -977,7 +977,7 @@ def main() -> int:
     client = _client(args.tracking_uri)
     runs = list_runs(client, args.experiment)
     if not runs:
-        print(f"❌ Experiment '{args.experiment}' 下沒有任何 run", file=sys.stderr)
+        print(f"[FAIL] Experiment '{args.experiment}' 下沒有任何 run", file=sys.stderr)
         return 1
 
     index = load_index()
@@ -997,7 +997,7 @@ def main() -> int:
     elif args.run_id:
         tup = resolve_run(args.run_id, index, runs)
         if tup is None:
-            print(f"❌ 找不到 run：{args.run_id}", file=sys.stderr)
+            print(f"[FAIL] 找不到 run：{args.run_id}", file=sys.stderr)
             print(f"   可用 slug 列表：")
             for r in index:
                 print(f"     {r['slug']}  ({r['tag']}, run_id={r['run_id'][:8]}...)")
@@ -1006,7 +1006,7 @@ def main() -> int:
     else:
         tup = resolve_run("latest", index, runs)
         if tup is None:
-            print("❌ 無可用 run", file=sys.stderr)
+            print("[FAIL] 無可用 run", file=sys.stderr)
             return 1
         targets = [tup]
 
@@ -1023,7 +1023,7 @@ def main() -> int:
                           top_k=args.top_k)
         print(f"\n[viz] cross-run comparison → {cmp_dir}/99_compare_runs.png")
 
-    print(f"\n✅ 完成。圖片寫入 runs/<slug>/figures/ 與 runs/comparison/")
+    print(f"\n完成。圖片寫入 runs/<slug>/figures/ 與 runs/comparison/")
     return 0
 
 

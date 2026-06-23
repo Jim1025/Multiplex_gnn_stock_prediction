@@ -311,7 +311,7 @@ def draw_multiplex_graph(data, date_str, out_path, show_a12=True):
     os.makedirs(Path(out_path).parent, exist_ok=True)
     plt.savefig(out_path, dpi=200, facecolor="white", edgecolor="none")
     plt.close()
-    print(f"✅ {out_path}")
+    print(f"{out_path}")
     print(f"   Date: {target_date}")
     print(f"   L1 edges: {n_l1}/{max_pairs}  L2 edges: {n_l2}/{max_pairs}")
 
