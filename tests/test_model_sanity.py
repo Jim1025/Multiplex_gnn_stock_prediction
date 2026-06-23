@@ -31,6 +31,9 @@ from src.dataset.multiplex_dataset import (
     N_NODES,
     F,
 )
+from src.models import build_model
+from src.models.baseline_lstm import BaselineLSTM
+from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -187,3 +190,80 @@ def test_dataloader_integration(train_dataset: MultiplexDataset, model: MAGNET) 
     with torch.no_grad():
         y_hat, _ = model(batch)
     assert y_hat.shape == (8, N_NODES)
+
+
+# ---------------------------------------------------------------------------
+# M6 Stage 0 — Ablation baseline smoke tests
+# ---------------------------------------------------------------------------
+
+def _smoke_forward_backward(model, batch: dict, extra_skip_prefixes: tuple = ()) -> None:
+    """共用 helper：forward shape 對 + loss 可微分 + 主路徑 grad 非 None。
+
+    Args:
+        extra_skip_prefixes: 額外跳過的參數前綴。對 magnet_no_a12 而言，
+                             gat_L1 / proj_L1 的 grad 預期為 None（ADR 路徑刻意切斷）。
+    """
+    B = batch["x_seq_L2"].size(0)
+    model.train()
+    y_hat, extras = model(batch)
+    assert y_hat.shape == (B, N_NODES), f"y_hat shape 錯誤：{y_hat.shape}"
+    assert torch.isfinite(y_hat).all(), "y_hat 含 NaN/inf"
+    for key in ("h_L1", "h_L2", "h_fused"):
+        assert key in extras, f"extras 缺少 {key}"
+
+    loss, _ = model.compute_loss(y_hat, batch["y"], extras)
+    assert torch.isfinite(loss), "loss 含 NaN"
+    model.zero_grad()
+    loss.backward()
+
+    # MAGNET 已知 fusion.attn_mlp 在 MVP 未參與主損失（SPEC §4.3 deferred）
+    skip = ("fusion.attn_mlp",) + tuple(extra_skip_prefixes)
+    no_grad: list[str] = []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if any(name.startswith(prefix) for prefix in skip):
+            continue
+        if p.grad is None:
+            no_grad.append(name)
+    assert not no_grad, f"以下參數無 grad：{no_grad[:5]} ..."
+
+
+def test_baseline_lstm_smoke(config: dict, small_batch: dict) -> None:
+    """BaselineLSTM（無圖、無 ADR）forward + backward 可跑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineLSTM(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_baseline_tw_gnn_smoke(config: dict, small_batch: dict) -> None:
+    """BaselineTWGNN（單層 TW GNN，無 ADR）forward + backward 可跑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineTWGNN(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_magnet_no_a12_smoke(config: dict, small_batch: dict) -> None:
+    """MAGNET + disable_a12（h_L1 強制零化）forward + backward 可跑。
+    ADR 編碼路徑（gat_L1 / proj_L1）刻意切斷，預期無 grad。"""
+    torch.manual_seed(config["training"]["seed"])
+    cfg = {**config, "model": {**config["model"], "architecture": "magnet_no_a12"}}
+    model = build_model(cfg)
+    assert isinstance(model, MAGNET)
+    assert model.disable_a12 is True
+    # disable_a12=True 時 L1 端的 GAT / Projection 整段被切斷（h_L1 進 fusion 前歸零）
+    _smoke_forward_backward(model, small_batch, extra_skip_prefixes=("gat_L1", "proj_L1"))
+
+
+def test_build_model_dispatch(config: dict) -> None:
+    """build_model 依 architecture 派對應 class，未知值要報錯。"""
+    cfg_lstm = {**config, "model": {**config["model"], "architecture": "baseline_lstm"}}
+    cfg_twgn = {**config, "model": {**config["model"], "architecture": "baseline_tw_gnn"}}
+    cfg_mag  = {**config, "model": {**config["model"], "architecture": "magnet"}}
+    cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
+
+    assert isinstance(build_model(cfg_lstm), BaselineLSTM)
+    assert isinstance(build_model(cfg_twgn), BaselineTWGNN)
+    assert isinstance(build_model(cfg_mag),  MAGNET)
+    with pytest.raises(ValueError):
+        build_model(cfg_bad)

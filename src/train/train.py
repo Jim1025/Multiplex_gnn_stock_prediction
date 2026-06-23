@@ -40,6 +40,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from src.dataset.multiplex_dataset import MultiplexDataset, multiplex_collate
+from src.models import VALID_ARCHITECTURES, build_model
 from src.models.multiplex_gnn import MAGNET
 from src.train.evaluator import evaluate
 from src.train.losses import build_criterion
@@ -118,7 +119,7 @@ def _flatten(d: dict, parent: str = "", sep: str = ".") -> dict:
 # ---------------------------------------------------------------------------
 
 def train_one_epoch(
-    model:     MAGNET,
+    model:     torch.nn.Module,
     loader:    DataLoader,
     optimizer: torch.optim.Optimizer,
     criterion,
@@ -196,6 +197,7 @@ def train(
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
+    architecture:      Optional[str]   = None,
 ) -> str:
     """
     主訓練流程。
@@ -234,6 +236,13 @@ def train(
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
+    if architecture is not None:
+        if architecture not in VALID_ARCHITECTURES:
+            raise ValueError(
+                f"未知 --architecture={architecture!r}；可選：{VALID_ARCHITECTURES}"
+            )
+        cfg.setdefault("model", {})["architecture"] = architecture
+        _overrides.append(f"architecture={architecture}")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -283,7 +292,9 @@ def train(
     test_loader  = DataLoader(test_ds,  **common_loader_kwargs)
 
     # ── Model / Optimizer / Criterion ─────────────────────────────
-    model = MAGNET(cfg).to(device)
+    model = build_model(cfg).to(device)
+    print(f"[model] architecture={cfg['model'].get('architecture', 'magnet')} "
+          f"({sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable params)")
     criterion = build_criterion(cfg).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_dec)
 
@@ -539,6 +550,9 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.training.early_stop_metric（IC 預設）")
     p.add_argument("--no-scheduler", action="store_true",
                    help="關閉 CosineAnnealingWarmRestarts（用於 Step 4 ablation）")
+    p.add_argument("--architecture",
+                   choices=list(VALID_ARCHITECTURES), default=None,
+                   help="覆寫 cfg.model.architecture（M6 Stage 0 ablation 用）")
     return p.parse_args()
 
 
@@ -554,6 +568,7 @@ if __name__ == "__main__":
         lr_override=args.lr,
         early_stop_metric=args.early_stop_metric,
         use_scheduler=not args.no_scheduler,
+        architecture=args.architecture,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

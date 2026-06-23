@@ -793,7 +793,7 @@ def plot_compare_runs(
     if n_hidden:
         subtitle_parts.append(f"+ {n_hidden} runs hidden (max test_IC = {hidden_max_ic:+.4f})")
     if subtitle_parts:
-        fig.text(0.5, 0.985, "  •  ".join(subtitle_parts),
+        fig.text(0.5, 0.98, "  •  ".join(subtitle_parts),
                  ha="center", va="bottom", fontsize=10, color="#444444")
 
     plt.tight_layout()

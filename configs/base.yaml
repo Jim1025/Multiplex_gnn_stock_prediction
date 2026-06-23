@@ -9,6 +9,7 @@ data:
     # test:    indices 1397–1642         (15%)
 
 model:
+  architecture: magnet  # magnet | baseline_lstm | baseline_tw_gnn | magnet_no_a12（M6 Stage 0 ablation）
   lstm:
     input_dim: 9          # F = 9 維技術指標特徵
     hidden_dim: 64

@@ -69,6 +69,10 @@ class MAGNET(nn.Module):
         fuse_cfg = m_cfg["fusion"]
         head_cfg = m_cfg["prediction_head"]
 
+        # M6 Stage 0 ablation: 切斷 ADR → TW 跨層訊號（保留 fusion 結構）
+        # 啟用時將 h_L1 在進 fusion 前歸零，h_fused = (1 - gate) * h_L2
+        self.disable_a12 = bool(m_cfg.get("disable_a12", False))
+
         d_prime   = proj_cfg["d_prime"]
         H_lstm    = lstm_cfg["hidden_dim"]
         H_gat     = gat_cfg["hidden_dim"]   # 最後一層 concat=False → H_gat
@@ -157,7 +161,9 @@ class MAGNET(nn.Module):
 
         # ── Phase 2: 跨市場融合 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §4
-        h_fused, alpha, gate = self.fusion(h_L1, h_L2)  # [B, n, d']
+        # M6 Stage 0 ablation: disable_a12=True 時將 ADR 訊號零化（保留 fusion 結構）
+        h_L1_in = torch.zeros_like(h_L1) if self.disable_a12 else h_L1
+        h_fused, alpha, gate = self.fusion(h_L1_in, h_L2)  # [B, n, d']
 
         # ── Phase 3: 預測 ─────────────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §5.1
