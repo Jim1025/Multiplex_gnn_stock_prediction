@@ -35,6 +35,7 @@ from src.models import build_model
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
+from src.models.baseline_hats import BaselineHATS
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -262,12 +263,14 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_twgn = {**config, "model": {**config["model"], "architecture": "baseline_tw_gnn"}}
     cfg_mag  = {**config, "model": {**config["model"], "architecture": "magnet"}}
     cfg_adv  = {**config, "model": {**config["model"], "architecture": "adv_alstm"}}
+    cfg_hats = {**config, "model": {**config["model"], "architecture": "hats"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
     assert isinstance(build_model(cfg_twgn), BaselineTWGNN)
     assert isinstance(build_model(cfg_mag),  MAGNET)
     assert isinstance(build_model(cfg_adv),  BaselineAdvALSTM)
+    assert isinstance(build_model(cfg_hats), BaselineHATS)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -281,6 +284,26 @@ def test_adv_alstm_smoke(config: dict, small_batch: dict) -> None:
     torch.manual_seed(config["training"]["seed"])
     model = BaselineAdvALSTM(config)
     _smoke_forward_backward(model, small_batch)
+
+
+def test_hats_smoke(config: dict, small_batch: dict) -> None:
+    """HATS (Kim 2019) forward + backward 可跑；sector 分層依 PAIR_MAP industry。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineHATS(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_hats_sector_mapping(config: dict, small_batch: dict) -> None:
+    """驗證 sector 映射符合 PAIR_MAP 預期（TSM/UMC/ASX/IMOS → 半導體 idx=1）。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineHATS(config)
+    stock2sector = model.stock2sector.tolist()
+    # 依 config.py 的 ticker 順序 [TSM,UMC,ASX,CHT,IMOS,AUOTY,HNHPF]
+    # 及 sorted sector [光電=0, 半導體=1, 電信=2, 電子=3]
+    assert stock2sector == [1, 1, 1, 2, 1, 0, 3], (
+        f"sector 映射非預期：{stock2sector}"
+    )
+    assert model.n_sectors == 4
 
 
 def test_adv_alstm_adversarial_toggle(config: dict, small_batch: dict) -> None:

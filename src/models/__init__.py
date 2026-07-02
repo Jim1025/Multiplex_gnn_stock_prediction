@@ -2,6 +2,7 @@ from src.models.multiplex_gnn import MAGNET
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
+from src.models.baseline_hats import BaselineHATS
 from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
 from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
@@ -11,7 +12,7 @@ VALID_ARCHITECTURES = (
     # M6 Stage 0 (內部 ablation)
     "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
     # M7 external baselines
-    "adv_alstm",
+    "adv_alstm", "hats",
 )
 
 
@@ -48,6 +49,8 @@ def build_model(cfg: dict):
         return MAGNET(cfg_local)
     if arch == "adv_alstm":
         return BaselineAdvALSTM(cfg)
+    if arch == "hats":
+        return BaselineHATS(cfg)
     return MAGNET(cfg)
 
 
@@ -56,6 +59,7 @@ __all__ = [
     "BaselineLSTM",
     "BaselineTWGNN",
     "BaselineAdvALSTM",
+    "BaselineHATS",
     "SharedLSTM",
     "GATEncoder",
     "TypeProjection",
