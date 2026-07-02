@@ -1,20 +1,30 @@
 from src.models.multiplex_gnn import MAGNET
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
+from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
 from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
 
 
-VALID_ARCHITECTURES = ("magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12")
+VALID_ARCHITECTURES = (
+    # M6 Stage 0 (內部 ablation)
+    "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
+    # M7 external baselines
+    "adv_alstm",
+)
 
 
 def build_model(cfg: dict):
     """
-    M6 Stage 0 model factory。
+    Model factory：依 cfg["model"]["architecture"] 分派。
 
-    依 cfg["model"]["architecture"] 分派到對應 baseline / MAGNET 變體。
-    "magnet_no_a12" 是 MAGNET 的 ablation：保留架構，但跨層 ADR → TW 訊號零化。
+    支援：
+        magnet             — 完整 MAGNET (reference)
+        baseline_lstm      — LSTM-only（Stage 0 ablation）
+        baseline_tw_gnn    — TW-only 單層 GNN（Stage 0 ablation）
+        magnet_no_a12      — MAGNET 但切斷 A12 跨層訊號（Stage 0 ablation）
+        adv_alstm          — Adv-ALSTM 外部 baseline (Feng 2019, IJCAI)
 
     Args:
         cfg: 完整 base.yaml 解析結果（含 model / loss_weights / align_loss）
@@ -36,6 +46,8 @@ def build_model(cfg: dict):
         # 注入 disable_a12 flag（MAGNET 內部會讀）
         cfg_local = {**cfg, "model": {**cfg["model"], "disable_a12": True}}
         return MAGNET(cfg_local)
+    if arch == "adv_alstm":
+        return BaselineAdvALSTM(cfg)
     return MAGNET(cfg)
 
 
@@ -43,6 +55,7 @@ __all__ = [
     "MAGNET",
     "BaselineLSTM",
     "BaselineTWGNN",
+    "BaselineAdvALSTM",
     "SharedLSTM",
     "GATEncoder",
     "TypeProjection",

@@ -34,6 +34,7 @@ from src.dataset.multiplex_dataset import (
 from src.models import build_model
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
+from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -260,10 +261,51 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_lstm = {**config, "model": {**config["model"], "architecture": "baseline_lstm"}}
     cfg_twgn = {**config, "model": {**config["model"], "architecture": "baseline_tw_gnn"}}
     cfg_mag  = {**config, "model": {**config["model"], "architecture": "magnet"}}
+    cfg_adv  = {**config, "model": {**config["model"], "architecture": "adv_alstm"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
     assert isinstance(build_model(cfg_twgn), BaselineTWGNN)
     assert isinstance(build_model(cfg_mag),  MAGNET)
+    assert isinstance(build_model(cfg_adv),  BaselineAdvALSTM)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
+
+
+# ---------------------------------------------------------------------------
+# M7 External Baseline smoke tests
+# ---------------------------------------------------------------------------
+
+def test_adv_alstm_smoke(config: dict, small_batch: dict) -> None:
+    """Adv-ALSTM (Feng 2019) forward + backward 可跑；train/eval 模式輸出差異合理。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineAdvALSTM(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_adv_alstm_adversarial_toggle(config: dict, small_batch: dict) -> None:
+    """驗證 FGSM-approx adversarial 分支在 training 模式下確實會被觸發。
+
+    停用 dropout 隔離 adversarial 效應：在 eval 模式下 y_hat_adv 分支不執行，
+    輸出等於純 clean forward；train 模式下輸出是 (clean + λ·adv) 合成，
+    兩者必須不同才能證明 adversarial 分支不是 dead code。
+    """
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineAdvALSTM(config)
+
+    # 停用 dropout 讓 train / eval 差異只由 adversarial 分支造成
+    for m in model.modules():
+        if isinstance(m, torch.nn.Dropout):
+            m.p = 0.0
+
+    model.eval()
+    with torch.no_grad():
+        y_eval, _ = model(small_batch)
+
+    model.train()
+    with torch.no_grad():
+        y_train, _ = model(small_batch)
+
+    assert not torch.allclose(y_eval, y_train, atol=1e-6), (
+        "train / eval 模式輸出相同，adversarial perturbation 未被啟用"
+    )
