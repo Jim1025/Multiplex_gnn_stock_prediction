@@ -36,6 +36,7 @@ from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.baseline_hats import BaselineHATS
+from src.models.baseline_mansf import BaselineMANSF
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -264,6 +265,7 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_mag  = {**config, "model": {**config["model"], "architecture": "magnet"}}
     cfg_adv  = {**config, "model": {**config["model"], "architecture": "adv_alstm"}}
     cfg_hats = {**config, "model": {**config["model"], "architecture": "hats"}}
+    cfg_mansf = {**config, "model": {**config["model"], "architecture": "man_sf"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
@@ -271,6 +273,7 @@ def test_build_model_dispatch(config: dict) -> None:
     assert isinstance(build_model(cfg_mag),  MAGNET)
     assert isinstance(build_model(cfg_adv),  BaselineAdvALSTM)
     assert isinstance(build_model(cfg_hats), BaselineHATS)
+    assert isinstance(build_model(cfg_mansf), BaselineMANSF)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -284,6 +287,27 @@ def test_adv_alstm_smoke(config: dict, small_batch: dict) -> None:
     torch.manual_seed(config["training"]["seed"])
     model = BaselineAdvALSTM(config)
     _smoke_forward_backward(model, small_batch)
+
+
+def test_mansf_smoke(config: dict, small_batch: dict) -> None:
+    """MAN-SF (Sawhney 2020, no-text variant) forward + backward 可跑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineMANSF(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_mansf_modality_attention_sums_to_1(config: dict, small_batch: dict) -> None:
+    """驗證 modality attention 是合法 softmax（每個 stock 的 2 個模態權重和為 1）。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineMANSF(config)
+    model.eval()
+    with torch.no_grad():
+        _, extras = model(small_batch)
+    alpha = extras["modality_alpha"]                          # [B, n, 2]
+    sums = alpha.sum(dim=-1)                                  # [B, n]
+    assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5), (
+        f"modality attention 未 softmax normalize：{sums}"
+    )
 
 
 def test_hats_smoke(config: dict, small_batch: dict) -> None:
