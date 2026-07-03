@@ -37,6 +37,7 @@ from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.baseline_hats import BaselineHATS
 from src.models.baseline_mansf import BaselineMANSF
+from src.models.baseline_hgt import BaselineHGT
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -266,6 +267,7 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_adv  = {**config, "model": {**config["model"], "architecture": "adv_alstm"}}
     cfg_hats = {**config, "model": {**config["model"], "architecture": "hats"}}
     cfg_mansf = {**config, "model": {**config["model"], "architecture": "man_sf"}}
+    cfg_hgt  = {**config, "model": {**config["model"], "architecture": "hgt"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
@@ -274,6 +276,7 @@ def test_build_model_dispatch(config: dict) -> None:
     assert isinstance(build_model(cfg_adv),  BaselineAdvALSTM)
     assert isinstance(build_model(cfg_hats), BaselineHATS)
     assert isinstance(build_model(cfg_mansf), BaselineMANSF)
+    assert isinstance(build_model(cfg_hgt), BaselineHGT)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -287,6 +290,23 @@ def test_adv_alstm_smoke(config: dict, small_batch: dict) -> None:
     torch.manual_seed(config["training"]["seed"])
     model = BaselineAdvALSTM(config)
     _smoke_forward_backward(model, small_batch)
+
+
+def test_hgt_smoke(config: dict, small_batch: dict) -> None:
+    """HGT (Hu 2020) forward + backward 可跑；heterogeneous graph with 4 edge types。
+    預測僅用 'tw' node，最後一層 HGT 的 'adr' 輸出投影是 dead branch（預期無 grad）。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineHGT(config)
+    # 最後一層 HGT 的 adr 輸出無 consumer（predictor 只吃 tw node）
+    n_layers = len(model.hgt_layers)
+    last = n_layers - 1
+    _smoke_forward_backward(
+        model, small_batch,
+        extra_skip_prefixes=(
+            f"hgt_layers.{last}.out_lin.lins.adr",
+            f"hgt_layers.{last}.skip.adr",
+        ),
+    )
 
 
 def test_mansf_smoke(config: dict, small_batch: dict) -> None:
