@@ -198,6 +198,7 @@ def train(
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
     architecture:      Optional[str]   = None,
+    patience_override: Optional[int]   = None,
 ) -> str:
     """
     主訓練流程。
@@ -233,6 +234,9 @@ def train(
     if lr_override is not None:
         cfg["training"]["lr"] = float(lr_override)
         _overrides.append(f"lr={lr_override}")
+    if patience_override is not None:
+        cfg["training"]["patience"] = int(patience_override)
+        _overrides.append(f"patience={patience_override}")
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
@@ -553,6 +557,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--architecture",
                    choices=list(VALID_ARCHITECTURES), default=None,
                    help="覆寫 cfg.model.architecture（M6 Stage 0 ablation 用）")
+    p.add_argument("--patience", type=int, default=None,
+                   help="覆寫 cfg.training.patience（M7 hyperparameter grid 用）")
     return p.parse_args()
 
 
@@ -569,6 +575,7 @@ if __name__ == "__main__":
         early_stop_metric=args.early_stop_metric,
         use_scheduler=not args.no_scheduler,
         architecture=args.architecture,
+        patience_override=args.patience,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")
