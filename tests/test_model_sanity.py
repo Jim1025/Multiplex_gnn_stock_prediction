@@ -38,6 +38,7 @@ from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.baseline_hats import BaselineHATS
 from src.models.baseline_mansf import BaselineMANSF
 from src.models.baseline_hgt import BaselineHGT
+from src.models.baseline_deltalag import BaselineDeltaLag
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -268,6 +269,7 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_hats = {**config, "model": {**config["model"], "architecture": "hats"}}
     cfg_mansf = {**config, "model": {**config["model"], "architecture": "man_sf"}}
     cfg_hgt  = {**config, "model": {**config["model"], "architecture": "hgt"}}
+    cfg_dl   = {**config, "model": {**config["model"], "architecture": "delta_lag"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
@@ -277,6 +279,7 @@ def test_build_model_dispatch(config: dict) -> None:
     assert isinstance(build_model(cfg_hats), BaselineHATS)
     assert isinstance(build_model(cfg_mansf), BaselineMANSF)
     assert isinstance(build_model(cfg_hgt), BaselineHGT)
+    assert isinstance(build_model(cfg_dl),  BaselineDeltaLag)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -290,6 +293,40 @@ def test_adv_alstm_smoke(config: dict, small_batch: dict) -> None:
     torch.manual_seed(config["training"]["seed"])
     model = BaselineAdvALSTM(config)
     _smoke_forward_backward(model, small_batch)
+
+
+def test_deltalag_smoke(config: dict, small_batch: dict) -> None:
+    """DeltaLag (Zhou 2025) forward + backward 可跑；sparsified cross-attention 學 lead-lag。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineDeltaLag(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_deltalag_topk_selection(config: dict, small_batch: dict) -> None:
+    """驗證 top-k selection 輸出合理的 leader index 和 lag value。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineDeltaLag(config)
+    model.eval()
+    with torch.no_grad():
+        _, extras = model(small_batch)
+    cand_idx = extras["topk_cand_idx"]      # [B, n, k]
+    lag_vals = extras["topk_lag"]           # [B, n, k]
+
+    n = small_batch["x_seq_L2"].size(2)
+    # cand_idx 必須在 [0, 2n) 範圍
+    assert (cand_idx >= 0).all() and (cand_idx < 2 * n).all(), (
+        f"candidate index 超出範圍：{cand_idx.min()}..{cand_idx.max()}"
+    )
+    # lag values 必須在 [1, l_max] 範圍
+    assert (lag_vals >= 1).all() and (lag_vals <= model.l_max).all(), (
+        f"lag values 超出 [1, l_max={model.l_max}]：{lag_vals.min()}..{lag_vals.max()}"
+    )
+    # target i 不能選 candidate n+i (自己) 為 leader（self-loop 已 mask）
+    for i in range(n):
+        self_cand = n + i
+        assert (cand_idx[:, i, :] != self_cand).all(), (
+            f"target {i} 選到自己 (cand {self_cand}) 作 leader"
+        )
 
 
 def test_hgt_smoke(config: dict, small_batch: dict) -> None:
