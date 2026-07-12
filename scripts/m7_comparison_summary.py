@@ -195,11 +195,11 @@ def build_markdown(rows_by_tag: dict) -> str:
         interpretations = {
             "LSTM-only":         "Sequence baseline (no graph, no ADR)",
             "Adv-ALSTM":         "Attention-only baseline; +Δ = cross-market value",
-            "DeltaLag":          "Learned dynamic lead-lag; +Δ = structural pair > learned pair",
+            "DeltaLag":          "Learns pair + lag + weights; +Δ = fixed pair/lag with learned gate wins",
             "MAN-SF (no-text)":  "Multimodal fusion (single market); +Δ = cross-market > cross-modal",
             "TW-only GNN":       "Single-market GNN; +Δ = cross-market design",
             "HATS":              "Hierarchical single-market; +Δ = market axis > sector axis",
-            "HGT":               "Learned meta-relation attention; +Δ = structural A12 > learned A12",
+            "HGT":               "Attention over all edges; +Δ = restricted same-index gate wins",
             "MAGNET (no A12)":   "Ablation: A12 disabled; +Δ = A12 mechanism",
         }
         for display, test_ic in rows_for_deltas:
@@ -212,7 +212,9 @@ def build_markdown(rows_by_tag: dict) -> str:
     lines.append("## Generalization Signature (val→test gap)")
     lines.append("")
     lines.append("Smaller |gap| = better OOD generalization. "
-                 "MAGNET's structural inductive bias yields the smallest gap.")
+                 "MAGNET's restricted learning target (element-wise gate over a "
+                 "pre-aligned pair) yields the smallest gap; broader-search-space "
+                 "attention (HGT, DeltaLag) degrades from val to test.")
     lines.append("")
 
     # ── 附註 ─────────────────────────────────────────────────

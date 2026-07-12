@@ -91,9 +91,14 @@ structural assumption.
   L2 intra, A12 cross with reverse edges)
 
 **MAGNET baseline result**: Best of 4-config hyperparameter grid = 0.028
-IC vs MAGNET's 0.072. See §6 Discussion for mechanistic analysis of
-why structural A12 outperforms HGT's learned meta-relation attention
-by +0.045 IC.
+IC vs MAGNET's 0.072. Note both models learn data-dependent cross-market
+weights — the difference is the **search space of the learning target**.
+HGT's attention must distribute over all incoming edges (the single
+cross-market edge competes with 2-4 intra-market edges inside one
+softmax, per head, per layer), whereas MAGNET restricts learning to an
+element-wise gate over exactly two pre-aligned representations at the
+same node index. See §6 for why the restricted learning target
+generalizes better (+0.045 IC).
 
 ---
 
@@ -120,10 +125,13 @@ sessions (NYSE 09:30-16:00 EST precedes TWSE 09:00-13:30 CST next day).
 
 **MAGNET baseline result**: With ADR nodes included in the candidate
 pool (14 candidates for each TW target), best of 4-config
-hyperparameter grid = 0.030 IC vs MAGNET's 0.072. DeltaLag fails to
-recover the domain-verified ADR-TW pairing from 1150 training samples,
-supporting MAGNET's core thesis that **structural inductive bias
-outperforms learned attention when data is limited** — see §6.
+hyperparameter grid = 0.030 IC vs MAGNET's 0.072. DeltaLag
+must solve a 65-way discrete search (13 candidates × 5 lags) per
+target per day, and fails to reliably recover the domain-verified
+ADR-TW pairing from 1150 training samples. This supports MAGNET's
+core thesis: **fix the hard-to-learn decisions (pair topology, lag)
+with domain knowledge and restrict learning to the easy one
+(per-dimension mixing weights)** — see §6.
 
 ### Classical Lead-Lag Literature
 
@@ -225,16 +233,21 @@ of three themes above. Table below summarizes the differentiation:
 
 | Prior work theme | Representative method | MAGNET's departure |
 |---|---|---|
-| Learned cross-market attention | MEIG (CGAT), HGT (meta-relation) | **Structural A12** via node-order alignment (no learning of pair correspondence) |
-| Dynamic learned lead-lag | DeltaLag | **Domain-verified fixed lead-lag** (trading session ordering, dual-listing pair) |
+| Learned cross-market attention | MEIG (CGAT), HGT (meta-relation) | **Pair topology fixed** by node-order alignment; learning restricted to a per-dimension mixing gate over the pre-aligned pair (vs attention competing across all edges) |
+| Dynamic learned lead-lag | DeltaLag | **Pair and lag fixed** by domain knowledge (dual-listing identity, trading-session ordering); only mixing weights are learned (vs joint discrete search over pair × lag) |
 | Single-market fusion mechanisms | MAN-SF, HATS, MASTER | **Cross-market fusion** as primary axis, single-market treated as secondary intra-graph structure |
 | Broad multi-market GNN | ASTGCN (18 markets) | **Focused verified-pair study** with cleaner ablation methodology |
 
 **Core contributions specific to MAGNET**:
 
-1. **Structural A12 diagonal coupling** — encoding ADR-TW pairing as a
-   node-ordering constraint rather than learnable attention. Empirically
-   validated against HGT (Δ = +0.045 IC) and DeltaLag (Δ = +0.043 IC).
+1. **Structural A12 diagonal coupling** — the ADR-TW pair topology and
+   its 1-day lag are fixed by node-order alignment and trading-session
+   ordering; **learning is restricted to a per-dimension mixing gate**
+   over the two pre-aligned representations (the gate itself remains
+   fully data-dependent). Empirically validated against two
+   broader-search-space alternatives: HGT, whose attention distributes
+   over all incoming edges (Δ = +0.045 IC), and DeltaLag, which
+   additionally learns pair selection and lag values (Δ = +0.043 IC).
 
 2. **Multi-mechanism ablation** — clean isolation of L1/L2/A12/fusion
    contributions via the Stage 0 ablation table. Show that IC 0.072 →
