@@ -39,6 +39,7 @@ from src.models.baseline_hats import BaselineHATS
 from src.models.baseline_mansf import BaselineMANSF
 from src.models.baseline_hgt import BaselineHGT
 from src.models.baseline_deltalag import BaselineDeltaLag
+from src.models.baseline_meig import BaselineMEIG
 from src.models.multiplex_gnn import MAGNET
 
 
@@ -270,6 +271,7 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_mansf = {**config, "model": {**config["model"], "architecture": "man_sf"}}
     cfg_hgt  = {**config, "model": {**config["model"], "architecture": "hgt"}}
     cfg_dl   = {**config, "model": {**config["model"], "architecture": "delta_lag"}}
+    cfg_meig = {**config, "model": {**config["model"], "architecture": "meig"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
@@ -280,6 +282,7 @@ def test_build_model_dispatch(config: dict) -> None:
     assert isinstance(build_model(cfg_mansf), BaselineMANSF)
     assert isinstance(build_model(cfg_hgt), BaselineHGT)
     assert isinstance(build_model(cfg_dl),  BaselineDeltaLag)
+    assert isinstance(build_model(cfg_meig), BaselineMEIG)
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -385,6 +388,49 @@ def test_hats_sector_mapping(config: dict, small_batch: dict) -> None:
         f"sector 映射非預期：{stock2sector}"
     )
     assert model.n_sectors == 4
+
+
+def test_meig_smoke(config: dict, small_batch: dict) -> None:
+    """MEIG-core (Bukhari 2025) forward + backward 可跑；3-branch GCN + CGAT。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineMEIG(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_meig_cgat_alpha_is_softmax(config: dict, small_batch: dict) -> None:
+    """驗證 CGAT 權重是合法 softmax（3 個 branch 權重和為 1、皆為正）。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineMEIG(config)
+    model.eval()
+    with torch.no_grad():
+        _, extras = model(small_batch)
+    alpha = extras["cgat_alpha"]                              # [3]
+    assert alpha.shape == (3,), f"cgat_alpha shape 錯誤：{alpha.shape}"
+    assert torch.allclose(alpha.sum(), torch.tensor(1.0), atol=1e-5), (
+        f"CGAT 權重未 softmax normalize：{alpha}"
+    )
+    assert (alpha > 0).all(), f"CGAT 權重應皆為正：{alpha}"
+
+
+def test_meig_graph_block_separation(config: dict, small_batch: dict) -> None:
+    """驗證三張圖的區塊分離：intra 圖不含跨市場邊、inter 圖只含跨市場邊。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineMEIG(config)
+    model.eval()
+    with torch.no_grad():
+        model(small_batch)                                    # 觸發 mask 建立
+
+    n = small_batch["x_seq_L1"].size(2)
+    # intra_L1 mask 僅允許 ADR 區塊（前 n 個節點）
+    assert not model.intra1_mask[:, n:].any(), "intra_L1 mask 含 TW 節點邊"
+    assert not model.intra1_mask[n:, :].any(), "intra_L1 mask 含 TW 節點邊"
+    # intra_L2 mask 僅允許 TW 區塊（後 n 個節點）
+    assert not model.intra2_mask[:, :n].any(), "intra_L2 mask 含 ADR 節點邊"
+    assert not model.intra2_mask[:n, :].any(), "intra_L2 mask 含 ADR 節點邊"
+    # inter mask 僅允許跨區塊（無同市場邊、無對角線）
+    assert not model.inter_mask[:n, :n].any(), "inter mask 含 ADR 同市場邊"
+    assert not model.inter_mask[n:, n:].any(), "inter mask 含 TW 同市場邊"
+    assert not model.inter_mask.diagonal().any(), "inter mask 含 self-loop"
 
 
 def test_adv_alstm_adversarial_toggle(config: dict, small_batch: dict) -> None:

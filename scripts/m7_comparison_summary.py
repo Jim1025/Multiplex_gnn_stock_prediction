@@ -2,8 +2,8 @@
 m7_comparison_summary.py — M7 完整 baseline 比較表產出器
 
 讀 runs/INDEX.csv，自動：
-    1. 挑出 Stage 0 (3) + M7 外部 (5) + reference (1) = 9 個模型
-    2. 對 HGT / DeltaLag 從 grid 中挑 best-of-grid test_IC
+    1. 挑出 Stage 0 (3) + M7 外部 (6) + reference (1) = 10 個模型
+    2. 對 HGT / DeltaLag / MEIG 從 grid 中挑 best-of-grid test_IC
     3. 計算 Δ vs MAGNET、val-test gap
     4. 產出 markdown 表格（stdout + docs/m7_comparison_table.md）
 
@@ -40,6 +40,12 @@ MODEL_SPECS = [
         "opt_p28_dl_lr1e3_pat20",
         "opt_p29_dl_lr5e4_pat15",
         "opt_p30_dl_lr5e4_pat20",
+    )),
+    ("meig",         "MEIG-core (no macro/text)", "CM inter-intra GNN (modality-reduced)", 39.4, (
+        "opt_p31_meig",
+        "opt_p32_meig_lr1e3_pat20",
+        "opt_p33_meig_lr5e4_pat15",
+        "opt_p34_meig_lr5e4_pat20",
     )),
     ("man_sf",       "MAN-SF (no-text)",  "SM multimodal",             42.1,  "opt_p22_man_sf"),
     ("tw_gnn",       "TW-only GNN",       "Ablation (ours)",           90.7,  "opt_p18_baseline_tw_gnn"),
@@ -198,6 +204,7 @@ def build_markdown(rows_by_tag: dict) -> str:
             "LSTM-only":         "Sequence baseline (no graph, no ADR)",
             "Adv-ALSTM":         "Attention-only baseline; +Δ = cross-market value",
             "DeltaLag":          "Learns pair + lag + weights; +Δ = fixed pair/lag with learned gate wins",
+            "MEIG-core (no macro/text)": "Correlation-threshold edges + 3-scalar graph mixing; +Δ = identity pairing with per-dim gate wins",
             "MAN-SF (no-text)":  "Multimodal fusion (single market); +Δ = cross-market > cross-modal",
             "TW-only GNN":       "Single-market GNN; +Δ = cross-market design",
             "HATS":              "Hierarchical single-market; +Δ = market axis > sector axis",
@@ -216,7 +223,8 @@ def build_markdown(rows_by_tag: dict) -> str:
     lines.append("Smaller |gap| = better OOD generalization. "
                  "MAGNET's restricted learning target (element-wise gate over a "
                  "pre-aligned pair) yields the smallest gap; broader-search-space "
-                 "attention (HGT, DeltaLag) degrades from val to test.")
+                 "attention (HGT, DeltaLag) and noisy statistical edge estimation "
+                 "(MEIG-core) degrade from val to test.")
     lines.append("")
 
     # ── 附註 ─────────────────────────────────────────────────
@@ -225,7 +233,7 @@ def build_markdown(rows_by_tag: dict) -> str:
     lines.append("- All models trained on identical walk-forward split (1150/247/246).")
     lines.append("- MAGNET's opt_p2 configuration (mse=1.0, rank=0.5, variance=0.1, "
                  "lr=1e-3, wd=1e-3, patience=15) used as shared training regime.")
-    lines.append("- HGT and DeltaLag underwent 2×2 hyperparameter grid over "
+    lines.append("- HGT, DeltaLag and MEIG-core underwent 2×2 hyperparameter grid over "
                  "lr ∈ {1e-3, 5e-4} × patience ∈ {15, 20}; **best-of-grid** result reported.")
     lines.append("- Adv-ALSTM implemented with gradient-free FGSM approximation (fast variant).")
     lines.append("- MAN-SF implemented as no-text variant with GATv2 backbone (GCN caused MPS bug).")
@@ -243,11 +251,18 @@ def build_markdown(rows_by_tag: dict) -> str:
     lines.append("- HGT originally targets academic / e-commerce graphs (OAG, Amazon); "
                  "the 2-node-type, 4-edge-type cross-market graph (incl. explicit A12 "
                  "identity edges) is our construction.")
-    lines.append("- None of the implemented baselines natively targets cross-border "
-                 "equity prediction. Natively cross-market published methods (MEIG, "
-                 "ASTGCN, US-China bipartite) could not be faithfully reproduced: "
-                 "42.7M-tweet corpus, market-index-level volatility targets, and "
-                 "non-GNN two-stage pipeline respectively. See related_work.md §2.1.")
+    lines.append("- MEIG-core is the graph + CGAT core of the only natively "
+                 "cross-market stock-level method among implemented baselines "
+                 "(ESWA 2025). Its macro-indicator and 42.7M-tweet sentiment node "
+                 "features are removed for input parity across all 10 models "
+                 "(the original paper's own Tables 5-8 include no-macro ablation "
+                 "rows). Correlation-threshold edges (its Eq. 6) are estimated "
+                 "within the T=20 input window on log returns (the paper does not "
+                 "disclose its correlation window); theta = 0.3.")
+    lines.append("- Other natively cross-market published methods (ASTGCN, "
+                 "US-China bipartite) could not be faithfully reproduced: "
+                 "market-index-level volatility targets and non-GNN two-stage "
+                 "pipeline respectively. See related_work.md §2.1.")
     return "\n".join(lines) + "\n"
 
 

@@ -6,6 +6,7 @@ from src.models.baseline_hats import BaselineHATS
 from src.models.baseline_mansf import BaselineMANSF
 from src.models.baseline_hgt import BaselineHGT
 from src.models.baseline_deltalag import BaselineDeltaLag
+from src.models.baseline_meig import BaselineMEIG
 from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
 from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
@@ -15,7 +16,7 @@ VALID_ARCHITECTURES = (
     # M6 Stage 0 (內部 ablation)
     "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
     # M7 external baselines
-    "adv_alstm", "hats", "man_sf", "hgt", "delta_lag",
+    "adv_alstm", "hats", "man_sf", "hgt", "delta_lag", "meig",
 )
 
 
@@ -60,6 +61,8 @@ def build_model(cfg: dict):
         return BaselineHGT(cfg)
     if arch == "delta_lag":
         return BaselineDeltaLag(cfg)
+    if arch == "meig":
+        return BaselineMEIG(cfg)
     return MAGNET(cfg)
 
 
@@ -72,6 +75,7 @@ __all__ = [
     "BaselineMANSF",
     "BaselineHGT",
     "BaselineDeltaLag",
+    "BaselineMEIG",
     "SharedLSTM",
     "GATEncoder",
     "TypeProjection",
