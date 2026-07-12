@@ -122,10 +122,19 @@ sessions (NYSE 09:30-16:00 EST precedes TWSE 09:00-13:30 CST next day).
   pair-specific lag values (τ ∈ [1, l_max])
 - Extracts lag-aligned raw features from leaders for lagger prediction
 - Beats a range of temporal / spatio-temporal SOTA baselines
+- **Scope note**: original evaluation is single-market U.S. equities
+  (S&P 500 / NASDAQ / NYSE universes, overlapping trading sessions);
+  its lead-lag arises from cross-stock information diffusion within one
+  market, **not** cross-border trading-session ordering. DeltaLag does
+  not itself claim cross-market prediction.
 
-**MAGNET baseline result**: With ADR nodes included in the candidate
-pool (14 candidates for each TW target), best of 4-config
-hyperparameter grid = 0.030 IC vs MAGNET's 0.072. DeltaLag
+**MAGNET baseline result (our cross-market adaptation)**: DeltaLag is
+natively single-market; we adapt it to the cross-market setting by
+adding the 7 ADR nodes to its candidate pool (14 candidates for each
+TW target). Its pair-selection mechanism is pool-agnostic, so this
+extension exercises the method exactly as designed — it simply gains
+the opportunity to discover the ADR-TW lead-lag on its own. Best of
+4-config hyperparameter grid = 0.030 IC vs MAGNET's 0.072. DeltaLag
 must solve a 65-way discrete search (13 candidates × 5 lags) per
 target per day, and fails to reliably recover the domain-verified
 ADR-TW pairing from 1150 training samples. This supports MAGNET's
@@ -234,7 +243,7 @@ of three themes above. Table below summarizes the differentiation:
 | Prior work theme | Representative method | MAGNET's departure |
 |---|---|---|
 | Learned cross-market attention | MEIG (CGAT), HGT (meta-relation) | **Pair topology fixed** by node-order alignment; learning restricted to a per-dimension mixing gate over the pre-aligned pair (vs attention competing across all edges) |
-| Dynamic learned lead-lag | DeltaLag | **Pair and lag fixed** by domain knowledge (dual-listing identity, trading-session ordering); only mixing weights are learned (vs joint discrete search over pair × lag) |
+| Dynamic learned lead-lag | DeltaLag (single-market origin; adapted by us to a cross-market pool) | **Pair and lag fixed** by domain knowledge (dual-listing identity, trading-session ordering); only mixing weights are learned (vs joint discrete search over pair × lag) |
 | Single-market fusion mechanisms | MAN-SF, HATS, MASTER | **Cross-market fusion** as primary axis, single-market treated as secondary intra-graph structure |
 | Broad multi-market GNN | ASTGCN (18 markets) | **Focused verified-pair study** with cleaner ablation methodology |
 

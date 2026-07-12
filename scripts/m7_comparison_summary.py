@@ -29,27 +29,29 @@ INDEX = ROOT / "runs" / "INDEX.csv"
 # 每個模型 → (顯示名, tier, params, tag prefix 用來 group grid)
 # grid_tags = tuple  → 從中選 best test_IC
 # single_tag = str   → 直接用
+# Category legend: SM = single-market, CM = cross-market.
+# "adapted to CM" = 原論文為單市場（或非金融）方法，跨市場能力來自本專案的改編。
 MODEL_SPECS = [
-    # (key, display, tier, params_k, single_or_tuple_tag)
-    ("lstm_only",    "LSTM-only",         "Stage 0",   23.5,  "opt_p17_baseline_lstm"),
-    ("adv_alstm",    "Adv-ALSTM",         "Tier 1",    27.6,  "opt_p20_adv_alstm"),
-    ("delta_lag",    "DeltaLag",          "Tier 3",    28.1,  (
+    # (key, display, category, params_k, single_or_tuple_tag)
+    ("lstm_only",    "LSTM-only",         "Ablation (ours)",           23.5,  "opt_p17_baseline_lstm"),
+    ("adv_alstm",    "Adv-ALSTM",         "SM attention",              27.6,  "opt_p20_adv_alstm"),
+    ("delta_lag",    "DeltaLag",          "SM lead-lag, adapted to CM", 28.1,  (
         "opt_p24_delta_lag",
         "opt_p28_dl_lr1e3_pat20",
         "opt_p29_dl_lr5e4_pat15",
         "opt_p30_dl_lr5e4_pat20",
     )),
-    ("man_sf",       "MAN-SF (no-text)",  "Tier 3",    42.1,  "opt_p22_man_sf"),
-    ("tw_gnn",       "TW-only GNN",       "Stage 0",   90.7,  "opt_p18_baseline_tw_gnn"),
-    ("hats",         "HATS",              "Tier 2",    92.4,  "opt_p21_hats"),
-    ("hgt",          "HGT",               "Tier 3+4",  106.5, (
+    ("man_sf",       "MAN-SF (no-text)",  "SM multimodal",             42.1,  "opt_p22_man_sf"),
+    ("tw_gnn",       "TW-only GNN",       "Ablation (ours)",           90.7,  "opt_p18_baseline_tw_gnn"),
+    ("hats",         "HATS",              "SM hierarchical GNN",       92.4,  "opt_p21_hats"),
+    ("hgt",          "HGT",               "General HetGNN, adapted to CM", 106.5, (
         "opt_p23_hgt",
         "opt_p25_hgt_lr1e3_pat20",
         "opt_p26_hgt_lr5e4_pat15",
         "opt_p27_hgt_lr5e4_pat20",
     )),
-    ("magnet_no_a12","MAGNET (no A12)",   "Stage 0",  166.2,  "opt_p19_ablation_no_a12"),
-    ("magnet_full",  "MAGNET (full)",     "**reference**", 166.2, "opt_p2_variance_penalty"),
+    ("magnet_no_a12","MAGNET (no A12)",   "Ablation (ours)",          166.2,  "opt_p19_ablation_no_a12"),
+    ("magnet_full",  "MAGNET (full)",     "**CM multiplex (ours)**",  166.2,  "opt_p2_variance_penalty"),
 ]
 
 
@@ -129,7 +131,7 @@ def build_markdown(rows_by_tag: dict) -> str:
     # ── 主表 ─────────────────────────────────────────────────
     lines.append("## Main Results (best-of-grid where applicable)")
     lines.append("")
-    lines.append("| # | Model | Tier | Params (K) | val\\_IC | **test\\_IC** | test\\_RankIC | test\\_ICIR | val→test gap | Best config |")
+    lines.append("| # | Model | Category | Params (K) | val\\_IC | **test\\_IC** | test\\_RankIC | test\\_ICIR | val→test gap | Best config |")
     lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---|")
 
     magnet_full_ic = None
@@ -229,6 +231,23 @@ def build_markdown(rows_by_tag: dict) -> str:
     lines.append("- MAN-SF implemented as no-text variant with GATv2 backbone (GCN caused MPS bug).")
     lines.append("- HATS simplified to single-relation (industry) hierarchy.")
     lines.append("- DeltaLag added LayerNorm before predictor for heterogeneous feature scales.")
+    lines.append("")
+    lines.append("**Original scope disclosure** (Category legend: SM = single-market, "
+                 "CM = cross-market):")
+    lines.append("- DeltaLag's original evaluation is single-market U.S. universes "
+                 "(S&P 500 / NASDAQ / NYSE); its lead-lag arises from cross-stock "
+                 "information diffusion within one market. The CM capability tested "
+                 "here is our adaptation: the 7 ADR nodes are added to its candidate "
+                 "pool (14 candidates per TW target), giving its pair-selection "
+                 "mechanism the opportunity to discover the ADR-TW lead-lag.")
+    lines.append("- HGT originally targets academic / e-commerce graphs (OAG, Amazon); "
+                 "the 2-node-type, 4-edge-type cross-market graph (incl. explicit A12 "
+                 "identity edges) is our construction.")
+    lines.append("- None of the implemented baselines natively targets cross-border "
+                 "equity prediction. Natively cross-market published methods (MEIG, "
+                 "ASTGCN, US-China bipartite) could not be faithfully reproduced: "
+                 "42.7M-tweet corpus, market-index-level volatility targets, and "
+                 "non-GNN two-stage pipeline respectively. See related_work.md §2.1.")
     return "\n".join(lines) + "\n"
 
 
