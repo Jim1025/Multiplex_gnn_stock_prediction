@@ -143,12 +143,10 @@ def train_one_epoch(
         y_hat, extras = model(batch)
         y = batch["y"]
 
-        loss, comps = criterion(
-            y_hat=y_hat,
-            y=y,
-            h_L1=extras.get("h_L1"),
-            h_L2=extras.get("h_L2"),
-        )
+        # 走 model.compute_loss：所有模型皆委派給內部 criterion（與外部
+        # criterion 同 cfg 構建、行為等價），並允許模型附加自身的正則項
+        # （M8 weak links 的 L1 稀疏懲罰）
+        loss, comps = model.compute_loss(y_hat, y, extras)
 
         optimizer.zero_grad()
         loss.backward()
@@ -199,6 +197,8 @@ def train(
     use_scheduler:     bool            = True,
     architecture:      Optional[str]   = None,
     patience_override: Optional[int]   = None,
+    seed_override:     Optional[int]   = None,
+    smooth_window_override: Optional[int] = None,
 ) -> str:
     """
     主訓練流程。
@@ -237,6 +237,12 @@ def train(
     if patience_override is not None:
         cfg["training"]["patience"] = int(patience_override)
         _overrides.append(f"patience={patience_override}")
+    if seed_override is not None:
+        cfg["training"]["seed"] = int(seed_override)
+        _overrides.append(f"seed={seed_override}")
+    if smooth_window_override is not None:
+        cfg["training"]["early_stop_smooth_window"] = int(smooth_window_override)
+        _overrides.append(f"smooth_window={smooth_window_override}")
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
@@ -321,7 +327,12 @@ def train(
     if es_metric not in ("IC", "ICIR"):
         print(f"[warn] unknown early_stop_metric={es_metric}, fallback to IC")
         es_metric = "IC"
-    print(f"[early-stop] monitor = val/{es_metric}  (NaN 時 fallback val/IC)")
+    # M8 route 1: 選點穩定化——monitor 用 trailing 移動平均（window=1 即現行為）。
+    # 動機：val IC 在相鄰 epoch 間 ±0.07 振盪、val loss 平坦，單 epoch 峰值
+    # 選點是高變異估計器（見 docs/m8_seed_robustness.md）。
+    smooth_w = max(1, int(t_cfg.get("early_stop_smooth_window", 1)))
+    smooth_note = f" | smooth_window={smooth_w}" if smooth_w > 1 else ""
+    print(f"[early-stop] monitor = val/{es_metric}  (NaN 時 fallback val/IC){smooth_note}")
 
     # ── MLflow setup ──────────────────────────────────────────────
     mlflow.set_tracking_uri(mf_cfg.get("tracking_uri", "file:./mlruns"))
@@ -362,10 +373,11 @@ def train(
         mlflow.log_params({k: str(v) for k, v in params_flat.items()})
 
         # ── 訓練迴圈 ───────────────────────────────────────────────
-        best_monitor  = -float("inf")   # monitor 值（依 es_metric 為 IC 或 ICIR）
+        best_monitor  = -float("inf")   # monitor 值（依 es_metric 為 IC 或 ICIR；smooth_w>1 時為其移動平均）
         best_val_ic   = -float("inf")   # 對應 epoch 的 IC（保留供 INDEX/log 寫入）
         best_epoch    = -1
         patience_cnt  = 0
+        monitor_hist: list[float] = []  # M8 route 1: trailing MA 用的 monitor 歷史
         best_ckpt_path  = run_dir / "checkpoints" / "best.pt"
         final_ckpt_path = run_dir / "checkpoints" / "final.pt"
 
@@ -416,6 +428,11 @@ def train(
                 monitor_val = val_icir
             else:
                 monitor_val = val_ic
+
+            # M8 route 1: trailing 移動平均（開頭窗口不足時取現有歷史）
+            monitor_hist.append(monitor_val)
+            if smooth_w > 1:
+                monitor_val = float(np.mean(monitor_hist[-smooth_w:]))
 
             improved = (not np.isnan(monitor_val)) and (monitor_val > best_monitor + min_delta)
             if improved:
@@ -559,6 +576,10 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.model.architecture（M6 Stage 0 ablation 用）")
     p.add_argument("--patience", type=int, default=None,
                    help="覆寫 cfg.training.patience（M7 hyperparameter grid 用）")
+    p.add_argument("--seed", type=int, default=None,
+                   help="覆寫 cfg.training.seed（M8 multi-seed robustness 用）")
+    p.add_argument("--smooth-window", type=int, default=None,
+                   help="覆寫 cfg.training.early_stop_smooth_window（M8 route 1 選點穩定化；1=現行為）")
     return p.parse_args()
 
 
@@ -576,6 +597,8 @@ if __name__ == "__main__":
         use_scheduler=not args.no_scheduler,
         architecture=args.architecture,
         patience_override=args.patience,
+        seed_override=args.seed,
+        smooth_window_override=args.smooth_window,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

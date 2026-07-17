@@ -30,6 +30,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from src.dataset.config import PAIR_MAP
 from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
 from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
@@ -72,6 +73,25 @@ class MAGNET(nn.Module):
         # M6 Stage 0 ablation: 切斷 ADR → TW 跨層訊號（保留 fusion 結構）
         # 啟用時將 h_L1 在進 fusion 前歸零，h_fused = (1 - gate) * h_L2
         self.disable_a12 = bool(m_cfg.get("disable_a12", False))
+
+        # M8 Hierarchical A12: 弱連結第二層邊（strong = 身分配對，維持不動）
+        #   mode = None       : 現行 MAGNET（無弱連結）
+        #   mode = "free"     : ADR_i → TW_j (i≠j) 全部 42 條候選自由學習
+        #   mode = "industry" : 候選僅限同產業跨公司（PAIR_MAP industry），12 條
+        # 機制：beta 為靜態可學邊權（init 0 → 起點即現行 MAGNET），
+        #   h_L1_aug_j = h_L1_j + Σ_i beta_eff[i,j]·h_L1_i，弱訊號先併入
+        #   ADR 側再過既有 gate——gate 維持唯一的跨市場閘門，
+        #   強弱不共用 softmax（HGT 教訓）、lag 固定為 1 不學（DeltaLag 教訓）、
+        #   L1 稀疏懲罰讓資料不支持的邊留在 0（MEIG 教訓）。
+        weak_cfg = m_cfg.get("weak_links", {}) or {}
+        self.weak_mode   = weak_cfg.get("mode")            # None | "free" | "industry"
+        self.weak_lambda = float(weak_cfg.get("lambda_sparse", 1e-3))
+        if self.weak_mode is not None:
+            n_pairs = len(PAIR_MAP)
+            self.register_buffer(
+                "weak_mask", self._build_weak_mask(self.weak_mode, n_pairs)
+            )
+            self.weak_beta = nn.Parameter(torch.zeros(n_pairs, n_pairs))
 
         d_prime   = proj_cfg["d_prime"]
         H_lstm    = lstm_cfg["hidden_dim"]
@@ -162,7 +182,11 @@ class MAGNET(nn.Module):
         # ── Phase 2: 跨市場融合 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §4
         # M6 Stage 0 ablation: disable_a12=True 時將 ADR 訊號零化（保留 fusion 結構）
-        h_L1_in = torch.zeros_like(h_L1) if self.disable_a12 else h_L1
+        # M8: weak links 先富化 ADR 側，再過 gate（gate 仍是唯一跨市場閘門）
+        if self.disable_a12:
+            h_L1_in = torch.zeros_like(h_L1)
+        else:
+            h_L1_in = self._augment_weak(h_L1)
         h_fused, alpha, gate = self.fusion(h_L1_in, h_L2)  # [B, n, d']
 
         # ── Phase 3: 預測 ─────────────────────────────────────────────
@@ -176,11 +200,49 @@ class MAGNET(nn.Module):
             "alpha":   alpha,
             "gate":    gate,
         }
+        if self.weak_mode is not None:
+            extras["weak_beta"] = self.weak_beta * self.weak_mask  # [n, n] 分析用
         return y_hat, extras
 
     # ------------------------------------------------------------------
     # 內部工具
     # ------------------------------------------------------------------
+    @staticmethod
+    def _build_weak_mask(mode: str, n_pairs: int) -> Tensor:
+        """
+        建立弱連結候選遮罩 [n, n] float。mask[i, j] = 1 表示允許
+        ADR_i → TW_j 的弱連結候選（對角線 = 強連結層，一律排除）。
+
+        mode = "free"     : 全部 off-diagonal（42 條）
+        mode = "industry" : 僅同產業 off-diagonal（半導體 4×3 = 12 條）
+        """
+        if mode not in ("free", "industry"):
+            raise ValueError(f"未知 weak_links.mode={mode!r}；可選：free | industry")
+        eye = torch.eye(n_pairs, dtype=torch.bool)
+        if mode == "free":
+            mask = ~eye
+        else:
+            industries = [v["industry"] for v in PAIR_MAP.values()]
+            same = torch.tensor(
+                [[industries[i] == industries[j] for j in range(n_pairs)]
+                 for i in range(n_pairs)],
+                dtype=torch.bool,
+            )
+            mask = same & ~eye
+        return mask.float()
+
+    def _augment_weak(self, h_L1: Tensor) -> Tensor:
+        """
+        弱連結聚合：h_aug_j = h_L1_j + Σ_i beta_eff[i,j]·h_L1_i。
+
+        beta init 0 → 未學習前恆等於現行 MAGNET（殘差式結構學習）。
+        """
+        if self.weak_mode is None:
+            return h_L1
+        beta_eff = self.weak_beta * self.weak_mask                # [n, n]
+        h_weak = torch.einsum("ij,bid->bjd", beta_eff, h_L1)      # [B, n, d']
+        return h_L1 + h_weak
+
     @staticmethod
     def _apply_gat_batched(
         gat: GATEncoder,
@@ -227,14 +289,20 @@ class MAGNET(nn.Module):
 
         Returns:
             loss       : scalar
-            components : dict{"mse", "rank", "align"}
+            components : dict{"mse", "rank", "align", "variance"[, "weak_l1"]}
         """
-        return self.criterion(
+        loss, comps = self.criterion(
             y_hat=y_hat,
             y=y,
             h_L1=extras.get("h_L1"),
             h_L2=extras.get("h_L2"),
         )
+        # M8: 弱連結 L1 稀疏懲罰（僅訓練圖中生效；資料不支持的邊收縮回 0）
+        if self.weak_mode is not None:
+            weak_l1 = (self.weak_beta * self.weak_mask).abs().sum()
+            loss = loss + self.weak_lambda * weak_l1
+            comps = {**comps, "weak_l1": float(weak_l1.detach())}
+        return loss, comps
 
     # ------------------------------------------------------------------
     # 工廠方法：從 YAML 路徑建立模型

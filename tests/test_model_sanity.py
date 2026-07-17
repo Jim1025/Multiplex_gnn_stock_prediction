@@ -272,6 +272,8 @@ def test_build_model_dispatch(config: dict) -> None:
     cfg_hgt  = {**config, "model": {**config["model"], "architecture": "hgt"}}
     cfg_dl   = {**config, "model": {**config["model"], "architecture": "delta_lag"}}
     cfg_meig = {**config, "model": {**config["model"], "architecture": "meig"}}
+    cfg_wf   = {**config, "model": {**config["model"], "architecture": "magnet_weak_free"}}
+    cfg_wi   = {**config, "model": {**config["model"], "architecture": "magnet_weak_industry"}}
     cfg_bad  = {**config, "model": {**config["model"], "architecture": "nope"}}
 
     assert isinstance(build_model(cfg_lstm), BaselineLSTM)
@@ -283,6 +285,10 @@ def test_build_model_dispatch(config: dict) -> None:
     assert isinstance(build_model(cfg_hgt), BaselineHGT)
     assert isinstance(build_model(cfg_dl),  BaselineDeltaLag)
     assert isinstance(build_model(cfg_meig), BaselineMEIG)
+    m_wf = build_model(cfg_wf)
+    m_wi = build_model(cfg_wi)
+    assert isinstance(m_wf, MAGNET) and m_wf.weak_mode == "free"
+    assert isinstance(m_wi, MAGNET) and m_wi.weak_mode == "industry"
     with pytest.raises(ValueError):
         build_model(cfg_bad)
 
@@ -431,6 +437,96 @@ def test_meig_graph_block_separation(config: dict, small_batch: dict) -> None:
     assert not model.inter_mask[:n, :n].any(), "inter mask 含 ADR 同市場邊"
     assert not model.inter_mask[n:, n:].any(), "inter mask 含 TW 同市場邊"
     assert not model.inter_mask.diagonal().any(), "inter mask 含 self-loop"
+
+
+# ---------------------------------------------------------------------------
+# M8 Hierarchical A12 — weak-link tier smoke tests
+# ---------------------------------------------------------------------------
+
+def _build_weak(config: dict, arch: str) -> MAGNET:
+    cfg = {**config, "model": {**config["model"], "architecture": arch}}
+    return build_model(cfg)
+
+
+def test_magnet_weak_free_smoke(config: dict, small_batch: dict) -> None:
+    """MAGNET + 自由弱連結（42 條候選）forward + backward 可跑，含 L1 懲罰路徑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = _build_weak(config, "magnet_weak_free")
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_magnet_weak_industry_smoke(config: dict, small_batch: dict) -> None:
+    """MAGNET + 產業遮罩弱連結（12 條候選）forward + backward 可跑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = _build_weak(config, "magnet_weak_industry")
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_weak_mask_structure(config: dict) -> None:
+    """驗證弱連結遮罩：free = 42 條 off-diagonal；industry = 半導體區塊 12 條。"""
+    torch.manual_seed(config["training"]["seed"])
+    m_free = _build_weak(config, "magnet_weak_free")
+    m_ind  = _build_weak(config, "magnet_weak_industry")
+
+    n = m_free.weak_mask.size(0)
+    # free：全 off-diagonal
+    assert m_free.weak_mask.sum().item() == n * n - n            # 42
+    assert m_free.weak_mask.diagonal().sum().item() == 0, "對角線屬強連結層，必須排除"
+
+    # industry：依 PAIR_MAP 順序 [TSM,UMC,ASX,CHT,IMOS,AUOTY,HNHPF]，
+    # 半導體 = {0,1,2,4}（4×4−4=12），其餘產業為單一成員 → 無弱連結候選
+    semi = {0, 1, 2, 4}
+    expected = 0.0
+    for i in range(n):
+        for j in range(n):
+            allowed = (i != j) and (i in semi) and (j in semi)
+            expected += float(allowed)
+            assert m_ind.weak_mask[i, j].item() == float(allowed), (
+                f"industry mask[{i},{j}] 非預期"
+            )
+    assert m_ind.weak_mask.sum().item() == expected == 12
+
+
+def test_weak_beta_init_is_identity_to_magnet(config: dict, small_batch: dict) -> None:
+    """beta init 0 → 弱連結變體在未訓練時輸出必須與原 MAGNET 完全相同
+    （殘差式結構學習的起點保證）。"""
+    seed = config["training"]["seed"]
+
+    torch.manual_seed(seed)
+    base = MAGNET(config)
+    torch.manual_seed(seed)
+    weak = _build_weak(config, "magnet_weak_free")   # weak_beta=zeros 不消耗 RNG
+
+    base.eval()
+    weak.eval()
+    with torch.no_grad():
+        y_base, _ = base(small_batch)
+        y_weak, extras = weak(small_batch)
+
+    assert torch.allclose(y_base, y_weak, atol=1e-7), (
+        "beta=0 時弱連結變體應與原 MAGNET 輸出一致"
+    )
+    assert extras["weak_beta"].abs().sum().item() == 0.0
+
+
+def test_weak_l1_penalty_in_loss(config: dict, small_batch: dict) -> None:
+    """驗證 L1 稀疏懲罰進入 compute_loss：beta 非零時 loss 增加 lambda*|beta|。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = _build_weak(config, "magnet_weak_free")
+    model.train()
+    y_hat, extras = model(small_batch)
+
+    # beta = 0：weak_l1 分量應為 0
+    loss0, comps0 = model.compute_loss(y_hat, small_batch["y"], extras)
+    assert comps0["weak_l1"] == 0.0
+
+    # 手動設 beta 後懲罰應等於 lambda * |beta*mask|.sum()
+    with torch.no_grad():
+        model.weak_beta.fill_(0.1)
+    loss1, comps1 = model.compute_loss(y_hat, small_batch["y"], extras)
+    expected_l1 = (model.weak_beta * model.weak_mask).abs().sum().item()
+    assert abs(comps1["weak_l1"] - expected_l1) < 1e-6
+    assert abs((loss1 - loss0).item() - model.weak_lambda * expected_l1) < 1e-6
 
 
 def test_adv_alstm_adversarial_toggle(config: dict, small_batch: dict) -> None:

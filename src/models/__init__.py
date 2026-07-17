@@ -17,6 +17,8 @@ VALID_ARCHITECTURES = (
     "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
     # M7 external baselines
     "adv_alstm", "hats", "man_sf", "hgt", "delta_lag", "meig",
+    # M8 hierarchical A12 (strong identity pairs + learned weak links)
+    "magnet_weak_free", "magnet_weak_industry",
 )
 
 
@@ -63,6 +65,12 @@ def build_model(cfg: dict):
         return BaselineDeltaLag(cfg)
     if arch == "meig":
         return BaselineMEIG(cfg)
+    if arch in ("magnet_weak_free", "magnet_weak_industry"):
+        # 注入 weak_links.mode（MAGNET 內部會讀）；保留 cfg 原有的 lambda 等設定
+        mode = "free" if arch == "magnet_weak_free" else "industry"
+        weak_cfg = {**(cfg["model"].get("weak_links", {}) or {}), "mode": mode}
+        cfg_local = {**cfg, "model": {**cfg["model"], "weak_links": weak_cfg}}
+        return MAGNET(cfg_local)
     return MAGNET(cfg)
 
 
