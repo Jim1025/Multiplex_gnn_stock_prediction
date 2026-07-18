@@ -55,6 +55,46 @@ MATRIX_A12 = {
     },
 }
 
+# M8 Part D（路線 A 實驗 1）: top baselines × 3 seeds @ 各自 best-of-grid config
+# 檢驗「發表風格的單 seed 數字能否跨 seed 複現」——誠實版 Table 3 的資料來源
+MATRIX_BASELINES = {
+    "Adv-ALSTM (default cfg)": {
+        42:  "opt_p20_adv_alstm",
+        7:   "opt_p55_advalstm_s7",
+        123: "opt_p56_advalstm_s123",
+    },
+    "MAN-SF no-text (default cfg)": {
+        42:  "opt_p22_man_sf",
+        7:   "opt_p57_mansf_s7",
+        123: "opt_p58_mansf_s123",
+    },
+    "DeltaLag (lr 5e-4)": {
+        42:  "opt_p29_dl_lr5e4_pat15",
+        7:   "opt_p59_dl5e4_s7",
+        123: "opt_p60_dl5e4_s123",
+    },
+    "HGT (lr 1e-3)": {
+        42:  "opt_p23_hgt",
+        7:   "opt_p61_hgt_s7",
+        123: "opt_p62_hgt_s123",
+    },
+    "MEIG-core (lr 5e-4)": {
+        42:  "opt_p33_meig_lr5e4_pat15",
+        7:   "opt_p63_meig5e4_s7",
+        123: "opt_p64_meig5e4_s123",
+    },
+    "MAGNET (lr 1e-3, original protocol)": {
+        42:  "opt_p2_variance_penalty",
+        7:   "opt_p37_magnet_seed7",
+        123: "opt_p38_magnet_seed123",
+    },
+    "MAGNET (lr 5e-4, stable regime)": {
+        42:  "opt_p46_raw_lr5e4_s42",
+        7:   "opt_p47_raw_lr5e4_s7",
+        123: "opt_p48_raw_lr5e4_s123",
+    },
+}
+
 # M8 route 1+2 穩定化 factorial（全部 architecture=magnet）：
 #   選點規則 {raw best-val, 3-epoch trailing MA} × lr {1e-3, 5e-4} × 3 seeds
 MATRIX_STABILIZE = {
@@ -187,6 +227,21 @@ def build_markdown(by_tag: dict) -> str:
     lines.append("### Aggregate (mean ± std over seeds)")
     lines.append("")
     lines.extend(_aggregate_rows(MATRIX_A12, by_tag))
+    lines.append("")
+
+    lines.append("## Part D — Honest Table 3: top baselines × 3 seeds "
+                 "@ each model's best-of-grid config")
+    lines.append("")
+    lines.append("Tests whether published-style single-seed numbers replicate "
+                 "across seeds. Seed-42 entries are the original M7 runs.")
+    lines.append("")
+    lines.append("### Per-run detail")
+    lines.append("")
+    lines.extend(_detail_rows(MATRIX_BASELINES, by_tag))
+    lines.append("")
+    lines.append("### Aggregate (mean ± std over seeds)")
+    lines.append("")
+    lines.extend(_aggregate_rows(MATRIX_BASELINES, by_tag))
     lines.append("")
 
     lines.append("## Notes")

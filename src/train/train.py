@@ -199,6 +199,7 @@ def train(
     patience_override: Optional[int]   = None,
     seed_override:     Optional[int]   = None,
     smooth_window_override: Optional[int] = None,
+    save_every_epoch:  bool            = False,
 ) -> str:
     """
     主訓練流程。
@@ -422,6 +423,11 @@ def train(
                 f"({train_stats['epoch_time_sec']:.1f}s)"
             )
 
+            # M8 路線 A 實驗 3（Figure 1）：逐 epoch 存權重供事後 test 軌跡評估
+            if save_every_epoch:
+                save_checkpoint(run_dir / "checkpoints" / f"epoch_{epoch:03d}.pt",
+                                model, None, epoch=epoch, best_val_ic=val_ic)
+
             # Early stopping on configurable metric（越大越好）
             # 選 monitor 值：ICIR NaN 時退回 IC
             if es_metric == "ICIR" and not np.isnan(val_icir):
@@ -580,6 +586,8 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.training.seed（M8 multi-seed robustness 用）")
     p.add_argument("--smooth-window", type=int, default=None,
                    help="覆寫 cfg.training.early_stop_smooth_window（M8 route 1 選點穩定化；1=現行為）")
+    p.add_argument("--save-every-epoch", action="store_true",
+                   help="逐 epoch 存 checkpoint（M8 Figure 1 軌跡分析用）")
     return p.parse_args()
 
 
@@ -599,6 +607,7 @@ if __name__ == "__main__":
         patience_override=args.patience,
         seed_override=args.seed,
         smooth_window_override=args.smooth_window,
+        save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
     print(f"   查看：  cat runs/INDEX.csv  |  ls runs/")

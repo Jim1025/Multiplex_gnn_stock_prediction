@@ -76,6 +76,48 @@ Route 1 = 3-epoch trailing moving-average checkpoint selection (`--smooth-window
 | MAGNET (full) @ stable regime | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
 | MAGNET (no A12) @ stable regime | 0.0596 ± 0.0167 | **0.0121 ± 0.0165** | 0.0229 ± 0.0219 | [-0.0062, 0.0256] |
 
+## Part D — Honest Table 3: top baselines × 3 seeds @ each model's best-of-grid config
+
+Tests whether published-style single-seed numbers replicate across seeds. Seed-42 entries are the original M7 runs.
+
+### Per-run detail
+
+| Config | Seed | best\_ep | val\_IC | test\_IC | test\_RankIC | val→test gap |
+|---|---:|---:|---:|---:|---:|---:|
+| Adv-ALSTM (default cfg) | 42 | 4 | 0.0496 | 0.0344 | 0.0363 | +0.0153 |
+| Adv-ALSTM (default cfg) | 7 | 31 | 0.0466 | 0.0072 | 0.0057 | +0.0394 |
+| Adv-ALSTM (default cfg) | 123 | 11 | 0.0532 | 0.0325 | 0.0335 | +0.0207 |
+| MAN-SF no-text (default cfg) | 42 | 2 | 0.0625 | 0.0330 | 0.0396 | +0.0295 |
+| MAN-SF no-text (default cfg) | 7 | 2 | 0.0500 | 0.0216 | 0.0254 | +0.0284 |
+| MAN-SF no-text (default cfg) | 123 | 1 | 0.0714 | 0.0223 | 0.0290 | +0.0491 |
+| DeltaLag (lr 5e-4) | 42 | 14 | 0.0514 | 0.0296 | 0.0120 | +0.0218 |
+| DeltaLag (lr 5e-4) | 7 | 12 | 0.0408 | 0.0012 | -0.0074 | +0.0396 |
+| DeltaLag (lr 5e-4) | 123 | 5 | 0.0490 | 0.0200 | 0.0145 | +0.0290 |
+| HGT (lr 1e-3) | 42 | 5 | 0.0706 | 0.0277 | 0.0196 | +0.0429 |
+| HGT (lr 1e-3) | 7 | 4 | 0.0526 | 0.0135 | -0.0115 | +0.0390 |
+| HGT (lr 1e-3) | 123 | 8 | 0.0357 | 0.0319 | 0.0260 | +0.0038 |
+| MEIG-core (lr 5e-4) | 42 | 4 | 0.0647 | 0.0233 | 0.0179 | +0.0414 |
+| MEIG-core (lr 5e-4) | 7 | 9 | 0.0805 | 0.0146 | 0.0257 | +0.0659 |
+| MEIG-core (lr 5e-4) | 123 | 22 | 0.0512 | -0.0035 | -0.0013 | +0.0548 |
+| MAGNET (lr 1e-3, original protocol) | 42 | 8 | 0.0774 | 0.0723 | 0.0865 | +0.0051 |
+| MAGNET (lr 1e-3, original protocol) | 7 | 3 | 0.0855 | 0.0332 | 0.0316 | +0.0523 |
+| MAGNET (lr 1e-3, original protocol) | 123 | 13 | 0.0369 | -0.0054 | 0.0189 | +0.0422 |
+| MAGNET (lr 5e-4, stable regime) | 42 | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
+| MAGNET (lr 5e-4, stable regime) | 7 | 14 | 0.0793 | 0.0279 | 0.0389 | +0.0513 |
+| MAGNET (lr 5e-4, stable regime) | 123 | 13 | 0.0567 | 0.0164 | 0.0102 | +0.0403 |
+
+### Aggregate (mean ± std over seeds)
+
+| Config | val\_IC | **test\_IC** | test\_RankIC | test\_IC range |
+|---|---|---|---|---|
+| Adv-ALSTM (default cfg) | 0.0498 ± 0.0033 | **0.0247 ± 0.0152** | 0.0252 ± 0.0169 | [0.0072, 0.0344] |
+| MAN-SF no-text (default cfg) | 0.0613 ± 0.0107 | **0.0256 ± 0.0064** | 0.0314 ± 0.0074 | [0.0216, 0.0330] |
+| DeltaLag (lr 5e-4) | 0.0471 ± 0.0055 | **0.0169 ± 0.0144** | 0.0064 ± 0.0120 | [0.0012, 0.0296] |
+| HGT (lr 1e-3) | 0.0529 ± 0.0175 | **0.0244 ± 0.0096** | 0.0114 ± 0.0200 | [0.0135, 0.0319] |
+| MEIG-core (lr 5e-4) | 0.0655 ± 0.0147 | **0.0115 ± 0.0137** | 0.0141 ± 0.0139 | [-0.0035, 0.0233] |
+| MAGNET (lr 1e-3, original protocol) | 0.0666 ± 0.0261 | **0.0334 ± 0.0388** | 0.0457 ± 0.0359 | [-0.0054, 0.0723] |
+| MAGNET (lr 5e-4, stable regime) | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
+
 ## Notes
 
 - All runs share the opt_p2 regime (lr=1e-3, wd=1e-3, patience=15, CosineAnnealingWarmRestarts, early stop on val IC).
