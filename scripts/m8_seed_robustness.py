@@ -41,17 +41,29 @@ MATRIX = {
     },
 }
 
-# M8 Part C: 穩定協議（raw 選點 + lr 5e-4）下的 A12 因果對比
+# M8 Part C: lr 5e-4 協議下的 A12 因果對比
 MATRIX_A12 = {
-    "MAGNET (full) @ stable regime": {
+    "MAGNET (full) @ lr 5e-4": {
         42:  "opt_p46_raw_lr5e4_s42",
         7:   "opt_p47_raw_lr5e4_s7",
         123: "opt_p48_raw_lr5e4_s123",
     },
-    "MAGNET (no A12) @ stable regime": {
+    "MAGNET (no A12) @ lr 5e-4": {
         42:  "opt_p52_noa12_lr5e4_s42",
         7:   "opt_p53_noa12_lr5e4_s7",
         123: "opt_p54_noa12_lr5e4_s123",
+    },
+}
+
+# M8 Part E（路線 A 實驗 4）: 受控 replicates——同 config 同 seed 重複跑
+# p46 為原 run；p66 為 Figure 1 instrumented run（訓練數學不變）；p67-p69 為受控補跑
+MATRIX_REPLICATES = {
+    "MAGNET seed 42 @ lr 5e-4 (5 replicates)": {
+        "r1 (p46)":  "opt_p46_raw_lr5e4_s42",
+        "r2 (p66)":  "opt_p66_fig1_lr5e4",
+        "r3 (p67)":  "opt_p67_rep_s42_a",
+        "r4 (p68)":  "opt_p68_rep_s42_b",
+        "r5 (p69)":  "opt_p69_rep_s42_c",
     },
 }
 
@@ -88,7 +100,7 @@ MATRIX_BASELINES = {
         7:   "opt_p37_magnet_seed7",
         123: "opt_p38_magnet_seed123",
     },
-    "MAGNET (lr 5e-4, stable regime)": {
+    "MAGNET (lr 5e-4)": {
         42:  "opt_p46_raw_lr5e4_s42",
         7:   "opt_p47_raw_lr5e4_s7",
         123: "opt_p48_raw_lr5e4_s123",
@@ -217,8 +229,8 @@ def build_markdown(by_tag: dict) -> str:
     lines.extend(_aggregate_rows(MATRIX_STABILIZE, by_tag))
     lines.append("")
 
-    lines.append("## Part C — A12 causal ablation under the stable regime "
-                 "(raw selection + lr 5e-4, 3 seeds)")
+    lines.append("## Part C — A12 causal ablation @ lr 5e-4 "
+                 "(raw selection, 3 seeds)")
     lines.append("")
     lines.append("### Per-run detail")
     lines.append("")
@@ -227,6 +239,21 @@ def build_markdown(by_tag: dict) -> str:
     lines.append("### Aggregate (mean ± std over seeds)")
     lines.append("")
     lines.extend(_aggregate_rows(MATRIX_A12, by_tag))
+    lines.append("")
+
+    lines.append("## Part E — Controlled replicates: same config, same seed, "
+                 "repeated runs (Route A Experiment 4)")
+    lines.append("")
+    lines.append("MPS numerics are not bitwise deterministic; each run is an "
+                 "independent draw regardless of seed. 'Seed' column = replicate id.")
+    lines.append("")
+    lines.append("### Per-run detail")
+    lines.append("")
+    lines.extend(_detail_rows(MATRIX_REPLICATES, by_tag))
+    lines.append("")
+    lines.append("### Aggregate (mean ± std over replicates)")
+    lines.append("")
+    lines.extend(_aggregate_rows(MATRIX_REPLICATES, by_tag))
     lines.append("")
 
     lines.append("## Part D — Honest Table 3: top baselines × 3 seeds "
@@ -264,6 +291,16 @@ def build_markdown(by_tag: dict) -> str:
     lines.append("- MPS nondeterminism: identical seed + config reruns can diverge "
                  "under load (observed opt_p45 vs opt_p38 trajectory mismatch after "
                  "a mid-run machine sleep); seed alone does not pin the trajectory.")
+    lines.append("- Part E revision of Part B: the 'lr 5e-4 stabilizes' conclusion "
+                 "does not survive controlled replication. Five same-seed same-config "
+                 "runs at lr 5e-4 give test_IC sigma ≈ 0.026 — about 4x the "
+                 "across-seed sigma (0.007) measured from three single runs in "
+                 "Part B, meaning that tight spread was itself a sampling artifact. "
+                 "The RUN, not the seed, is the unit of variance; honest reporting "
+                 "requires replicate-based mean ± SE per configuration. "
+                 "Re-evaluating identical weights also shifts val IC by ~0.006 "
+                 "(evaluation-level nondeterminism), enough to flip which epoch "
+                 "best-val selection chooses.")
     return "\n".join(lines) + "\n"
 
 

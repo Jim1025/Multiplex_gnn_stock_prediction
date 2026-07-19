@@ -56,25 +56,45 @@ Route 1 = 3-epoch trailing moving-average checkpoint selection (`--smooth-window
 | raw + lr 5e-4 | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
 | MA-3 + lr 5e-4 | 0.0660 ± 0.0125 | **-0.0166 ± 0.0396** | -0.0185 ± 0.0435 | [-0.0470, 0.0281] |
 
-## Part C — A12 causal ablation under the stable regime (raw selection + lr 5e-4, 3 seeds)
+## Part C — A12 causal ablation @ lr 5e-4 (raw selection, 3 seeds)
 
 ### Per-run detail
 
 | Config | Seed | best\_ep | val\_IC | test\_IC | test\_RankIC | val→test gap |
 |---|---:|---:|---:|---:|---:|---:|
-| MAGNET (full) @ stable regime | 42 | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
-| MAGNET (full) @ stable regime | 7 | 14 | 0.0793 | 0.0279 | 0.0389 | +0.0513 |
-| MAGNET (full) @ stable regime | 123 | 13 | 0.0567 | 0.0164 | 0.0102 | +0.0403 |
-| MAGNET (no A12) @ stable regime | 42 | 14 | 0.0785 | -0.0062 | -0.0015 | +0.0848 |
-| MAGNET (no A12) @ stable regime | 7 | 16 | 0.0470 | 0.0256 | 0.0292 | +0.0213 |
-| MAGNET (no A12) @ stable regime | 123 | 14 | 0.0534 | 0.0169 | 0.0409 | +0.0365 |
+| MAGNET (full) @ lr 5e-4 | 42 | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
+| MAGNET (full) @ lr 5e-4 | 7 | 14 | 0.0793 | 0.0279 | 0.0389 | +0.0513 |
+| MAGNET (full) @ lr 5e-4 | 123 | 13 | 0.0567 | 0.0164 | 0.0102 | +0.0403 |
+| MAGNET (no A12) @ lr 5e-4 | 42 | 14 | 0.0785 | -0.0062 | -0.0015 | +0.0848 |
+| MAGNET (no A12) @ lr 5e-4 | 7 | 16 | 0.0470 | 0.0256 | 0.0292 | +0.0213 |
+| MAGNET (no A12) @ lr 5e-4 | 123 | 14 | 0.0534 | 0.0169 | 0.0409 | +0.0365 |
 
 ### Aggregate (mean ± std over seeds)
 
 | Config | val\_IC | **test\_IC** | test\_RankIC | test\_IC range |
 |---|---|---|---|---|
-| MAGNET (full) @ stable regime | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
-| MAGNET (no A12) @ stable regime | 0.0596 ± 0.0167 | **0.0121 ± 0.0165** | 0.0229 ± 0.0219 | [-0.0062, 0.0256] |
+| MAGNET (full) @ lr 5e-4 | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
+| MAGNET (no A12) @ lr 5e-4 | 0.0596 ± 0.0167 | **0.0121 ± 0.0165** | 0.0229 ± 0.0219 | [-0.0062, 0.0256] |
+
+## Part E — Controlled replicates: same config, same seed, repeated runs (Route A Experiment 4)
+
+MPS numerics are not bitwise deterministic; each run is an independent draw regardless of seed. 'Seed' column = replicate id.
+
+### Per-run detail
+
+| Config | Seed | best\_ep | val\_IC | test\_IC | test\_RankIC | val→test gap |
+|---|---:|---:|---:|---:|---:|---:|
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | r1 (p46) | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | r2 (p66) | 20 | 0.0707 | 0.0500 | 0.0591 | +0.0206 |
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | r3 (p67) | 33 | 0.0774 | 0.0726 | 0.0751 | +0.0048 |
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | r4 (p68) | 6 | 0.0770 | 0.0162 | -0.0202 | +0.0608 |
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | r5 (p69) | 6 | 0.0742 | 0.0131 | -0.0203 | +0.0610 |
+
+### Aggregate (mean ± std over replicates)
+
+| Config | val\_IC | **test\_IC** | test\_RankIC | test\_IC range |
+|---|---|---|---|---|
+| MAGNET seed 42 @ lr 5e-4 (5 replicates) | 0.0774 ± 0.0063 | **0.0334 ± 0.0268** | 0.0172 ± 0.0461 | [0.0131, 0.0726] |
 
 ## Part D — Honest Table 3: top baselines × 3 seeds @ each model's best-of-grid config
 
@@ -102,9 +122,9 @@ Tests whether published-style single-seed numbers replicate across seeds. Seed-4
 | MAGNET (lr 1e-3, original protocol) | 42 | 8 | 0.0774 | 0.0723 | 0.0865 | +0.0051 |
 | MAGNET (lr 1e-3, original protocol) | 7 | 3 | 0.0855 | 0.0332 | 0.0316 | +0.0523 |
 | MAGNET (lr 1e-3, original protocol) | 123 | 13 | 0.0369 | -0.0054 | 0.0189 | +0.0422 |
-| MAGNET (lr 5e-4, stable regime) | 42 | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
-| MAGNET (lr 5e-4, stable regime) | 7 | 14 | 0.0793 | 0.0279 | 0.0389 | +0.0513 |
-| MAGNET (lr 5e-4, stable regime) | 123 | 13 | 0.0567 | 0.0164 | 0.0102 | +0.0403 |
+| MAGNET (lr 5e-4) | 42 | 26 | 0.0876 | 0.0149 | -0.0074 | +0.0727 |
+| MAGNET (lr 5e-4) | 7 | 14 | 0.0793 | 0.0279 | 0.0389 | +0.0513 |
+| MAGNET (lr 5e-4) | 123 | 13 | 0.0567 | 0.0164 | 0.0102 | +0.0403 |
 
 ### Aggregate (mean ± std over seeds)
 
@@ -116,7 +136,7 @@ Tests whether published-style single-seed numbers replicate across seeds. Seed-4
 | HGT (lr 1e-3) | 0.0529 ± 0.0175 | **0.0244 ± 0.0096** | 0.0114 ± 0.0200 | [0.0135, 0.0319] |
 | MEIG-core (lr 5e-4) | 0.0655 ± 0.0147 | **0.0115 ± 0.0137** | 0.0141 ± 0.0139 | [-0.0035, 0.0233] |
 | MAGNET (lr 1e-3, original protocol) | 0.0666 ± 0.0261 | **0.0334 ± 0.0388** | 0.0457 ± 0.0359 | [-0.0054, 0.0723] |
-| MAGNET (lr 5e-4, stable regime) | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
+| MAGNET (lr 5e-4) | 0.0745 ± 0.0160 | **0.0197 ± 0.0071** | 0.0139 ± 0.0234 | [0.0149, 0.0279] |
 
 ## Notes
 
@@ -125,3 +145,4 @@ Tests whether published-style single-seed numbers replicate across seeds. Seed-4
 - Selection instability context: per-epoch val IC oscillates between roughly -0.07 and +0.08 in adjacent epochs while val loss stays flat; best-val selection samples a peak of that oscillation.
 - Part C significance (paired daily IC, full vs no_A12, same seeds and test days, n=735 day-pairs): mean Δ = +0.0077, t = 0.47, p = 0.64. Seed-level paired deltas: +0.0211 / +0.0023 / -0.0005. The A12 effect is statistically indistinguishable from zero under the stable regime at this sample size; detecting a true Δ of 0.008 would require roughly 45+ seed-pairs.
 - MPS nondeterminism: identical seed + config reruns can diverge under load (observed opt_p45 vs opt_p38 trajectory mismatch after a mid-run machine sleep); seed alone does not pin the trajectory.
+- Part E revision of Part B: the 'lr 5e-4 stabilizes' conclusion does not survive controlled replication. Five same-seed same-config runs at lr 5e-4 give test_IC sigma ≈ 0.026 — about 4x the across-seed sigma (0.007) measured from three single runs in Part B, meaning that tight spread was itself a sampling artifact. The RUN, not the seed, is the unit of variance; honest reporting requires replicate-based mean ± SE per configuration. Re-evaluating identical weights also shifts val IC by ~0.006 (evaluation-level nondeterminism), enough to flip which epoch best-val selection chooses.
