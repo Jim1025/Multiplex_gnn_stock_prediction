@@ -33,6 +33,8 @@ from src.train.losses import build_criterion
 from src.train.metrics import (
     aggregate_ic,
     cross_sectional_ic,
+    long_short_metrics,
+    rank_bucket_returns,
     regression_metrics,
 )
 from src.train.utils import (
@@ -127,6 +129,67 @@ def test_metrics_ic_basic() -> None:
     assert abs(reg["MSE"] - expected_mse) < 1e-9
 
 
+def test_level_r2_definitions() -> None:
+    """R2（均值基準）與 R2_zero（零基準）需與手算一致，且零預測器的
+    R2_zero 恰為 0——這正是「level R2 ≈ 0 代表數值不可預測」的判讀基準。"""
+    y      = np.array([1.0, 2.0, 3.0])
+    y_hat  = np.array([1.5, 2.0, 2.5])
+
+    reg = regression_metrics(y_hat, y)
+    # SS_res = 0.25 + 0 + 0.25 = 0.5；SS_tot = 1 + 0 + 1 = 2；SS_zero = 1 + 4 + 9 = 14
+    assert abs(reg["R2"]      - (1.0 - 0.5 / 2.0))  < 1e-12
+    assert abs(reg["R2_zero"] - (1.0 - 0.5 / 14.0)) < 1e-12
+
+    # 零預測器：R2_zero 恰為 0；R2 為負（比猜均值還差）
+    reg_zero = regression_metrics(np.zeros_like(y), y)
+    assert abs(reg_zero["R2_zero"]) < 1e-12
+    assert reg_zero["R2"] < 0.0
+
+    # 完美預測：兩者皆為 1
+    reg_perfect = regression_metrics(y, y)
+    assert abs(reg_perfect["R2"] - 1.0)      < 1e-12
+    assert abs(reg_perfect["R2_zero"] - 1.0) < 1e-12
+
+
+def test_long_short_metrics_basic() -> None:
+    """多空組合 PnL / Sharpe 需與手算一致，且方向相反時 Sharpe 變號。"""
+    yh = [np.array([4.0, 3.0, 2.0, 1.0]), np.array([4.0, 3.0, 2.0, 1.0])]
+    ys = [np.array([0.02, 0.01, -0.01, -0.02]), np.array([0.01, 0.0, 0.0, -0.01])]
+
+    pf = long_short_metrics(yh, ys, n_side=1, periods_per_year=252)
+    # day1: 0.02 - (-0.02) = 0.04；day2: 0.01 - (-0.01) = 0.02
+    assert pf["n_days"] == 2
+    assert abs(pf["mean_daily_pnl"] - 0.03) < 1e-12
+    assert abs(pf["cum_log_return"] - 0.06) < 1e-12
+    assert pf["hit_rate"] == 1.0
+
+    arr = np.array([0.04, 0.02])
+    expected = arr.mean() / arr.std(ddof=1) * np.sqrt(252)
+    assert abs(pf["Sharpe"] - expected) < 1e-9
+
+    # 預測完全反向 → PnL 變號，Sharpe 變負
+    pf_inv = long_short_metrics([-a for a in yh], ys, n_side=1, periods_per_year=252)
+    assert abs(pf_inv["mean_daily_pnl"] + 0.03) < 1e-12
+    assert pf_inv["Sharpe"] < 0
+
+    # n_side 過大導致每日皆不足 2*n_side → 無有效交易日
+    pf_empty = long_short_metrics(yh, ys, n_side=3, periods_per_year=252)
+    assert pf_empty["n_days"] == 0
+    assert np.isnan(pf_empty["Sharpe"])
+
+
+def test_rank_bucket_returns_ordering() -> None:
+    """逐名次平均報酬：名次 0 = 當日預測最高，應取回對應的實現報酬。"""
+    yh = [np.array([3.0, 2.0, 1.0]), np.array([1.0, 2.0, 3.0])]
+    ys = [np.array([0.03, 0.02, 0.01]), np.array([0.01, 0.02, 0.03])]
+
+    out = rank_bucket_returns(yh, ys)
+    assert out["n_days"] == 2
+    assert out["n_days_per_rank"] == [2, 2, 2]
+    # 兩天預測方向相反但實現報酬也相反 → 逐名次平均仍為 0.03 / 0.02 / 0.01
+    assert np.allclose(out["by_rank"], [0.03, 0.02, 0.01])
+
+
 def test_combinedloss_variance_penalty() -> None:
     """variance penalty 應在 ŷ 為常數時最大、ŷ 振幅=y 時為 0、且可微。"""
     from src.models.prediction_head import CombinedLoss
@@ -200,6 +263,39 @@ def test_evaluator_no_nan(
     df = result["predictions"]
     assert set(df.columns) == {"target_date", "ticker", "y_hat", "y"}
     assert len(df) == len(val_dataset) * N_NODES
+
+    # 未提供 eval_cfg 時不得自行產生組合指標（超參只能來自 config）
+    assert "Sharpe" not in result
+
+
+def test_evaluator_portfolio_metrics(
+    model: MAGNET,
+    val_dataset: MultiplexDataset,
+    config: dict,
+    device: torch.device,
+) -> None:
+    """提供 evaluation.portfolio 設定時，evaluator 應產出組合指標。"""
+    loader = DataLoader(
+        val_dataset,
+        batch_size=8,
+        shuffle=False,
+        collate_fn=multiplex_collate,
+        num_workers=0,
+    )
+    eval_cfg = config["evaluation"]
+    assert 2 * int(eval_cfg["portfolio"]["n_side"]) <= N_NODES, (
+        "n_side 設定過大：2*n_side 必須 <= 橫截面寬度 k"
+    )
+
+    result = evaluate(model, loader, device, criterion=None, eval_cfg=eval_cfg)
+
+    for k in ["Sharpe", "mean_daily_pnl", "std_daily_pnl", "hit_rate",
+              "ann_return", "cum_log_return", "pf_n_days"]:
+        assert k in result, f"缺少組合指標 {k}"
+    assert result["pf_n_days"] == len(val_dataset)
+    assert 0.0 <= result["hit_rate"] <= 1.0
+    assert len(result["daily_pnl"]) == result["pf_n_days"]
+    assert len(result["rank_bucket_returns"]) == N_NODES
 
 
 # ---------------------------------------------------------------------------

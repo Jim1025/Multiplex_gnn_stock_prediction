@@ -10,6 +10,7 @@ data:
 
 model:
   architecture: magnet  # magnet | baseline_lstm | baseline_tw_gnn | magnet_no_a12（M6 Stage 0 ablation）
+                        # baseline_early_fusion（輸入層拼接 ADR 特徵的對照組）
   lstm:
     input_dim: 9          # F = 9 維技術指標特徵
     hidden_dim: 64
@@ -59,6 +60,12 @@ training:
   log_every_n_steps: 10  # console print 頻率
   min_delta: 0.0         # IC 改善判定下限
   early_stop_metric: IC  # 監控 val 上的 IC（越大越好）
+
+evaluation:
+  portfolio:
+    n_side: 2              # 多空各取 n_side 檔；需 2*n_side <= k（k=7 時上限 3）
+    periods_per_year: 252  # Sharpe 年化因子
+    # 無交易成本、無流動性限制 → 屬 pre-cost 診斷，不是可實作 alpha
 
 mlflow:
   experiment_name: MAGNET_M4_baseline

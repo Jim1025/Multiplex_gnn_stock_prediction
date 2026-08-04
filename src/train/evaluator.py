@@ -22,7 +22,12 @@ from torch.utils.data import DataLoader
 from src.dataset.multiplex_dataset import ADR_TICKERS, TW_CODES, N_NODES
 from src.models.multiplex_gnn import MAGNET
 from src.models.prediction_head import CombinedLoss
-from src.train.metrics import aggregate_ic, regression_metrics
+from src.train.metrics import (
+    aggregate_ic,
+    long_short_metrics,
+    rank_bucket_returns,
+    regression_metrics,
+)
 from src.train.utils import batch_to_device
 
 
@@ -32,6 +37,7 @@ def evaluate(
     loader:     DataLoader,
     device:     torch.device,
     criterion:  Optional[CombinedLoss] = None,
+    eval_cfg:   Optional[dict] = None,
 ) -> dict:
     """
     跑一個 DataLoader 並回傳完整評估結果。
@@ -41,12 +47,16 @@ def evaluate(
         loader    : DataLoader（由 multiplex_collate 整理 batch）
         device    : torch.device
         criterion : 可選的 CombinedLoss；提供時會計算 loss 與分量
+        eval_cfg  : 可選的 base.yaml `evaluation` 區塊；提供 `portfolio`
+                    時才計算組合指標（超參一律由 config 提供，此處不設預設值）
 
     Returns:
         dict 包含：
             loss_total / loss_mse / loss_rank / loss_align : float（criterion 提供時）
-            MSE / MAE / RMSE                                : float
+            MSE / MAE / RMSE / R2 / R2_zero                 : float
             IC / ICIR / RankIC / RankICIR                   : float
+            Sharpe / mean_daily_pnl / hit_rate / ...        : float（eval_cfg 提供時）
+            rank_bucket_returns : list[float]（eval_cfg 提供時）
             predictions : pd.DataFrame [target_date, ticker, y_hat, y]
     """
     model.eval()
@@ -119,6 +129,26 @@ def evaluate(
         "daily_RankIC": ic_dict["daily_RankIC"],
         "predictions":  pd.DataFrame(pred_rows),
     }
+
+    # 組合指標（pre-cost）：僅在 config 明確提供時計算，避免在此硬編超參
+    pf_cfg = (eval_cfg or {}).get("portfolio")
+    if pf_cfg:
+        pf = long_short_metrics(
+            daily_y_hats, daily_ys,
+            n_side=int(pf_cfg["n_side"]),
+            periods_per_year=int(pf_cfg["periods_per_year"]),
+        )
+        result["Sharpe"]         = pf["Sharpe"]
+        result["mean_daily_pnl"] = pf["mean_daily_pnl"]
+        result["std_daily_pnl"]  = pf["std_daily_pnl"]
+        result["hit_rate"]       = pf["hit_rate"]
+        result["cum_log_return"] = pf["cum_log_return"]
+        result["ann_return"]     = pf["ann_return"]
+        result["pf_n_days"]      = pf["n_days"]
+        result["daily_pnl"]      = pf["daily_pnl"]
+        result["rank_bucket_returns"] = rank_bucket_returns(
+            daily_y_hats, daily_ys
+        )["by_rank"]
 
     if criterion is not None and n_loss_samples > 0:
         result["loss_total"]    = loss_total_sum    / n_loss_samples

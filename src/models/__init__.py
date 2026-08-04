@@ -1,5 +1,6 @@
 from src.models.multiplex_gnn import MAGNET
 from src.models.baseline_lstm import BaselineLSTM
+from src.models.baseline_early_fusion import BaselineEarlyFusion
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.baseline_hats import BaselineHATS
@@ -15,6 +16,8 @@ from src.models.prediction_head import PredictionHead, CombinedLoss
 VALID_ARCHITECTURES = (
     # M6 Stage 0 (內部 ablation)
     "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
+    # 第 0 階段：early-fusion 對照（回應「為何不做 early fusion」）
+    "baseline_early_fusion",
     # M7 external baselines
     "adv_alstm", "hats", "man_sf", "hgt", "delta_lag", "meig",
     # M8 hierarchical A12 (strong identity pairs + learned weak links)
@@ -29,6 +32,7 @@ def build_model(cfg: dict):
     支援：
         magnet             — 完整 MAGNET (reference)
         baseline_lstm      — LSTM-only（Stage 0 ablation）
+        baseline_early_fusion — 輸入層拼接 ADR 特徵的 early-fusion 對照
         baseline_tw_gnn    — TW-only 單層 GNN（Stage 0 ablation）
         magnet_no_a12      — MAGNET 但切斷 A12 跨層訊號（Stage 0 ablation）
         adv_alstm          — Adv-ALSTM 外部 baseline (Feng 2019, IJCAI)
@@ -47,6 +51,8 @@ def build_model(cfg: dict):
 
     if arch == "baseline_lstm":
         return BaselineLSTM(cfg)
+    if arch == "baseline_early_fusion":
+        return BaselineEarlyFusion(cfg)
     if arch == "baseline_tw_gnn":
         return BaselineTWGNN(cfg)
     if arch == "magnet_no_a12":
@@ -77,6 +83,7 @@ def build_model(cfg: dict):
 __all__ = [
     "MAGNET",
     "BaselineLSTM",
+    "BaselineEarlyFusion",
     "BaselineTWGNN",
     "BaselineAdvALSTM",
     "BaselineHATS",

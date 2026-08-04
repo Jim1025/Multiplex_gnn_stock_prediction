@@ -31,7 +31,10 @@ from src.dataset.multiplex_dataset import (
     N_NODES,
     F,
 )
+from src.dataset.config import PAIR_MAP
+from src.dataset.multiplex_dataset import ADR_TICKERS, TW_CODES
 from src.models import build_model
+from src.models.baseline_early_fusion import BaselineEarlyFusion
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
@@ -554,4 +557,68 @@ def test_adv_alstm_adversarial_toggle(config: dict, small_batch: dict) -> None:
 
     assert not torch.allclose(y_eval, y_train, atol=1e-6), (
         "train / eval 模式輸出相同，adversarial perturbation 未被啟用"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 第 0 階段：early-fusion 對照組
+# ---------------------------------------------------------------------------
+
+def test_baseline_early_fusion_smoke(config: dict, small_batch: dict) -> None:
+    """BaselineEarlyFusion（輸入層拼接 ADR）forward + backward 可跑。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineEarlyFusion(config)
+    _smoke_forward_backward(model, small_batch)
+
+
+def test_early_fusion_dispatch(config: dict) -> None:
+    """build_model 能派給 baseline_early_fusion。"""
+    cfg = {**config, "model": {**config["model"],
+                               "architecture": "baseline_early_fusion"}}
+    assert isinstance(build_model(cfg), BaselineEarlyFusion)
+
+
+def test_early_fusion_pairing_map(config: dict) -> None:
+    """p(j) 需由 PAIR_MAP 推得，而非假設 L1/L2 索引對齊。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineEarlyFusion(config)
+
+    assert model.pair_src.numel() == len(TW_CODES)
+    for j, tw_code in enumerate(TW_CODES):
+        src = int(model.pair_src[j])
+        if bool(model.has_pair[j]):
+            adr_ticker = ADR_TICKERS[src]
+            assert PAIR_MAP[adr_ticker]["tw"] == tw_code, (
+                f"TW {tw_code} 被錯配到 ADR {adr_ticker}"
+            )
+        else:
+            assert tw_code not in {v["tw"] for v in PAIR_MAP.values()}
+
+
+def test_early_fusion_lstm_input_dim_is_doubled(config: dict) -> None:
+    """拼接後 LSTM 輸入維度須為 2F，且 F 仍由 config 提供。"""
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineEarlyFusion(config)
+    F_base = config["model"]["lstm"]["input_dim"]
+    assert model.lstm.lstm.input_size == F_base * 2
+
+
+def test_early_fusion_actually_uses_adr(config: dict, small_batch: dict) -> None:
+    """擾動 x_seq_L1 必須改變輸出——證明 ADR 半邊不是 dead code。
+
+    這是本對照組存在的前提：它必須真的在用 ADR 資訊，
+    否則它退化成 baseline_lstm，對照就沒有意義。
+    """
+    torch.manual_seed(config["training"]["seed"])
+    model = BaselineEarlyFusion(config)
+    model.eval()
+
+    with torch.no_grad():
+        y_ref, _ = model(small_batch)
+        perturbed = {**small_batch,
+                     "x_seq_L1": small_batch["x_seq_L1"] + 1.0}
+        y_perturbed, _ = model(perturbed)
+
+    assert not torch.allclose(y_ref, y_perturbed, atol=1e-6), (
+        "擾動 ADR 輸入後預測不變，early-fusion 未實際使用 ADR 特徵"
     )

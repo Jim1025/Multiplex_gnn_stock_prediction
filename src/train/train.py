@@ -474,11 +474,21 @@ def train(
         else:
             print("[test] WARNING: best ckpt 不存在（IC 從未為正），用 final 評估")
 
-        test_stats = evaluate(model, test_loader, device, criterion=criterion)
+        test_stats = evaluate(
+            model, test_loader, device, criterion=criterion,
+            eval_cfg=cfg.get("evaluation"),
+        )
         print(
             f"[test] IC={test_stats['IC']:.4f} RankIC={test_stats['RankIC']:.4f} "
-            f"ICIR={test_stats['ICIR']:.4f} MSE={test_stats['MSE']:.5f}"
+            f"ICIR={test_stats['ICIR']:.4f} MSE={test_stats['MSE']:.5f} "
+            f"R2={test_stats['R2']:.5f}"
         )
+        if "Sharpe" in test_stats:
+            print(
+                f"[test] Sharpe={test_stats['Sharpe']:.3f} "
+                f"hit_rate={test_stats['hit_rate']:.3f} "
+                f"(pre-cost, n_days={test_stats['pf_n_days']})"
+            )
 
         # log test metrics
         mlflow.log_metrics({
@@ -489,9 +499,20 @@ def train(
             "test/MSE":      test_stats["MSE"],
             "test/MAE":      test_stats["MAE"],
             "test/RMSE":     test_stats["RMSE"],
+            "test/R2":       test_stats["R2"],
+            "test/R2_zero":  test_stats["R2_zero"],
             "best_epoch":    float(best_epoch),
             "best_val_IC":   best_val_ic,
         })
+
+        if "Sharpe" in test_stats:
+            mlflow.log_metrics({
+                "test/Sharpe":         test_stats["Sharpe"],
+                "test/mean_daily_pnl": test_stats["mean_daily_pnl"],
+                "test/std_daily_pnl":  test_stats["std_daily_pnl"],
+                "test/hit_rate":       test_stats["hit_rate"],
+                "test/ann_return":     test_stats["ann_return"],
+            })
 
         # ── Predictions：本地寫入 runs/<slug>/predictions/，並上傳 MLflow ──
         test_pred_path = run_dir / "predictions" / "test_predictions.csv"
