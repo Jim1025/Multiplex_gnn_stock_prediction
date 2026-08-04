@@ -1,0 +1,94 @@
+<svg viewBox="0 0 900 920" xmlns="http://www.w3.org/2000/svg" font-family="'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#1a1a1a"/></marker>
+  </defs>
+  <rect width="900" height="920" fill="#ffffff"/>
+
+  <!-- ===== phase brackets (left) ===== -->
+  <g stroke="#1a1a1a" stroke-width="1.4" fill="none">
+    <path d="M60,52 L50,52 L50,340 L60,340"/>
+    <path d="M60,370 L50,370 L50,634 L60,634"/>
+    <path d="M60,664 L50,664 L50,884 L60,884"/>
+  </g>
+  <g font-size="14" font-style="italic" fill="#333" text-anchor="middle">
+    <text transform="translate(30,196) rotate(-90)">Phase 1: Dual-market encoding</text>
+    <text transform="translate(30,502) rotate(-90)">Phase 2: Two-tier coupling &amp; fusion</text>
+    <text transform="translate(30,774) rotate(-90)">Phase 3: Rank-oriented prediction</text>
+  </g>
+
+  <!-- ===== Phase 1 ===== -->
+  <!-- inputs -->
+  <rect x="100" y="56" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="250" y="86" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">L1: US ADR Market Layer</text>
+  <text x="250" y="110" text-anchor="middle" font-size="15" fill="#555">features at day t (US close)</text>
+
+  <rect x="540" y="56" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="690" y="86" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">L2: Taiwan Market Layer</text>
+  <text x="690" y="110" text-anchor="middle" font-size="15" fill="#555">features up to day t</text>
+
+  <!-- encoders -->
+  <rect x="100" y="162" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="250" y="192" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">ADR Encoder</text>
+  <text x="250" y="216" text-anchor="middle" font-size="15" fill="#555">Shared LSTM + GATv2</text>
+
+  <rect x="540" y="162" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="690" y="192" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">TW Encoder</text>
+  <text x="690" y="216" text-anchor="middle" font-size="15" fill="#555">Shared LSTM + GATv2</text>
+
+  <!-- shared LSTM tie -->
+  <line x1="400" y1="196" x2="540" y2="196" stroke="#888" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <text x="470" y="188" text-anchor="middle" font-size="13" fill="#888">shared LSTM weights</text>
+
+  <!-- projections -->
+  <rect x="100" y="268" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="250" y="298" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">ADR Projection Layer</text>
+  <text x="250" y="322" text-anchor="middle" font-size="15" fill="#555">to shared latent d&#8242; = 32</text>
+
+  <rect x="540" y="268" width="300" height="72" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="690" y="298" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">TW Projection Layer</text>
+  <text x="690" y="322" text-anchor="middle" font-size="15" fill="#555">to shared latent d&#8242; = 32</text>
+
+  <!-- ===== Phase 2 ===== -->
+  <!-- two-tier coupling (accent) -->
+  <rect x="100" y="376" width="360" height="118" fill="#eaf2fb" stroke="#1a5490" stroke-width="1.8"/>
+  <text x="280" y="406" text-anchor="middle" font-size="18" font-weight="700" fill="#1a5490">Two-tier A12 Coupling</text>
+  <text x="116" y="434" font-size="15" fill="#1a3550"><tspan font-weight="700">Identity</tspan> edges: fixed = 1 (dual listing)</text>
+  <text x="116" y="458" font-size="15" fill="#1a3550"><tspan font-weight="700">Candidate</tspan> edges: learned B &#8857; M</text>
+  <text x="116" y="480" font-size="14" fill="#42627d">init 0, L1 sparsity &#955;&#8214;B &#8857; M&#8214;&#8321;</text>
+
+  <!-- fusion -->
+  <rect x="250" y="546" width="440" height="88" fill="#fff" stroke="#1a1a1a" stroke-width="1.6"/>
+  <text x="470" y="576" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">Cross-Layer Fusion Module</text>
+  <text x="470" y="600" text-anchor="middle" font-size="15" fill="#555">per-node per-dim gate</text>
+  <text x="470" y="622" text-anchor="middle" font-size="15" fill="#555">h_f = g &#8857; &#293;&#8321; + (1 &#8722; g) &#8857; h&#8322;</text>
+
+  <!-- ===== Phase 3 ===== -->
+  <!-- head -->
+  <rect x="330" y="676" width="280" height="70" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="470" y="706" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">Prediction Head (MLP)</text>
+  <text x="470" y="730" text-anchor="middle" font-size="15" fill="#555">daily return ranking</text>
+
+  <!-- loss (accent: changed) -->
+  <rect x="210" y="790" width="520" height="94" fill="#eaf2fb" stroke="#1a5490" stroke-width="1.8"/>
+  <text x="470" y="820" text-anchor="middle" font-size="18" font-weight="700" fill="#1a5490">Combined Loss Function</text>
+  <text x="470" y="849" text-anchor="middle" font-size="17" fill="#1a3550">&#8466; = &#8466;<tspan baseline-shift="sub" font-size="11">MSE</tspan> + 0.5&#183;&#8466;<tspan baseline-shift="sub" font-size="11">rank</tspan> + 0.1&#183;&#8466;<tspan baseline-shift="sub" font-size="11">var</tspan> + &#955;&#8214;B &#8857; M&#8214;<tspan baseline-shift="sub" font-size="11">1</tspan></text>
+  <text x="470" y="872" text-anchor="middle" font-size="14" font-style="italic" fill="#7a1f1f">L_align removed after ablation (learned inverted mapping)</text>
+
+  <!-- ===== arrows ===== -->
+  <g stroke="#1a1a1a" stroke-width="1.5" fill="none">
+    <line x1="250" y1="128" x2="250" y2="161" marker-end="url(#a)"/>
+    <line x1="250" y1="234" x2="250" y2="267" marker-end="url(#a)"/>
+    <line x1="250" y1="340" x2="250" y2="375" marker-end="url(#a)"/>
+    <line x1="690" y1="128" x2="690" y2="161" marker-end="url(#a)"/>
+    <line x1="690" y1="234" x2="690" y2="267" marker-end="url(#a)"/>
+    <!-- coupling -> fusion -->
+    <path d="M250,494 L250,520 L370,520 L370,545" marker-end="url(#a)"/>
+    <!-- TW proj -> fusion -->
+    <path d="M690,340 L690,520 L590,520 L590,545" marker-end="url(#a)"/>
+    <!-- fusion -> head -->
+    <line x1="470" y1="634" x2="470" y2="675" marker-end="url(#a)"/>
+    <!-- head -> loss -->
+    <line x1="470" y1="746" x2="470" y2="789" marker-end="url(#a)"/>
+  </g>
+  <text x="488" y="774" font-size="16" font-style="italic" fill="#333">&#375;(t+1)</text>
+</svg>

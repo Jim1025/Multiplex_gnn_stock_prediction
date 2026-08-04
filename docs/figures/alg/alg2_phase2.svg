@@ -1,0 +1,41 @@
+<svg viewBox="0 0 820 500" xmlns="http://www.w3.org/2000/svg" font-family="'Times New Roman','Nimbus Roman',Georgia,serif">
+  <rect width="820" height="500" fill="#ffffff"/>
+  <line x1="20" y1="18" x2="800" y2="18" stroke="#000" stroke-width="2"/>
+  <text x="24" y="44" font-size="17" font-weight="bold">Algorithm 2</text>
+  <text x="140" y="44" font-size="17">Phase 2 — Two-tier Coupling &amp; Gated Fusion</text>
+  <line x1="20" y1="56" x2="800" y2="56" stroke="#000" stroke-width="1"/>
+
+  <!-- Input -->
+  <text x="24" y="84" font-size="15" font-weight="bold">Input:</text>
+  <text x="98" y="84" font-size="15" font-style="italic">Latent states h&#8321; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8321;&#215;d&#8242;</tspan>,  h&#8322; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;d&#8242;</tspan></text>
+  <text x="98" y="107" font-size="15" font-style="italic">Pairing p(&#183;);  candidate mask M;  weights B;  gate params W<tspan baseline-shift="sub" font-size="10">g</tspan>, b<tspan baseline-shift="sub" font-size="10">g</tspan></text>
+  <!-- Output -->
+  <text x="24" y="135" font-size="15" font-weight="bold">Output:</text>
+  <text x="98" y="135" font-size="15" font-style="italic">Fused state h<tspan baseline-shift="sub" font-size="10">f</tspan> &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;d&#8242;</tspan>;  readouts g, B<tspan baseline-shift="sub" font-size="10">eff</tspan></text>
+
+  <g font-size="15">
+    <g text-anchor="end">
+      <text x="50" y="170">1:</text><text x="50" y="194">2:</text><text x="50" y="218">3:</text>
+      <text x="50" y="242">4:</text><text x="50" y="266">5:</text><text x="50" y="290">6:</text>
+      <text x="50" y="314">7:</text><text x="50" y="338">8:</text><text x="50" y="362">9:</text>
+      <text x="50" y="386">10:</text><text x="50" y="410">11:</text><text x="50" y="434">12:</text>
+      <text x="50" y="458">13:</text>
+    </g>
+    <g font-style="italic">
+      <text x="60" y="170">B<tspan baseline-shift="sub" font-size="10">eff</tspan> &#8592; B &#8857; M</text>
+      <text x="60" y="194"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n&#8322; <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="80" y="218"><tspan font-style="normal" font-weight="bold">if</tspan> p(j) exists <tspan font-style="normal" font-weight="bold">then</tspan> ident<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; h<tspan baseline-shift="sub" font-size="10">1,p(j)</tspan></text>
+      <text x="80" y="242"><tspan font-style="normal" font-weight="bold">else</tspan> ident<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; 0</text>
+      <text x="80" y="266"><tspan font-style="normal" font-weight="bold">end if</tspan></text>
+      <text x="80" y="290">cand<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; &#931;<tspan baseline-shift="sub" font-size="10">i</tspan> B<tspan baseline-shift="sub" font-size="10">eff</tspan>[i, j] &#183; h<tspan baseline-shift="sub" font-size="10">1i</tspan></text>
+      <text x="80" y="314">&#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> &#8592; ident<tspan baseline-shift="sub" font-size="10">j</tspan> + cand<tspan baseline-shift="sub" font-size="10">j</tspan></text>
+      <text x="60" y="338"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="60" y="362"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n&#8322; <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="80" y="386">g<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; &#963;( W<tspan baseline-shift="sub" font-size="10">g</tspan> [&#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> ; h<tspan baseline-shift="sub" font-size="10">2j</tspan>] + b<tspan baseline-shift="sub" font-size="10">g</tspan> )</text>
+      <text x="80" y="410">h<tspan baseline-shift="sub" font-size="10">f,j</tspan> &#8592; g<tspan baseline-shift="sub" font-size="10">j</tspan> &#8857; &#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> + (1 &#8722; g<tspan baseline-shift="sub" font-size="10">j</tspan>) &#8857; h<tspan baseline-shift="sub" font-size="10">2j</tspan></text>
+      <text x="60" y="434"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="60" y="458"><tspan font-style="normal" font-weight="bold">return</tspan> h<tspan baseline-shift="sub" font-size="10">f</tspan>, (g, B<tspan baseline-shift="sub" font-size="10">eff</tspan>)</text>
+    </g>
+  </g>
+  <line x1="20" y1="476" x2="800" y2="476" stroke="#000" stroke-width="2"/>
+</svg>

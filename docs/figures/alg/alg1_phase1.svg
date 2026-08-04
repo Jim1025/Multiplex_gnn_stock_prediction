@@ -1,0 +1,41 @@
+<svg viewBox="0 0 820 420" xmlns="http://www.w3.org/2000/svg" font-family="'Times New Roman','Nimbus Roman',Georgia,serif">
+  <rect width="820" height="420" fill="#ffffff"/>
+  <!-- rules -->
+  <line x1="20" y1="18" x2="800" y2="18" stroke="#000" stroke-width="2"/>
+  <text x="24" y="44" font-size="17" font-weight="bold">Algorithm 1</text>
+  <text x="140" y="44" font-size="17">Phase 1 — Dual-market Encoding</text>
+  <line x1="20" y1="56" x2="800" y2="56" stroke="#000" stroke-width="1"/>
+
+  <!-- Input -->
+  <text x="24" y="84" font-size="15" font-weight="bold">Input:</text>
+  <text x="92" y="84" font-size="15" font-style="italic">US features X&#8321; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8321;&#215;T&#215;F</tspan>;  TW features X&#8322; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;T&#215;F</tspan></text>
+  <text x="92" y="107" font-size="15" font-style="italic">Intra-layer graphs A&#8321;(t) = (E&#8321;, &#969;&#8321;),  A&#8322;(t) = (E&#8322;, &#969;&#8322;)</text>
+  <text x="92" y="130" font-size="15" font-style="italic">Shared LSTM;  GATv2 encoders GAT&#8321;, GAT&#8322;;  projections P&#8321;, P&#8322;</text>
+
+  <!-- Output -->
+  <text x="24" y="158" font-size="15" font-weight="bold">Output:</text>
+  <text x="92" y="158" font-size="15" font-style="italic">Latent states h&#8321; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8321;&#215;d&#8242;</tspan>,  h&#8322; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;d&#8242;</tspan></text>
+
+  <!-- body -->
+  <g font-size="15">
+    <!-- line numbers -->
+    <g text-anchor="end" font-family="'Times New Roman',serif">
+      <text x="50" y="192">1:</text><text x="50" y="216">2:</text><text x="50" y="240">3:</text>
+      <text x="50" y="264">4:</text><text x="50" y="288">5:</text><text x="50" y="312">6:</text>
+      <text x="50" y="336">7:</text><text x="50" y="360">8:</text><text x="50" y="384">9:</text>
+    </g>
+    <!-- content (italic default; keywords bold-upright) -->
+    <g font-style="italic">
+      <text x="60" y="192"><tspan font-style="normal" font-weight="bold">for</tspan> &#8467; = 1 <tspan font-style="normal" font-weight="bold">to</tspan> 2 <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="80" y="216"><tspan font-style="normal" font-weight="bold">for each</tspan> node i <tspan font-style="normal" font-weight="bold">in</tspan> layer &#8467; <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="100" y="240">s<tspan baseline-shift="sub" font-size="10">&#8467;,i</tspan> &#8592; LSTM(X<tspan baseline-shift="sub" font-size="10">&#8467;,i</tspan>)[T]</text>
+      <text x="80" y="264"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="60" y="288"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="60" y="312">z&#8321; &#8592; GAT&#8321;(s&#8321;, E&#8321;, &#969;&#8321;);   z&#8322; &#8592; GAT&#8322;(s&#8322;, E&#8322;, &#969;&#8322;)</text>
+      <text x="60" y="336">h&#8321; &#8592; LayerNorm(GELU(P&#8321; &#183; z&#8321;))</text>
+      <text x="60" y="360">h&#8322; &#8592; LayerNorm(GELU(P&#8322; &#183; z&#8322;))</text>
+      <text x="60" y="384"><tspan font-style="normal" font-weight="bold">return</tspan> h&#8321;, h&#8322;</text>
+    </g>
+  </g>
+  <line x1="20" y1="400" x2="800" y2="400" stroke="#000" stroke-width="2"/>
+</svg>

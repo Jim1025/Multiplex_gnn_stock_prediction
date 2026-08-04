@@ -1,0 +1,46 @@
+<svg viewBox="0 0 900 542" xmlns="http://www.w3.org/2000/svg" font-family="'Times New Roman','Nimbus Roman',Georgia,serif">
+  <rect width="900" height="542" fill="#ffffff"/>
+  <line x1="20" y1="18" x2="880" y2="18" stroke="#000" stroke-width="2"/>
+  <text x="24" y="44" font-size="17" font-weight="bold">Algorithm 3</text>
+  <text x="140" y="44" font-size="17">Phase 3 — Rank-oriented Prediction &amp; Training</text>
+  <line x1="20" y1="56" x2="880" y2="56" stroke="#000" stroke-width="1"/>
+
+  <!-- Input -->
+  <text x="24" y="84" font-size="15" font-weight="bold">Input:</text>
+  <text x="98" y="84" font-size="15" font-style="italic">Training days D<tspan baseline-shift="sub" font-size="10">tr</tspan>, validation days D<tspan baseline-shift="sub" font-size="10">va</tspan>  (walk-forward, no shuffle)</text>
+  <text x="98" y="107" font-size="15" font-style="italic">Params &#952;;  loss weights w<tspan baseline-shift="sub" font-size="10">r</tspan>, w<tspan baseline-shift="sub" font-size="10">v</tspan>, &#955;;  patience</text>
+  <!-- Output -->
+  <text x="24" y="133" font-size="15" font-weight="bold">Output:</text>
+  <text x="98" y="133" font-size="15" font-style="italic">&#952;* selected at best validation IC</text>
+
+  <g font-size="15">
+    <g text-anchor="end">
+      <text x="54" y="160">1:</text><text x="54" y="182">2:</text><text x="54" y="204">3:</text>
+      <text x="54" y="226">4:</text><text x="54" y="248">5:</text><text x="54" y="270">6:</text>
+      <text x="54" y="292">7:</text><text x="54" y="314">8:</text><text x="54" y="336">9:</text>
+      <text x="54" y="358">10:</text><text x="54" y="380">11:</text><text x="54" y="402">12:</text>
+      <text x="54" y="424">13:</text><text x="54" y="446">14:</text><text x="54" y="468">15:</text>
+      <text x="54" y="490">16:</text><text x="54" y="512">17:</text>
+    </g>
+    <g font-style="italic">
+      <text x="64" y="160">best &#8592; &#8722;&#8734;;   wait &#8592; 0</text>
+      <text x="64" y="182"><tspan font-style="normal" font-weight="bold">for</tspan> epoch = 1 <tspan font-style="normal" font-weight="bold">to</tspan> E<tspan baseline-shift="sub" font-size="10">max</tspan> <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="84" y="204"><tspan font-style="normal" font-weight="bold">for each</tspan> day-batch D<tspan baseline-shift="sub" font-size="10">b</tspan> &#8834; D<tspan baseline-shift="sub" font-size="10">tr</tspan> (shuffle = false) <tspan font-style="normal" font-weight="bold">do</tspan></text>
+      <text x="104" y="226">&#375;(t) &#8592; Head(Phase2(Phase1(t))),  <tspan font-style="normal" font-weight="bold">for all</tspan> t &#8712; D<tspan baseline-shift="sub" font-size="10">b</tspan></text>
+      <text x="104" y="248">L<tspan baseline-shift="sub" font-size="10">MSE</tspan> &#8592; mean<tspan baseline-shift="sub" font-size="10">t</tspan> ||&#375;(t) &#8722; y(t)||<tspan baseline-shift="super" font-size="10">2</tspan></text>
+      <text x="104" y="270">L<tspan baseline-shift="sub" font-size="10">rank</tspan> &#8592; mean<tspan baseline-shift="sub" font-size="10">t</tspan> &#931;<tspan baseline-shift="sub" font-size="10">u,v</tspan> max(0, &#8722;(&#375;<tspan baseline-shift="sub" font-size="10">u</tspan> &#8722; &#375;<tspan baseline-shift="sub" font-size="10">v</tspan>)(y<tspan baseline-shift="sub" font-size="10">u</tspan> &#8722; y<tspan baseline-shift="sub" font-size="10">v</tspan>))</text>
+      <text x="104" y="292">L<tspan baseline-shift="sub" font-size="10">var</tspan> &#8592; mean<tspan baseline-shift="sub" font-size="10">t</tspan> ( std(&#375;(t)) &#8722; std(y(t)) )<tspan baseline-shift="super" font-size="10">2</tspan></text>
+      <text x="104" y="314">L &#8592; L<tspan baseline-shift="sub" font-size="10">MSE</tspan> + w<tspan baseline-shift="sub" font-size="10">r</tspan> &#183; L<tspan baseline-shift="sub" font-size="10">rank</tspan> + w<tspan baseline-shift="sub" font-size="10">v</tspan> &#183; L<tspan baseline-shift="sub" font-size="10">var</tspan> + &#955;||B &#8857; M||<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+      <text x="104" y="336">&#952; &#8592; Adam step on &#8711;<tspan baseline-shift="sub" font-size="10">&#952;</tspan> L</text>
+      <text x="84" y="358"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="84" y="380">IC<tspan baseline-shift="sub" font-size="10">va</tspan> &#8592; mean<tspan baseline-shift="sub" font-size="10">t&#8712;D<tspan baseline-shift="sub" font-size="8">va</tspan></tspan> corr<tspan baseline-shift="sub" font-size="10">j</tspan>( &#375;<tspan baseline-shift="sub" font-size="10">j</tspan>(t), y<tspan baseline-shift="sub" font-size="10">j</tspan>(t) )</text>
+      <text x="84" y="402"><tspan font-style="normal" font-weight="bold">if</tspan> IC<tspan baseline-shift="sub" font-size="10">va</tspan> &gt; best <tspan font-style="normal" font-weight="bold">then</tspan> best &#8592; IC<tspan baseline-shift="sub" font-size="10">va</tspan>;  &#952;* &#8592; &#952;;  wait &#8592; 0</text>
+      <text x="84" y="424"><tspan font-style="normal" font-weight="bold">else</tspan> wait &#8592; wait + 1</text>
+      <text x="84" y="446"><tspan font-style="normal" font-weight="bold">end if</tspan></text>
+      <text x="84" y="468"><tspan font-style="normal" font-weight="bold">if</tspan> wait &#8805; patience <tspan font-style="normal" font-weight="bold">then break</tspan></text>
+      <text x="64" y="490"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+      <text x="64" y="512"><tspan font-style="normal" font-weight="bold">return</tspan> &#952;*</text>
+    </g>
+  </g>
+  <line x1="20" y1="528" x2="880" y2="528" stroke="#000" stroke-width="2"/>
+</svg>
