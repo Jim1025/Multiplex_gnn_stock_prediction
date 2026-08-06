@@ -1,0 +1,127 @@
+{
+  "created": "2026-08-06",
+  "git_ref": "69ecd9bf5435e660261ab0079fe067a5d7045e36",
+  "purpose": "E0 freeze of the k=7 universe prior to TW50 expansion",
+  "universe": {
+    "n_l1": 7,
+    "n_l2": 7,
+    "adr_tickers": [
+      "TSM",
+      "UMC",
+      "ASX",
+      "CHT",
+      "IMOS",
+      "AUOTY",
+      "HNHPF"
+    ],
+    "tw_codes": [
+      "2330",
+      "2303",
+      "3711",
+      "2412",
+      "8150",
+      "2409",
+      "2317"
+    ],
+    "pairing": {
+      "TSM": "2330",
+      "UMC": "2303",
+      "ASX": "3711",
+      "CHT": "2412",
+      "IMOS": "8150",
+      "AUOTY": "2409",
+      "HNHPF": "2317"
+    },
+    "pairing_rate": 1.0
+  },
+  "protocol": {
+    "split": {
+      "train_end": 1150,
+      "val_end": 1397
+    },
+    "T_history": 20,
+    "F": 9,
+    "seed": 42,
+    "early_stop_metric": "IC",
+    "test_start": "2024-12-26",
+    "test_end": "2025-12-30",
+    "n_test_days": 246
+  },
+  "counts": {
+    "runs": 79,
+    "snapshots": 1643
+  },
+  "noise_floor": {
+    "k": 7,
+    "measured_sigma_daily_IC": 0.404,
+    "theory_1_over_sqrt_k_minus_1": 0.408,
+    "sigma_run": 0.027,
+    "k_needed_for_dIC_0.02": 41,
+    "k_needed_for_dIC_0.01": 158
+  },
+  "deterministic_runs": {
+    "opt_p70_ef_r1": {
+      "sha256": "0bb9dd67b0d0aa88e0befb26ab5e4bcb834d8077d129b04ee217bfae2b783854",
+      "test_IC": 0.117932
+    },
+    "opt_p70_ef_s7": {
+      "sha256": "e31a625e639ababc5542f1f76d5f18be241005a009dab998c0bfa78403098a51",
+      "test_IC": 0.136143
+    },
+    "opt_p70_ef_s123": {
+      "sha256": "b3fab72dd575f8685a90c8153fed34f1e165cf05d94bd3b8074703700611c2b6",
+      "test_IC": 0.125339
+    },
+    "opt_p70_ef_s2026": {
+      "sha256": "c7af05299c08326c4d946d74b43bfe0ed4c892efa932e4a4ecedf7a123ab0b52",
+      "test_IC": 0.107695
+    },
+    "opt_p70_ef_s314": {
+      "sha256": "601109dbe6ee2a93947bd2770f952a7c4b59efbdf36f50075a2bc9b91ee35499",
+      "test_IC": 0.143139
+    },
+    "opt_p71_lstm_s42": {
+      "sha256": "0de5a0151db073a67ea1527981580f7f6e03987b7b9d5ddd704c76d1a6ddb260",
+      "test_IC": 0.028252
+    },
+    "opt_p71_lstm_s7": {
+      "sha256": "999fff264ab021eeaf2d56646384e22d97cc592b8adaaa883ba075d6da327acd",
+      "test_IC": 0.017721
+    },
+    "opt_p71_lstm_s123": {
+      "sha256": "6a3d7b9b50dcdab6945b3805acc9684912f5b9e3982ffe164e4b5e75eb9c02eb",
+      "test_IC": 0.035477
+    },
+    "opt_p71_lstm_s2026": {
+      "sha256": "b66a35bddddb7e47e9d833d5dd835bc0b5f27aa035b97e520ae2a538893e5ef3",
+      "test_IC": 0.019752
+    },
+    "opt_p71_lstm_s314": {
+      "sha256": "ba75ba9b58174c2f8056922aa3cb3c279e9d883c2a75810a0132c498075b1a2e",
+      "test_IC": 0.030814
+    }
+  },
+  "stochastic_runs": {
+    "opt_p46_raw_lr5e4_s42": {
+      "test_IC": 0.01487
+    },
+    "opt_p47_raw_lr5e4_s7": {
+      "test_IC": 0.027925
+    },
+    "opt_p48_raw_lr5e4_s123": {
+      "test_IC": 0.016421
+    },
+    "opt_p66_fig1_lr5e4": {
+      "test_IC": 0.050033
+    },
+    "opt_p67_rep_s42_a": {
+      "test_IC": 0.072601
+    },
+    "opt_p68_rep_s42_b": {
+      "test_IC": 0.016193
+    },
+    "opt_p69_rep_s42_c": {
+      "test_IC": 0.013131
+    }
+  }
+}
