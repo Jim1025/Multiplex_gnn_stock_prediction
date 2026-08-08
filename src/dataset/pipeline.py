@@ -23,7 +23,8 @@ pipeline.py — OHLCV 資料前處理管線（v2.0：符合 data_imputation_poli
         │     Volume       → 填 0
         │
         └─ Phase 2：資料清洗
-              Step 1  異常值 IQR Clip + 報酬率 Z-score Clip
+              Step 1  價格 IQR（僅診斷，不裁切）+ 成交量 IQR Clip
+                      + 報酬率滾動 Z-score Clip
               Step 2  OHLC 內部一致性修正
               Step 3  ADF 平穩性檢驗
               Step 4  對數報酬率計算（由清洗後的 Close 重算）
@@ -278,7 +279,8 @@ class DataPipeline:
     safe_ffill_limit : int    缺口 ≤ 此值使用標準 ffill（不加 is_imputed，預設 2）
     soft_ffill_limit : int    缺口 ≤ 此值使用 ffill 並標記 is_imputed（預設 5）
                               超過此值則完全不補，標記 is_long_gap
-    iqr_k            : float  IQR 倍數門檻，超過視為價格異常（預設 3.0）
+    iqr_k            : float  IQR 倍數門檻（預設 3.0）。價格水準僅用於診斷計數，
+                              不裁切（見 _step1_outliers 1a 註解）；成交量仍裁切上界
     zscore_win       : int    報酬率滾動 Z-score 視窗（預設 60）
     zscore_thr       : float  報酬率異常門檻（預設 5.0 個標準差）
     adf_alpha        : float  ADF 顯著水準（預設 0.05）
@@ -557,7 +559,23 @@ class DataPipeline:
     def _step1_outliers(self, df, report):
         df = df.copy()
 
-        # 1a：價格 IQR Clip
+        # 1a：價格水準 IQR — 僅診斷計數，**不再裁切**
+        #
+        # 原實作對 Close/Open/High/Low 以「全序列分位數」做 clip，有兩個問題：
+        #   (1) 對趨勢資產是錯誤操作。持續上漲的標的後期會整段觸及 q3+k·IQR
+        #       而被壓成常數，Close 變平 → log_return 恆為 0 → 預測目標被破壞。
+        #       實測 2308 台達電 76 列、MU 51 列、2408 南亞科 46 列、
+        #       2633 台灣高鐵 39 列被封頂，其中 2308 有 79/246 個測試日 y ≡ 0。
+        #       這不是離群值移除，4 倍漲幅本來就會超出歷史 IQR 柵欄。
+        #   (2) 全序列分位數構成 look-ahead：門檻用到測試期資料，
+        #       卻回頭改動訓練期的值。
+        #
+        # Close 的真實離群（單點壞 tick）已由 1c 處理——滾動 60 日、5 sigma、
+        # 純後視，對趨勢無偏。Open/High/Low 不進入任何下游特徵
+        # （TECH_FEATURE_COLS 僅用 Close 與 Volume），故無須裁切。
+        #
+        # 保留計數以維持報表語意：outlier_price 仍表示「落在全序列 IQR
+        # 柵欄外的價格點數」，可作為趨勢強度的診斷訊號，但不再改動資料。
         cnt = 0
         for col in PRICE_COLS:
             s = df[col].dropna()
@@ -567,7 +585,6 @@ class DataPipeline:
             iqr    = q3 - q1
             lo, hi = q1 - self.iqr_k * iqr, q3 + self.iqr_k * iqr
             cnt   += int(((df[col] < lo) | (df[col] > hi)).sum())
-            df[col] = df[col].clip(lower=lo, upper=hi)
         report.outlier_price = cnt
 
         # 1b：成交量 IQR Clip
