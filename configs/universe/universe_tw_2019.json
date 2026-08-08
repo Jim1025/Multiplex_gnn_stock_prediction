@@ -5,7 +5,8 @@
   "no_lookahead": "兩個集合皆於 2019-01-02 之前確定：指數成分股由 2018-12 定期審核決定（生效 2018-12-21）；配對股由雙掛牌事實決定，非依績效挑選",
   "provenance": {
     "tw50": "公開資訊觀測站 元大台灣卓越50 基金持股明細 民國107年第4季（期末 2018-12-31），並經 scripts/tw50_rollback.py 回推 50/50 驗證",
-    "adr_pairs": "src/dataset/config.py PAIR_MAP"
+    "adr_pairs": "src/dataset/config.py PAIR_MAP",
+    "industry": "公開資訊觀測站 2018Q4 基金持股明細的「產業類別」欄；8150 南茂非 TW50 成分股，依 PAIR_MAP 歸為半導體業"
   },
   "n_tw_nodes": 50,
   "n_in_tw50": 49,
@@ -236,301 +237,351 @@
       "code": "1101",
       "name": "台泥",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "水泥工業"
     },
     {
       "code": "1102",
       "name": "亞泥",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "水泥工業"
     },
     {
       "code": "1216",
       "name": "統一",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "食品工業"
     },
     {
       "code": "1301",
       "name": "台塑",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "塑膠工業"
     },
     {
       "code": "1303",
       "name": "南亞",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "塑膠工業"
     },
     {
       "code": "1326",
       "name": "台化",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "塑膠工業"
     },
     {
       "code": "1402",
       "name": "遠東新",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "紡織纖維"
     },
     {
       "code": "2002",
       "name": "中鋼",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "鋼鐵工業"
     },
     {
       "code": "2105",
       "name": "正新",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "橡膠工業"
     },
     {
       "code": "2301",
       "name": "光寶科",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電腦及週邊設備業"
     },
     {
       "code": "2303",
       "name": "聯電",
       "in_tw50_2019": true,
-      "adr": "UMC"
+      "adr": "UMC",
+      "industry": "半導體業"
     },
     {
       "code": "2308",
       "name": "台達電",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電子零組件業"
     },
     {
       "code": "2317",
       "name": "鴻海",
       "in_tw50_2019": true,
-      "adr": "HNHPF"
+      "adr": "HNHPF",
+      "industry": "其他電子業"
     },
     {
       "code": "2327",
       "name": "國巨",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電子零組件業"
     },
     {
       "code": "2330",
       "name": "台積電",
       "in_tw50_2019": true,
-      "adr": "TSM"
+      "adr": "TSM",
+      "industry": "半導體業"
     },
     {
       "code": "2354",
       "name": "鴻準",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "其他電子業"
     },
     {
       "code": "2357",
       "name": "華碩",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電腦及週邊設備業"
     },
     {
       "code": "2382",
       "name": "廣達",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電腦及週邊設備業"
     },
     {
       "code": "2395",
       "name": "研華",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電腦及週邊設備業"
     },
     {
       "code": "2408",
       "name": "南亞科",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "半導體業"
     },
     {
       "code": "2409",
       "name": "友達",
       "in_tw50_2019": true,
-      "adr": "AUOTY"
+      "adr": "AUOTY",
+      "industry": "光電業"
     },
     {
       "code": "2412",
       "name": "中華電",
       "in_tw50_2019": true,
-      "adr": "CHT"
+      "adr": "CHT",
+      "industry": "通信網路業"
     },
     {
       "code": "2454",
       "name": "聯發科",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "半導體業"
     },
     {
       "code": "2474",
       "name": "可成",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "其他電子業"
     },
     {
       "code": "2633",
       "name": "台灣高鐵",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "航運業"
     },
     {
       "code": "2801",
       "name": "彰銀",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2880",
       "name": "華南金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2881",
       "name": "富邦金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2882",
       "name": "國泰金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2883",
       "name": "凱基金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2884",
       "name": "玉山金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2885",
       "name": "元大金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2886",
       "name": "兆豐金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2887",
       "name": "台新金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2890",
       "name": "永豐金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2891",
       "name": "中信金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2892",
       "name": "第一金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "2912",
       "name": "統一超",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "貿易百貨"
     },
     {
       "code": "3008",
       "name": "大立光",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "光電業"
     },
     {
       "code": "3045",
       "name": "台灣大",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "通信網路業"
     },
     {
       "code": "3481",
       "name": "群創",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "光電業"
     },
     {
       "code": "3711",
       "name": "日月光投控",
       "in_tw50_2019": true,
-      "adr": "ASX"
+      "adr": "ASX",
+      "industry": "半導體業"
     },
     {
       "code": "4904",
       "name": "遠傳",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "通信網路業"
     },
     {
       "code": "4938",
       "name": "和碩",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "電腦及週邊設備業"
     },
     {
       "code": "5871",
       "name": "中租-KY",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "其他"
     },
     {
       "code": "5876",
       "name": "上海商銀",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "5880",
       "name": "合庫金",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "金融保險業"
     },
     {
       "code": "6505",
       "name": "台塑化",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "油電燃氣業"
     },
     {
       "code": "8150",
       "name": "南茂",
       "in_tw50_2019": false,
-      "adr": "IMOS"
+      "adr": "IMOS",
+      "industry": "半導體業"
     },
     {
       "code": "9904",
       "name": "寶成",
       "in_tw50_2019": true,
-      "adr": ""
+      "adr": "",
+      "industry": "運動休閒"
     }
   ],
   "graph_shape": {
