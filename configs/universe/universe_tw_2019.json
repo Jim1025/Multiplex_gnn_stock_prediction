@@ -1,0 +1,550 @@
+{
+  "name": "MAGNET expanded TW universe (2019 vintage)",
+  "selection_rule": "臺灣50指數成分股（2019-01-02 適用）∪ 全部 ADR-TW 配對股",
+  "selection_date": "2019-01-02",
+  "no_lookahead": "兩個集合皆於 2019-01-02 之前確定：指數成分股由 2018-12 定期審核決定（生效 2018-12-21）；配對股由雙掛牌事實決定，非依績效挑選",
+  "provenance": {
+    "tw50": "公開資訊觀測站 元大台灣卓越50 基金持股明細 民國107年第4季（期末 2018-12-31），並經 scripts/tw50_rollback.py 回推 50/50 驗證",
+    "adr_pairs": "src/dataset/config.py PAIR_MAP"
+  },
+  "n_tw_nodes": 51,
+  "n_in_tw50": 50,
+  "n_added_for_pairing": 1,
+  "n_identity_pairs": 7,
+  "pairing_rate": 0.1373,
+  "us_layer": {
+    "selection_rule": "於 2019-01-02 之前已上市且具備至少一年交易紀錄的美國掛牌證券，依其對台股 universe 的經濟角色分類選入；不依 2019 年之後的績效挑選。非半導體台股以類股 ETF 提供廣度覆蓋（設計選項 b）。",
+    "no_lookahead": "上市日期與經濟角色於選取日之前即確定",
+    "n_adr_pairs": 7,
+    "n_info_sources": 23,
+    "n_us_nodes": 30,
+    "adr_pairs": [
+      {
+        "ticker": "TSM",
+        "tw": "2330",
+        "company": "台積電",
+        "market": "NYSE",
+        "tier": 1
+      },
+      {
+        "ticker": "UMC",
+        "tw": "2303",
+        "company": "聯電",
+        "market": "NYSE",
+        "tier": 1
+      },
+      {
+        "ticker": "ASX",
+        "tw": "3711",
+        "company": "日月光",
+        "market": "NYSE",
+        "tier": 1
+      },
+      {
+        "ticker": "CHT",
+        "tw": "2412",
+        "company": "中華電信",
+        "market": "NYSE",
+        "tier": 1
+      },
+      {
+        "ticker": "IMOS",
+        "tw": "8150",
+        "company": "南茂",
+        "market": "NASDAQ",
+        "tier": 1
+      },
+      {
+        "ticker": "AUOTY",
+        "tw": "2409",
+        "company": "友達",
+        "market": "OTC",
+        "tier": 2
+      },
+      {
+        "ticker": "HNHPF",
+        "tw": "2317",
+        "company": "鴻海",
+        "market": "OTC",
+        "tier": 2
+      }
+    ],
+    "info_sources": [
+      {
+        "ticker": "ASML",
+        "name": "ASML Holding",
+        "category": "equipment",
+        "rationale": "EUV 獨佔；2330 資本支出敘事來源"
+      },
+      {
+        "ticker": "AMAT",
+        "name": "Applied Materials",
+        "category": "equipment",
+        "rationale": "2330, 2303 上游設備"
+      },
+      {
+        "ticker": "LRCX",
+        "name": "Lam Research",
+        "category": "equipment",
+        "rationale": "2330, 2303 上游設備"
+      },
+      {
+        "ticker": "KLAC",
+        "name": "KLA Corporation",
+        "category": "equipment",
+        "rationale": "2330 製程檢測"
+      },
+      {
+        "ticker": "TER",
+        "name": "Teradyne",
+        "category": "equipment",
+        "rationale": "測試設備；對應封測 3711, 8150"
+      },
+      {
+        "ticker": "NVDA",
+        "name": "NVIDIA",
+        "category": "fabless",
+        "rationale": "台積電最大客戶群"
+      },
+      {
+        "ticker": "AMD",
+        "name": "Advanced Micro Devices",
+        "category": "fabless",
+        "rationale": "台積電客戶"
+      },
+      {
+        "ticker": "QCOM",
+        "name": "Qualcomm",
+        "category": "fabless",
+        "rationale": "2454 聯發科直接競爭者"
+      },
+      {
+        "ticker": "AVGO",
+        "name": "Broadcom",
+        "category": "fabless",
+        "rationale": "台積電客戶"
+      },
+      {
+        "ticker": "TXN",
+        "name": "Texas Instruments",
+        "category": "fabless",
+        "rationale": "類比 IDM"
+      },
+      {
+        "ticker": "ADI",
+        "name": "Analog Devices",
+        "category": "fabless",
+        "rationale": "類比"
+      },
+      {
+        "ticker": "MRVL",
+        "name": "Marvell Technology",
+        "category": "fabless",
+        "rationale": "台積電客戶"
+      },
+      {
+        "ticker": "INTC",
+        "name": "Intel",
+        "category": "idm",
+        "rationale": "台積電競爭者"
+      },
+      {
+        "ticker": "MU",
+        "name": "Micron Technology",
+        "category": "idm",
+        "rationale": "記憶體；對應 2408 南亞科"
+      },
+      {
+        "ticker": "SNPS",
+        "name": "Synopsys",
+        "category": "eda",
+        "rationale": "設計端領先指標"
+      },
+      {
+        "ticker": "CDNS",
+        "name": "Cadence Design",
+        "category": "eda",
+        "rationale": "設計端領先指標"
+      },
+      {
+        "ticker": "AAPL",
+        "name": "Apple",
+        "category": "end_demand",
+        "rationale": "台積電最大客戶；覆蓋 2317, 3008, 4938, 2474"
+      },
+      {
+        "ticker": "SPY",
+        "name": "SPDR S&P 500 ETF",
+        "category": "breadth",
+        "rationale": "美股大盤"
+      },
+      {
+        "ticker": "QQQ",
+        "name": "Invesco QQQ Trust",
+        "category": "breadth",
+        "rationale": "那斯達克 100"
+      },
+      {
+        "ticker": "SMH",
+        "name": "VanEck Semiconductor ETF",
+        "category": "breadth",
+        "rationale": "半導體類股"
+      },
+      {
+        "ticker": "XLF",
+        "name": "Financial Select Sector SPDR",
+        "category": "breadth",
+        "rationale": "覆蓋 15 檔台股金控"
+      },
+      {
+        "ticker": "XLB",
+        "name": "Materials Select Sector SPDR",
+        "category": "breadth",
+        "rationale": "覆蓋塑化 1301/1303/1326、鋼鐵 2002、水泥 1101/1102"
+      },
+      {
+        "ticker": "XLE",
+        "name": "Energy Select Sector SPDR",
+        "category": "breadth",
+        "rationale": "覆蓋 6505 台塑化"
+      }
+    ],
+    "excluded": [
+      {
+        "ticker": "EWT",
+        "reason": "iShares MSCI Taiwan ETF 於美股時段交易且直接追蹤台股大盤。納入將以指數套利機制主宰候選邊，與本研究欲驗證的『公司級身分對應』機制不同，故刻意排除。可另行單獨作為強 baseline 執行。"
+      },
+      {
+        "ticker": "ARM",
+        "reason": "2023-09 才 IPO，2019-01-02 不存在"
+      },
+      {
+        "ticker": "GFS",
+        "reason": "GlobalFoundries 2021-10 才 IPO"
+      },
+      {
+        "ticker": "WOLF",
+        "reason": "2021 年由 CREE 改名，資料連續性有疑慮"
+      }
+    ],
+    "coverage_caveat": "恆等邊僅覆蓋 7 檔台股。其餘 44 檔的跨市場通道僅能經由候選邊，且對 15 檔金控與 16 檔傳產而言，ETF 的資訊領先強度顯著弱於 ADR。此為預期中的設計限制，亦是預測 early fusion 優勢將消失的機制原因。",
+    "provisional": true,
+    "verification_gate": "E2 下載資料時，任何在 2019 年缺乏完整交易紀錄的標的會自動暴露；屆時依實際資料可得性定案。"
+  },
+  "tw_nodes": [
+    {
+      "code": "1101",
+      "name": "台泥",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1102",
+      "name": "亞泥",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1216",
+      "name": "統一",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1301",
+      "name": "台塑",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1326",
+      "name": "台化",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "1402",
+      "name": "遠東新",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2002",
+      "name": "中鋼",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2105",
+      "name": "正新",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2301",
+      "name": "光寶科",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "in_tw50_2019": true,
+      "adr": "UMC"
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "in_tw50_2019": true,
+      "adr": "HNHPF"
+    },
+    {
+      "code": "2327",
+      "name": "國巨",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2330",
+      "name": "台積電",
+      "in_tw50_2019": true,
+      "adr": "TSM"
+    },
+    {
+      "code": "2354",
+      "name": "鴻準",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2357",
+      "name": "華碩",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2382",
+      "name": "廣達",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2395",
+      "name": "研華",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2408",
+      "name": "南亞科",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2409",
+      "name": "友達",
+      "in_tw50_2019": true,
+      "adr": "AUOTY"
+    },
+    {
+      "code": "2412",
+      "name": "中華電",
+      "in_tw50_2019": true,
+      "adr": "CHT"
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2474",
+      "name": "可成",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2633",
+      "name": "台灣高鐵",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2801",
+      "name": "彰銀",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2823",
+      "name": "中壽",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2880",
+      "name": "華南金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2881",
+      "name": "富邦金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2882",
+      "name": "國泰金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2883",
+      "name": "凱基金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2884",
+      "name": "玉山金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2885",
+      "name": "元大金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2886",
+      "name": "兆豐金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2887",
+      "name": "台新金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2890",
+      "name": "永豐金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2892",
+      "name": "第一金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "2912",
+      "name": "統一超",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "3008",
+      "name": "大立光",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "3045",
+      "name": "台灣大",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "3481",
+      "name": "群創",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "in_tw50_2019": true,
+      "adr": "ASX"
+    },
+    {
+      "code": "4904",
+      "name": "遠傳",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "4938",
+      "name": "和碩",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "5871",
+      "name": "中租-KY",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "5876",
+      "name": "上海商銀",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "5880",
+      "name": "合庫金",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "6505",
+      "name": "台塑化",
+      "in_tw50_2019": true,
+      "adr": ""
+    },
+    {
+      "code": "8150",
+      "name": "南茂",
+      "in_tw50_2019": false,
+      "adr": "IMOS"
+    },
+    {
+      "code": "9904",
+      "name": "寶成",
+      "in_tw50_2019": true,
+      "adr": ""
+    }
+  ],
+  "graph_shape": {
+    "n_l1": 30,
+    "n_l2": 51,
+    "n_identity_edges": 7,
+    "pairing_rate_l2": 0.1373,
+    "n_candidate_edges_free_mask": 1523,
+    "note": "候選邊由 k=7 時的 42 條增至 1523 條。自由遮罩在此規模下假設空間過大，統計遮罩（T6）之必要性顯著上升。"
+  }
+}
