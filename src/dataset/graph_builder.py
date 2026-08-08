@@ -135,6 +135,22 @@ class MultiplexGraphBuilder:
         用於計算相關係數的欄位（預設 log_return）
     static_supply_chain_path : str, optional
         靜態供應鏈邊 CSV 路徑（未來支援，目前不使用）
+    universe : Universe, optional
+        E4 新增。給定時以它決定節點集與配對；未給定時由 pair_map 推導出
+        一個等價的 k7 式 universe（每檔 TW 都有配對），與舊行為完全相同。
+
+    Notes
+    -----
+    E4 變更說明（經授權變更資料層，2026-08-08）
+
+    原實作把整張圖寫死成「方陣 + 對角恆等邊」：n_l1 == n_l2、
+    A12 直接建成 [[0..n-1], [0..n-1]]、y 也用同一個 n 配置。
+    這三件事在擴充後的 universe（US 30 / TW 50、僅 7 對配對）全部不成立。
+
+    本次改為由 Universe.pair_index 決定 A12：pair_index[j] 是 TW 節點 j
+    對應的 US 索引，無配對者為 -1、不建邊。k7 下 pair_index 恰為
+    (0, 1, ..., 6)，A12 因此仍是完整對角線——舊行為是新結構的特例，
+    故 k=7 的快照內容不變（已以 1,643 個快照逐位元比對驗證）。
     """
 
     def __init__(self,
@@ -145,7 +161,8 @@ class MultiplexGraphBuilder:
                  corr_threshold:          float = DEFAULT_CORR_THRESHOLD,
                  use_abs_corr:            bool = DEFAULT_USE_ABS_CORR,
                  feature_col_for_corr:    str = "log_return",
-                 static_supply_chain_path: Optional[str] = None):
+                 static_supply_chain_path: Optional[str] = None,
+                 universe=None):
 
         self.pair_map             = dict(pair_map)
         self.adr_dir              = adr_dir
@@ -163,10 +180,23 @@ class MultiplexGraphBuilder:
                 stacklevel=2,
             )
 
-        # 固定節點順序（極為重要：A12 對角矩陣依賴此順序）
-        self.adr_tickers = list(self.pair_map.keys())
-        self.tw_codes    = list(self.pair_map.values())
-        self.n_nodes     = len(self.adr_tickers)
+        # 固定節點順序（極為重要：A12 與所有張量索引都依賴此順序）
+        if universe is None:
+            from src.dataset.config import Universe
+            universe = Universe(
+                name="from_pair_map",
+                us_nodes=tuple(self.pair_map.keys()),
+                tw_nodes=tuple(self.pair_map.values()),
+                pairing=dict(self.pair_map),
+                industry={c: "" for c in self.pair_map.values()},
+            )
+        self.universe    = universe
+        self.adr_tickers = list(universe.us_nodes)
+        self.tw_codes    = list(universe.tw_nodes)
+        self.n_l1        = universe.n_l1
+        self.n_l2        = universe.n_l2
+        # pair_index[j] = TW 節點 j 對應的 US 索引；-1 代表無配對，不建恆等邊
+        self.pair_index  = list(universe.pair_index)
 
         # 載入所有特徵資料（一次性載入，後續快取使用）
         self._adr_data: Dict[str, pd.DataFrame] = {}
@@ -249,8 +279,8 @@ class MultiplexGraphBuilder:
             target_date=actual_target_date,
             window_start=window_start,
             window_end=window_end,
-            n_l1_nodes=self.n_nodes,
-            n_l2_nodes=self.n_nodes,
+            n_l1_nodes=self.n_l1,
+            n_l2_nodes=self.n_l2,
         )
 
         # ── Step 2：取得節點特徵（使用 window_end 那天的特徵）─
@@ -271,12 +301,14 @@ class MultiplexGraphBuilder:
             window_start, window_end, meta, "L2"
         )
 
-        # ── Step 4：建立 A12 對角矩陣 ──────────────────────
-        a12_edge_index = torch.tensor(
-            [list(range(self.n_nodes)), list(range(self.n_nodes))],
-            dtype=torch.long,
-        )
-        meta.n_a12_edges = self.n_nodes
+        # ── Step 4：建立 A12 恆等邊（由 pair_index 決定，非對角線）─
+        # src = 配對美股在 L1 的索引，dst = 該台股在 L2 的索引。
+        # 無配對的 TW 節點（pair_index[j] < 0）不建邊——這正是擴充後
+        # 43/50 檔台股的情形，它們只能經由候選邊取得跨市場資訊。
+        a12_src = [i for i in self.pair_index if i >= 0]
+        a12_dst = [j for j, i in enumerate(self.pair_index) if i >= 0]
+        a12_edge_index = torch.tensor([a12_src, a12_dst], dtype=torch.long)
+        meta.n_a12_edges = len(a12_src)
 
         # ── Step 5：取得預測目標 y（TW 在 target_date 的 log_return）
         y = self._extract_target_returns(actual_target_date, meta)
@@ -315,11 +347,12 @@ class MultiplexGraphBuilder:
         data.lookback_days = self.corr_window
 
         # 統計
+        # 兩層節點數可能不同，密度各以自身 n 正規化
         meta.l1_density = (
-            meta.n_l1_edges / max(self.n_nodes * (self.n_nodes - 1), 1)
+            meta.n_l1_edges / max(self.n_l1 * (self.n_l1 - 1), 1)
         )
         meta.l2_density = (
-            meta.n_l2_edges / max(self.n_nodes * (self.n_nodes - 1), 1)
+            meta.n_l2_edges / max(self.n_l2 * (self.n_l2 - 1), 1)
         )
         meta.has_imputed  = bool(l1_imp_mask.any() or l2_imp_mask.any())
         meta.has_long_gap = bool(l1_lg_mask.any() or l2_lg_mask.any())
@@ -545,7 +578,8 @@ class MultiplexGraphBuilder:
         取得 TW 各節點在 target_date 的 log_return（作為 y）。
         若該日 is_long_gap=True 或缺漏，回傳 NaN（下游訓練應剔除）。
         """
-        y_arr = np.full(self.n_nodes, np.nan, dtype=np.float32)
+        # 預測目標只有 TW 層，故長度為 n_l2（擴充後與 n_l1 不同）
+        y_arr = np.full(self.n_l2, np.nan, dtype=np.float32)
 
         for i, code in enumerate(self.tw_codes):
             df = self._tw_data[code]
@@ -594,17 +628,34 @@ def main():
     parser.add_argument("--adr-dir", default="data/features/adr")
     parser.add_argument("--tw-dir",  default="data/features/tw")
     parser.add_argument("--out-dir", default="data/graphs/snapshots")
+    parser.add_argument("--universe", default="k7", choices=("k7", "tw50"),
+                        help="k7 為凍結基準；tw50 的快照請務必寫入新目錄，"
+                             "不可覆寫 data/graphs/snapshots/")
     args = parser.parse_args()
 
-    pair_map = _load_pair_map_from_config()
-    print(f"\n載入 {len(pair_map)} 組配對：{list(pair_map.items())}")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from src.dataset.config import load_universe
+
+    universe = load_universe(args.universe)
+    if args.universe != "k7" and Path(args.out_dir).resolve() == \
+            (repo_root / "data" / "graphs" / "snapshots").resolve():
+        raise SystemExit(
+            "拒絕執行：非 k7 的 universe 不得寫入 data/graphs/snapshots/，"
+            "那是 k=7 凍結基準的一部分。請指定 --out-dir（例如 snapshots_tw50）。"
+        )
+
+    print(f"\nuniverse={universe.name}  L1={universe.n_l1}  L2={universe.n_l2}  "
+          f"恆等配對={universe.n_pairs}（{universe.pairing_rate:.1%}）")
 
     gb = MultiplexGraphBuilder(
-        pair_map=pair_map,
+        pair_map=universe.pairing,
         adr_dir=args.adr_dir,
         tw_dir=args.tw_dir,
         corr_window=args.corr_window,
         corr_threshold=args.corr_threshold,
+        universe=universe,
     )
 
     all_meta = gb.build_sequence(

@@ -641,16 +641,23 @@ def test_graph_window_no_lookahead():
     )
 
 
-def test_a12_strictly_diagonal():
+def test_a12_matches_universe_pairing():
     """
-    T12：A12 跨層連接矩陣必須嚴格對角，無跨公司洩漏
+    T12：A12 跨層邊必須恰好等於 universe 的恆等配對，無跨公司洩漏
 
-    對抽樣的快照逐一驗證：
-      ① A12 edge_index 的 src[i] == dst[i]（嚴格一對一）
-      ② A12 覆蓋所有節點（0 ~ n_nodes-1）
+    E4 之前這條測試斷言「A12 嚴格對角且覆蓋所有節點」。那是 k7 的特例——
+    擴充後 n_l1 != n_l2，且 43/50 檔台股沒有配對，對角線根本不存在。
+    真正要守的不變量是「每條 A12 邊都連到該公司自己的另一個掛牌」，
+    故改為對照 Universe.pairing 驗證：
+
+      ① A12 邊數 == universe.n_pairs
+      ② 每條邊的 (us_nodes[src], tw_nodes[dst]) 都在 pairing 內
       ③ 無重複邊
+      ④ 無配對的 TW 節點不得出現在 dst
     """
     import torch
+
+    from src.dataset.config import load_universe
 
     samples = _get_snapshot_sample()
     if not samples:
@@ -660,45 +667,55 @@ def test_a12_strictly_diagonal():
     for path in samples:
         data = _load_snapshot(path)
 
-        # 取得 A12 邊
         a12_type = ("adr", "cross", "tw")
         if a12_type not in data.edge_types:
             fail_msgs.append(f"  [{path.stem}] 缺少 A12 邊類型 {a12_type}")
             continue
 
         a12 = data[a12_type].edge_index
-        n_nodes = data["adr"].x.shape[0]
+        n_l1 = data["adr"].x.shape[0]
+        n_l2 = data["tw"].x.shape[0]
 
-        # 檢查 1：邊數 = 節點數
-        if a12.shape[1] != n_nodes:
+        # 依快照形狀判定 universe
+        u = next((load_universe(nm) for nm in ("k7", "tw50")
+                  if load_universe(nm).n_l1 == n_l1
+                  and load_universe(nm).n_l2 == n_l2), None)
+        if u is None:
             fail_msgs.append(
-                f"  [{path.stem}] A12 邊數 {a12.shape[1]} ≠ 節點數 {n_nodes}"
+                f"  [{path.stem}] 形狀 L1={n_l1} L2={n_l2} 不對應任何已知 universe"
             )
             continue
 
-        # 檢查 2：嚴格對角（src == dst for every edge）
-        for k in range(a12.shape[1]):
-            src, dst = int(a12[0, k]), int(a12[1, k])
-            if src != dst:
-                fail_msgs.append(
-                    f"  [{path.stem}] A12 第 {k} 條邊 src={src} ≠ dst={dst}"
-                    f"（跨公司洩漏！）"
-                )
-
-        # 檢查 3：覆蓋所有節點
-        src_set = set(a12[0].tolist())
-        expected = set(range(n_nodes))
-        if src_set != expected:
-            missing = expected - src_set
+        # 檢查 1：邊數 == 恆等配對數
+        if a12.shape[1] != u.n_pairs:
             fail_msgs.append(
-                f"  [{path.stem}] A12 未覆蓋節點 {missing}"
+                f"  [{path.stem}] A12 邊數 {a12.shape[1]} ≠ 配對數 {u.n_pairs}"
             )
+            continue
 
-        # 檢查 4：無重複邊
         edge_pairs = [(int(a12[0, k]), int(a12[1, k]))
                       for k in range(a12.shape[1])]
+
+        # 檢查 2：每條邊都是真實的雙掛牌配對
+        for k, (src, dst) in enumerate(edge_pairs):
+            us_t, tw_t = u.us_nodes[src], u.tw_nodes[dst]
+            if u.pairing.get(us_t) != tw_t:
+                fail_msgs.append(
+                    f"  [{path.stem}] A12 第 {k} 條邊 {us_t}→{tw_t} "
+                    f"不在 pairing 內（跨公司洩漏！）"
+                )
+
+        # 檢查 3：無重複邊
         if len(set(edge_pairs)) != len(edge_pairs):
             fail_msgs.append(f"  [{path.stem}] A12 有重複邊")
+
+        # 檢查 4：無配對的 TW 節點不得有恆等邊
+        paired_tw = {j for j, i in enumerate(u.pair_index) if i >= 0}
+        stray = {dst for _, dst in edge_pairs} - paired_tw
+        if stray:
+            fail_msgs.append(
+                f"  [{path.stem}] 無配對的 TW 節點出現恆等邊：{sorted(stray)}"
+            )
 
     assert not fail_msgs, (
         f"T12 A12 跨層洩漏偵測失敗！\n"
