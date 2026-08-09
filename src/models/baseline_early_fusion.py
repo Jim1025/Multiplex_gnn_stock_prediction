@@ -24,8 +24,8 @@ baseline_early_fusion.py — Early-fusion baseline（輸入層特徵拼接，無
 
 注意：
   - forward 介面與 MAGNET 對齊（同一個 batch dict，回傳 (y_hat, extras)）
-  - p(j) 由 PAIR_MAP 推得，不假設 L1/L2 索引對齊；
-    universe 擴充後多數 TW 節點無配對，屆時 ADR 半邊即為零向量（本檔已支援）
+  - p(j) 由 cfg 的 universe 推得，不假設 L1/L2 索引對齊；
+    universe 擴充後多數 TW 節點無配對，ADR 半邊即為零向量
 """
 
 from __future__ import annotations
@@ -34,8 +34,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from src.dataset.config import PAIR_MAP
-from src.dataset.multiplex_dataset import ADR_TICKERS, TW_CODES
+from src.models._universe import universe_from_cfg
 from src.models.encoders import SharedLSTM, TypeProjection
 from src.models.prediction_head import PredictionHead, CombinedLoss
 
@@ -72,16 +71,16 @@ class BaselineEarlyFusion(nn.Module):
         )
 
         # p(j)：TW 節點 j → 其配對 ADR 在 L1 的索引；無配對為 -1
-        adr_index = {ticker: i for i, ticker in enumerate(ADR_TICKERS)}
-        tw_to_adr = {
-            meta["tw"]: adr_index[ticker]
-            for ticker, meta in PAIR_MAP.items()
-            if ticker in adr_index
-        }
-        pair_src = [tw_to_adr.get(code, -1) for code in TW_CODES]
-        self.register_buffer("pair_src", torch.tensor(pair_src, dtype=torch.long))
+        # E6：改由 cfg 的 universe 取得。原本從模組層級的 k7 常數推導，
+        # 擴充後會產出長度 7 的索引去切 50 節點的張量。
+        pair_index = universe_from_cfg(cfg).pair_index
         self.register_buffer(
-            "has_pair", torch.tensor([i >= 0 for i in pair_src], dtype=torch.bool)
+            "pair_src",
+            torch.tensor([max(i, 0) for i in pair_index], dtype=torch.long),
+        )
+        self.register_buffer(
+            "has_pair",
+            torch.tensor([i >= 0 for i in pair_index], dtype=torch.bool),
         )
 
     def forward(self, batch: dict) -> tuple[Tensor, dict]:
@@ -89,8 +88,8 @@ class BaselineEarlyFusion(nn.Module):
         x_L2 = batch["x_seq_L2"]            # [B, T, n2, F]
 
         # 依 p(j) 取出每個 TW 節點對應的 ADR 序列；無配對者補零
-        src = self.pair_src.clamp(min=0)
-        adr = x_L1.index_select(dim=2, index=src)                # [B, T, n2, F]
+        # （pair_src 已把 -1 填成 0，實際由 has_pair 遮掉）
+        adr = x_L1.index_select(dim=2, index=self.pair_src)      # [B, T, n2, F]
         adr = adr * self.has_pair.view(1, 1, -1, 1).to(adr.dtype)
 
         x = torch.cat([x_L2, adr], dim=-1)  # [B, T, n2, 2F]

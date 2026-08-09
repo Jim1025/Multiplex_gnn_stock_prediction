@@ -129,19 +129,20 @@ class BaselineMEIG(nn.Module):
             f"當前為 {input_dim}"
         )
 
-        # 節點區塊 mask（前 n 個 = ADR，後 n 個 = TW）延後到第一次 forward
-        # 依實際 n 建立並 cache（register_buffer 需知 n，資料層固定 n=7）
-        self._masks_built_for_n: int | None = None
+        # 節點區塊 mask（前 n1 個 = ADR，後 n2 個 = TW）延後到第一次 forward
+        # 依實際節點數建立並 cache
+        # E6：原本 cache key 只有一個 n 且假設 n_all = 2n，擴充後兩層不等長
+        self._masks_built_for: tuple[int, int] | None = None
 
     # ------------------------------------------------------------------
     # 圖構建 helpers
     # ------------------------------------------------------------------
 
-    def _build_block_masks(self, n: int, device: torch.device) -> None:
-        """建立三張圖的節點區塊 mask（[2n, 2n] bool，不含對角線）。"""
-        n_all = 2 * n
+    def _build_block_masks(self, n1: int, n2: int, device: torch.device) -> None:
+        """建立三張圖的節點區塊 mask（[n_all, n_all] bool，不含對角線）。"""
+        n_all = n1 + n2
         idx = torch.arange(n_all, device=device)
-        is_adr = idx < n                                          # [2n]
+        is_adr = idx < n1                                         # [n_all]
         eye = torch.eye(n_all, dtype=torch.bool, device=device)
 
         intra1 = is_adr.unsqueeze(0) & is_adr.unsqueeze(1) & ~eye   # ADR 區塊
@@ -151,7 +152,7 @@ class BaselineMEIG(nn.Module):
         self.register_buffer("intra1_mask", intra1, persistent=False)
         self.register_buffer("intra2_mask", intra2, persistent=False)
         self.register_buffer("inter_mask",  inter,  persistent=False)
-        self._masks_built_for_n = n
+        self._masks_built_for = (n1, n2)
 
     @staticmethod
     def _normalize_adj(edges: Tensor) -> Tensor:
@@ -191,20 +192,21 @@ class BaselineMEIG(nn.Module):
     # ------------------------------------------------------------------
 
     def forward(self, batch: dict) -> tuple[Tensor, dict]:
-        x_L1 = batch["x_seq_L1"]                                  # [B, T, n, F]  ADR
-        x_L2 = batch["x_seq_L2"]                                  # [B, T, n, F]  TW
+        x_L1 = batch["x_seq_L1"]                                  # [B, T, n1, F]  ADR
+        x_L2 = batch["x_seq_L2"]                                  # [B, T, n2, F]  TW
 
-        B, T, n, _ = x_L1.shape
-        x_all = torch.cat([x_L1, x_L2], dim=2)                    # [B, T, 2n, F]
+        B, T, n1, _ = x_L1.shape
+        n2 = x_L2.size(2)
+        x_all = torch.cat([x_L1, x_L2], dim=2)                    # [B, T, n_all, F]
 
-        if self._masks_built_for_n != n:
-            self._build_block_masks(n, x_all.device)
+        if self._masks_built_for != (n1, n2):
+            self._build_block_masks(n1, n2, x_all.device)
 
         # ── Phase 1: 窗內相關圖（Eq. 6: corr > theta 建邊） ─────────
-        r = x_all[..., self.CORR_FEATURE_IDX]                     # [B, T, 2n] log_return
+        r = x_all[..., self.CORR_FEATURE_IDX]                     # [B, T, n_all] log_return
         r = r - r.mean(dim=1, keepdim=True)
         r = r / (r.std(dim=1, keepdim=True, unbiased=False) + 1e-8)
-        corr = torch.einsum("btu,btv->buv", r, r) / T             # [B, 2n, 2n] Pearson
+        corr = torch.einsum("btu,btv->buv", r, r) / T             # [B, n_all, n_all] Pearson
 
         A1 = self._normalize_adj((corr > self.theta_intra) & self.intra1_mask)
         A2 = self._normalize_adj((corr > self.theta_intra) & self.intra2_mask)
@@ -217,24 +219,24 @@ class BaselineMEIG(nn.Module):
 
         # ── Phase 3: CGAT graph-level 混合（Eq. 22-23） ─────────────
         alpha = torch.softmax(self.cgat_w, dim=0)                 # [3]
-        Z = alpha[0] * Z1 + alpha[1] * Z2 + alpha[2] * Zx         # [B, T, 2n, H]
+        Z = alpha[0] * Z1 + alpha[1] * Z2 + alpha[2] * Zx         # [B, T, n_all, H]
 
         # ── Phase 4: LSTM 逐節點處理時間（§3.5） ────────────────────
-        n_all = 2 * n
-        z_seq = Z.permute(0, 2, 1, 3).reshape(B * n_all, T, -1)   # [B*2n, T, H]
-        h_seq, _ = self.lstm(z_seq)                               # [B*2n, T, N]
-        h = h_seq[:, -1, :].reshape(B, n_all, -1)                 # [B, 2n, N]
+        n_all = n1 + n2
+        z_seq = Z.permute(0, 2, 1, 3).reshape(B * n_all, T, -1)   # [B*n_all, T, H]
+        h_seq, _ = self.lstm(z_seq)                               # [B*n_all, T, N]
+        h = h_seq[:, -1, :].reshape(B, n_all, -1)                 # [B, n_all, N]
 
         # ── Phase 5: Prediction（只出 TW 節點） ─────────────────────
-        h_adr, h_tw = h[:, :n, :], h[:, n:, :]
-        y_hat = self.predictor(h_tw)                              # [B, n]
+        h_adr, h_tw = h[:, :n1, :], h[:, n1:, :]
+        y_hat = self.predictor(h_tw)                              # [B, n2]
 
         # 對齊 MAGNET 簽名（extras 不用於 loss；額外欄位供分析）
         extras = {
             "h_L1":    h_adr,
             "h_L2":    h_tw,
             "h_fused": h_tw,
-            "alpha":   alpha[2].expand(B, n, 1),                  # α_inter（分析用）
+            "alpha":   alpha[2].expand(B, n2, 1),                 # α_inter（分析用）
             "gate":    torch.zeros_like(h_tw),
             # 分析用：CGAT 三權重與 inter 圖的邊密度
             "cgat_alpha": alpha,                                  # [3] (L1, L2, inter)

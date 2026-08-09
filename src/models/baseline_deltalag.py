@@ -127,45 +127,49 @@ class BaselineDeltaLag(nn.Module):
         return h_seq.reshape(B, n_all, T, -1)                     # [B, n_all, T, N]
 
     def forward(self, batch: dict) -> tuple[Tensor, dict]:
-        x_L1 = batch["x_seq_L1"]                                  # [B, T, n, F]  ADR
-        x_L2 = batch["x_seq_L2"]                                  # [B, T, n, F]  TW
+        x_L1 = batch["x_seq_L1"]                                  # [B, T, n1, F]  ADR
+        x_L2 = batch["x_seq_L2"]                                  # [B, T, n2, F]  TW
 
-        B, T, n, F_ = x_L1.shape
-        n_all = 2 * n                                             # candidate pool = ADR + TW
+        # E6：原本假設 n1 == n2（n_all = 2n、target 為後 n 個）。
+        # 擴充後兩層節點數不等，候選池是 n1 + n2 而非 2n。
+        B, T, n1, F_ = x_L1.shape
+        n2 = x_L2.size(2)
+        n_all = n1 + n2                                           # candidate pool = ADR + TW
 
-        # 合併兩市場序列：候選 pool 前 n 個是 ADR，後 n 個是 TW
-        x_all = torch.cat([x_L1, x_L2], dim=2)                    # [B, T, 2n, F]
+        # 合併兩市場序列：候選 pool 前 n1 個是 ADR，後 n2 個是 TW
+        x_all = torch.cat([x_L1, x_L2], dim=2)                    # [B, T, n_all, F]
 
         # ── Phase 1: Temporal encoding ─────────────────────────
-        h_seq = self._encode_all(x_all)                           # [B, 2n, T, N]
+        h_seq = self._encode_all(x_all)                           # [B, n_all, T, N]
 
         # ── Phase 2: Cross-attention ───────────────────────────
-        # Target = TW nodes（後 n 個），indices [n, 2n)
-        h_targets = h_seq[:, n:, -1, :]                           # [B, n, N]  last-step for each target
-        q = self.W_Q(h_targets)                                   # [B, n, N]
+        # Target = TW nodes（後 n2 個），indices [n1, n_all)
+        h_targets = h_seq[:, n1:, -1, :]                          # [B, n2, N]  last-step for each target
+        q = self.W_Q(h_targets)                                   # [B, n2, N]
 
-        # Candidates = 全體 2n 個，取最後 l_max 步作 keys
-        h_cand_window = h_seq[:, :, -self.l_max:, :]              # [B, 2n, l_max, N]
-        k = self.W_K(h_cand_window)                               # [B, 2n, l_max, N]
+        # Candidates = 全體 n_all 個，取最後 l_max 步作 keys
+        h_cand_window = h_seq[:, :, -self.l_max:, :]              # [B, n_all, l_max, N]
+        k = self.W_K(h_cand_window)                               # [B, n_all, l_max, N]
 
-        # Attention scores: [B, n_target=n, n_cand=2n, l_max]
+        # Attention scores: [B, n_target=n2, n_cand=n_all, l_max]
         # A[b, u, v, j] = q[b, u] · k[b, v, j]
         # 用 einsum 一次算完
-        A = torch.einsum("buN,bvjN->buvj", q, k)                  # [B, n, 2n, l_max]
+        A = torch.einsum("buN,bvjN->buvj", q, k)                  # [B, n2, n_all, l_max]
 
-        # Mask self-loops：TW_i 不能是 TW_i 自己的 leader（indices n+i in candidate pool）
-        # ADR_i (candidate index i) 可以是 TW_i (target index i) 的 leader → 不 mask
-        for i in range(n):
-            A[:, i, n + i, :] = float("-inf")                     # target i 對應 candidate n+i (自己)
+        # Mask self-loops：TW_i 不能是 TW_i 自己的 leader（candidate index n1+i）
+        # 配對的 ADR（candidate index p(i)）可以是 leader → 不 mask，
+        # 這正是要給 DeltaLag 動態學到配對關係的機會
+        for i in range(n2):
+            A[:, i, n1 + i, :] = float("-inf")                    # target i 對應 candidate n1+i (自己)
 
         # ── Phase 3: TopK sparsification ────────────────────────
         # 攤平 (candidate, lag) 兩個維度後選 top-k
-        A_flat = A.reshape(B, n, n_all * self.l_max)              # [B, n, 2n*l_max]
+        A_flat = A.reshape(B, n2, n_all * self.l_max)             # [B, n2, n_all*l_max]
         topk_scores, topk_idx = A_flat.topk(self.top_k, dim=-1)   # [B, n, k]
 
         # 解碼 flat idx → (candidate_idx, lag_j)
-        cand_idx = topk_idx // self.l_max                         # [B, n, k]  in [0, 2n)
-        lag_j    = topk_idx %  self.l_max                         # [B, n, k]  in [0, l_max)
+        cand_idx = topk_idx // self.l_max                         # [B, n2, k]  in [0, n_all)
+        lag_j    = topk_idx %  self.l_max                         # [B, n2, k]  in [0, l_max)
 
         # 轉為原論文 τ = l_max - j（j=l_max-1 對應 τ=1，即昨天）
         # feature 時間 = T - 1 - τ = T - 1 - (l_max - lag_j) = T - 1 - l_max + lag_j
@@ -174,28 +178,28 @@ class BaselineDeltaLag(nn.Module):
         # ── Phase 4: Lag-aligned raw feature extraction ─────────
         # 對 (b, u, m) 取 x_all[b, feat_time[b,u,m], cand_idx[b,u,m], :]
         # 用 advanced indexing 向量化
-        b_idx = torch.arange(B, device=x_all.device).view(B, 1, 1).expand(B, n, self.top_k)
-        z_leaders = x_all[b_idx, feat_time, cand_idx]             # [B, n, k, F]
+        b_idx = torch.arange(B, device=x_all.device).view(B, 1, 1).expand(B, n2, self.top_k)
+        z_leaders = x_all[b_idx, feat_time, cand_idx]             # [B, n2, k, F]
 
         # Softmax weights over top-k
-        weights = F.softmax(topk_scores, dim=-1).unsqueeze(-1)    # [B, n, k, 1]
-        z = (weights * z_leaders).sum(dim=2)                      # [B, n, F]
+        weights = F.softmax(topk_scores, dim=-1).unsqueeze(-1)    # [B, n2, k, 1]
+        z = (weights * z_leaders).sum(dim=2)                      # [B, n2, F]
 
         # ── Phase 5: Prediction ────────────────────────────────
         z = self.feature_norm(z)                                  # 正規化異質特徵尺度
-        y_hat = self.predictor(z)                                 # [B, n]
+        y_hat = self.predictor(z)                                 # [B, n2]
 
         # 對齊 MAGNET 簽名（extras 不用於 loss；額外欄位供分析）
         extras = {
             "h_L1":    z,
             "h_L2":    z,
             "h_fused": z,
-            "alpha":   weights.squeeze(-1).mean(dim=-1, keepdim=True),  # [B, n, 1]
+            "alpha":   weights.squeeze(-1).mean(dim=-1, keepdim=True),  # [B, n2, 1]
             "gate":    torch.zeros_like(z),
             # 分析用：學到的 leader 分佈（看 DeltaLag 是否選中 ADR）
-            "topk_cand_idx": cand_idx,                            # [B, n, k]
-            "topk_lag":      self.l_max - lag_j,                  # [B, n, k]  (τ values)
-            "topk_scores":   topk_scores,                         # [B, n, k]
+            "topk_cand_idx": cand_idx,                            # [B, n2, k]  < n1 者為 ADR
+            "topk_lag":      self.l_max - lag_j,                  # [B, n2, k]  (τ values)
+            "topk_scores":   topk_scores,                         # [B, n2, k]
         }
         return y_hat, extras
 

@@ -40,25 +40,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from src.dataset.config import PAIR_MAP
+from src.models._universe import universe_from_cfg
 from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
 from src.models.prediction_head import PredictionHead, CombinedLoss
 
 
 # ---------------------------------------------------------------------------
-# Sector mapping helper（從 PAIR_MAP 讀，保證與 dataloader ticker 順序對齊）
+# Sector mapping helper（從 universe 讀，保證與 dataloader ticker 順序對齊）
 # ---------------------------------------------------------------------------
 
-def _build_sector_mapping() -> tuple[list[str], list[int]]:
+def _build_sector_mapping(universe) -> tuple[list[str], list[int]]:
     """
     Returns:
         sectors      : list[str]  依字典序排序的獨立 industry 名稱
-        stock2sector : list[int]  長度 = len(PAIR_MAP)，每檔 stock 對應的 sector index
+        stock2sector : list[int]  長度 = n_l2，每檔 TW stock 對應的 sector index
+
+    E6：改吃 universe.tw_nodes 的產業別。原本從 PAIR_MAP 的 7 檔 ADR 推導，
+    但本 baseline 是單市場（只用 TW L2），節點應該是 TW 側；k7 下兩者
+    順序與產業別逐項相同（tw_nodes 即 PAIR_MAP 的配對台股），故結果不變。
+    擴充後 TW 有 50 檔、18 個產業別，用 ADR 那份會少 43 個節點。
     """
-    tickers = list(PAIR_MAP.keys())
-    industries = [PAIR_MAP[t]["industry"] for t in tickers]
+    industries = [universe.industry[c] for c in universe.tw_nodes]
     sectors = sorted(set(industries))
-    stock2sector = [sectors.index(PAIR_MAP[t]["industry"]) for t in tickers]
+    stock2sector = [sectors.index(ind) for ind in industries]
     return sectors, stock2sector
 
 
@@ -85,7 +89,7 @@ class BaselineHATS(nn.Module):
         self.lstm = SharedLSTM(lstm_cfg)
 
         # Sector 分層資訊
-        sectors, stock2sector = _build_sector_mapping()
+        sectors, stock2sector = _build_sector_mapping(universe_from_cfg(cfg))
         self.n_sectors = len(sectors)
         # buffer：不參與梯度、但會 follow model 到 device
         self.register_buffer(

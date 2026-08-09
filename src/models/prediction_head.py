@@ -138,6 +138,19 @@ class CombinedLoss(nn.Module):
         Returns:
             scalar loss
         """
+        # E6：正樣本定義為「第 i 列的 h_L1 與 h_L2 是同一家公司」，
+        # 這在 n1 == n2 且全配對時才成立。擴充後 L1 有 30 個節點、L2 有 50 個，
+        # 只有 7 對是同公司，對角線不再是正樣本集合——這需要換一個
+        # 對比損失的設計（只在有配對的 7 對上算），不是形狀對齊就能解決。
+        # 目前 base.yaml 是 align_loss.enabled=false / align=0.0，故先擋住，
+        # 不要讓它靜默算出一個意義錯誤的數字。
+        if h_L1.shape != h_L2.shape:
+            raise ValueError(
+                f"align loss 需要 h_L1 與 h_L2 同形狀（正樣本在對角線），"
+                f"當前為 {tuple(h_L1.shape)} vs {tuple(h_L2.shape)}。"
+                f"不對稱 universe 下請維持 align_loss.enabled=false。"
+            )
+
         # 支援有無 batch 維度
         if h_L1.dim() == 3:
             # [B, n, d'] → [B*n, d'] 以 B 個快照的 n 節點作為 batch
