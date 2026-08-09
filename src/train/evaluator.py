@@ -19,7 +19,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from src.dataset.multiplex_dataset import ADR_TICKERS, TW_CODES, N_NODES
+from src.dataset.multiplex_dataset import TW_CODES
 from src.models.multiplex_gnn import MAGNET
 from src.models.prediction_head import CombinedLoss
 from src.train.metrics import (
@@ -61,7 +61,7 @@ def evaluate(
     """
     model.eval()
 
-    # 逐日累積（n=7 cross-section per day）
+    # 逐日累積（每日一個 n2 維 cross-section）
     daily_y_hats: list[np.ndarray] = []
     daily_ys:     list[np.ndarray] = []
     pred_rows:    list[dict] = []
@@ -73,13 +73,22 @@ def evaluate(
     loss_variance_sum = 0.0
     n_loss_samples    = 0   # 以 batch B 為單位的加權因子
 
-    # TW ticker 順序作為輸出標籤（預測目標為 TW(t+1) log_return）
-    tw_labels = TW_CODES
+    # TW ticker 順序作為輸出標籤（預測目標為 TW(t+1) log_return）。
+    # E5：改為向 loader 持有的 Dataset 詢問，而非用模組層級的 k7 常數。
+    # 標籤與 y_hat 的欄位順序若對不上，predictions CSV 會把每一欄掛到錯的
+    # 公司；下游指標照算不誤，錯誤完全靜默。故下方另加欄數檢查。
+    tw_labels = list(getattr(getattr(loader, "dataset", None), "tw_codes", TW_CODES))
 
     for batch in loader:
         batch = batch_to_device(batch, device)
-        y_hat, extras = model(batch)        # y_hat: [B, n]
-        y = batch["y"]                       # [B, n]
+        y_hat, extras = model(batch)        # y_hat: [B, n2]
+        y = batch["y"]                       # [B, n2]
+
+        if y_hat.size(1) != len(tw_labels):
+            raise ValueError(
+                f"預測欄數 {y_hat.size(1)} 與 TW 標籤數 {len(tw_labels)} 不符——"
+                f"模型與 Dataset 可能屬於不同 universe。"
+            )
 
         if criterion is not None:
             loss, comps = criterion(
@@ -115,8 +124,8 @@ def evaluate(
     # 聚合
     ic_dict = aggregate_ic(daily_y_hats, daily_ys)
     reg_dict = regression_metrics(
-        np.stack(daily_y_hats, axis=0) if daily_y_hats else np.zeros((0, N_NODES)),
-        np.stack(daily_ys,     axis=0) if daily_ys     else np.zeros((0, N_NODES)),
+        np.stack(daily_y_hats, axis=0) if daily_y_hats else np.zeros((0, len(tw_labels))),
+        np.stack(daily_ys,     axis=0) if daily_ys     else np.zeros((0, len(tw_labels))),
     )
 
     result: dict = {

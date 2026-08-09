@@ -3,6 +3,9 @@ data:
   end_date: 2025-12-31
   snapshot_dir: data/graphs/snapshots
   features_dir: data/features
+  universe: k7          # k7 | tw50。必須與 snapshot_dir 用同一個 universe 建
+                        # （Dataset 建構時會檢查節點數，不符直接拋錯）。
+                        # 換 tw50 時 snapshot_dir 也要一起換。
   split:
     train_end: 1150   # indices 0–1149  (70%)
     val_end:   1397   # indices 1150–1396 (15%)

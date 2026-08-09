@@ -106,8 +106,8 @@ def test_dataset_smoke(train_dataset: MultiplexDataset) -> None:
     assert sample["edge_attr_L2"].shape[1] == 1
     assert isinstance(sample["target_date"], str)
 
-    # Ticker 順序固定
-    adr_order, tw_order = MultiplexDataset.get_ticker_order()
+    # Ticker 順序固定（E5：get_ticker_order 改為實例方法，回傳該實例的 universe）
+    adr_order, tw_order = train_dataset.get_ticker_order()
     assert len(adr_order) == N_NODES
     assert len(tw_order) == N_NODES
     assert adr_order == ["TSM", "UMC", "ASX", "CHT", "IMOS", "AUOTY", "HNHPF"]
