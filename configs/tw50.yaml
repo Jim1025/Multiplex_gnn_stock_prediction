@@ -1,0 +1,111 @@
+# tw50.yaml — 擴充 universe（US 30 / TW 50、配對率 14.0%）的訓練設定
+#
+# 為什麼另開一份而不是改 base.yaml：
+#   base.yaml 是 k=7 凍結基準的協議記錄。改掉它的 universe / snapshot_dir
+#   之後，scripts/freeze_k7.py --verify 與 scripts/e7_acceptance.py 就再也
+#   跑不出正確結果——那兩支是唯一能證明「重構沒改變模型語意」的東西。
+#
+# 用法：
+#   .venv/bin/python -m src.train.train --config configs/tw50.yaml --tag <tag>
+#
+# 與 base.yaml 的差異僅限以下五處，其餘必須逐字相同（由
+# tests/test_configs.py 守護；漂移會讓 k7 與 tw50 的結果不可比）：
+#
+#   1. data.universe                k7 → tw50
+#   2. data.snapshot_dir            snapshots → snapshots_tw50
+#   3. data.end_date                2025-12-31 → 2025-12-30
+#   4. evaluation.portfolio.n_side  2 → 5
+#   5. mlflow.experiment_name       （只影響 MLflow 分組，不影響數值）
+#
+# 第 3 點：7 檔配對台股的特徵檔停在 2025-12-30，另外 43 檔到 12-31。
+#   若不截掉，最後一天會產出一張「7 個恆等邊節點全部無標籤」的快照，
+#   而 CombinedLoss 遇到 NaN 標籤會直接回 NaN（整條路徑沒有遮罩）。
+#   截掉之後 tw50 的 1,643 張快照日期與 k7 逐一相同，同一組 split 索引
+#   在兩個 universe 給出相同的 train/val/test 日期邊界。
+#
+# 第 4 點見下方 evaluation 區塊的說明。
+
+data:
+  start_date: 2019-01-01
+  end_date: 2025-12-30   # 見檔頭第 3 點；不可改回 12-31
+  snapshot_dir: data/graphs/snapshots_tw50
+  features_dir: data/features
+  universe: tw50         # 必須與 snapshot_dir 用同一個 universe 建
+                         # （Dataset 建構時會檢查節點數，不符直接拋錯）
+  split:
+    train_end: 1150   # indices 0–1149  (70%)  2019-04-11 ~ 2023-12-19
+    val_end:   1397   # indices 1150–1396 (15%) 2023-12-20 ~ 2024-12-25
+    # test:    indices 1397–1642         (15%) 2024-12-26 ~ 2025-12-30
+
+model:
+  architecture: magnet  # magnet | baseline_lstm | baseline_tw_gnn | magnet_no_a12（M6 Stage 0 ablation）
+                        # baseline_early_fusion（輸入層拼接 ADR 特徵的對照組）
+                        # magnet_weak_industry 在此 universe 無法建構——
+                        # 兩側產業分類法無交集，見 multiplex_gnn._build_weak_mask
+  lstm:
+    input_dim: 9          # F = 9 維技術指標特徵
+    hidden_dim: 64
+    num_layers: 1
+    T_history: 20         # 回看 20 個交易日
+    bidirectional: false  # 預測任務不看未來
+    dropout: 0.1
+  gat:
+    hidden_dim: 64
+    num_layers: 2
+    num_heads: 4
+    dropout: 0.1
+    use_edge_attr: true   # 邊權 |ρ| 餵入 attention
+    concat: true          # heads 用 concat（最後一層改 average）
+  projection:
+    d_prime: 32           # 共同潛在維度
+    activation: gelu
+    layer_norm: true
+  fusion:
+    attention_hidden: 64
+    gate_activation: sigmoid
+  prediction_head:
+    hidden_dim: 64
+    dropout: 0.2
+
+loss_weights:
+  mse: 1.0
+  rank: 0.5             # M4.5 Phase 1: 0.1 → 0.5（強迫學排序）
+  align: 0.0            # M4.5 Phase 1: 0.1 → 0.0（關掉反向學的 align loss）
+  variance: 0.1         # M4.5 Phase 2: 新增，對抗 prediction collapse（std(ŷ)→std(y)）
+
+align_loss:
+  enabled: false        # 不對稱 universe 下必須維持 false：align loss 的正樣本
+                        # 定義是「第 i 列是同一家公司」，n1 != n2 時對角線不再
+                        # 是正樣本集合。啟用會在 CombinedLoss 直接拋錯。
+  temperature: 0.1
+
+training:
+  seed: 42
+  max_epochs: 100
+  patience: 15           # M4.5 Phase 1: 10 → 15（給更多耐心觀察收斂）
+  batch_size: 32
+  lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
+  weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
+  device: auto           # auto | cpu | mps | cuda
+  num_workers: 0         # MPS 上建議 0（multiprocessing 不穩）
+  pin_memory: false
+  grad_clip: 1.0         # 梯度裁剪上限
+  log_every_n_steps: 10  # console print 頻率
+  min_delta: 0.0         # IC 改善判定下限
+  early_stop_metric: IC  # 監控 val 上的 IC（越大越好）
+
+evaluation:
+  portfolio:
+    n_side: 5              # 多空各取 5 檔 = 50 檔的十分位，橫截面研究的慣例。
+                           # k=7 時用 2（上限 3），比例上是各 29%；在 50 檔沿用 2
+                           # 會變成各 4%，是極端集中的組合，Sharpe 由少數個股主導。
+                           # 兩個 universe 的 Sharpe 本來就不可直接比較（成分不同），
+                           # 故此處選慣例值而非等比例（等比例會是各 14 檔）。
+                           # E9 的主要指標是 IC，組合指標為輔。
+    periods_per_year: 252  # Sharpe 年化因子
+    # 無交易成本、無流動性限制 → 屬 pre-cost 診斷，不是可實作 alpha
+
+mlflow:
+  experiment_name: MAGNET_E9_tw50
+  tracking_uri: file:./mlruns
+  log_artifacts: true
