@@ -107,13 +107,19 @@ class MAGNET(nn.Module):
         self.universe_name = u.name
         self.n_l1, self.n_l2 = u.n_l1, u.n_l2
         # pair_src[j] = TW 節點 j 的配對 ADR 索引（無配對者先填 0，靠 has_pair 遮掉）
+        # persistent=False：這兩個 buffer 完全由 cfg 的 universe 決定，不是學到的
+        # 狀態，不該進 state_dict。若進了，E6 之前存的 checkpoint 會因為缺這兩個
+        # key 而載不進來（m8_epoch_trajectory.py 讀 M9 的逐 epoch 權重時炸過）。
+        # 與 baseline_hats / baseline_meig 的既有慣例一致。
         self.register_buffer(
             "pair_src",
             torch.tensor([max(i, 0) for i in u.pair_index], dtype=torch.long),
+            persistent=False,
         )
         self.register_buffer(
             "has_pair",
             torch.tensor([i >= 0 for i in u.pair_index], dtype=torch.bool),
+            persistent=False,
         )
 
         weak_cfg = m_cfg.get("weak_links", {}) or {}

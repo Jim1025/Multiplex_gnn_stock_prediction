@@ -220,6 +220,65 @@ def test_hats_sectors_follow_tw_nodes() -> None:
     assert m.n_sectors > 4, "tw50 的產業別應遠多於 k7 的 4 類"
 
 
+# ── 跨市場資訊的觸及範圍（結構不變量）─────────────────────────
+
+def _adr_reach(arch: str, batch: dict) -> tuple[int, float, float]:
+    """
+    擾動整個 x_seq_L1，回傳 (有反應的節點數, 配對節點平均|Δ|, 無配對節點平均|Δ|)。
+
+    這是純結構檢定：不依賴訓練、不依賴任何 p 值，量的是「ADR 輸入到各個
+    TW 輸出之間有沒有前向路徑」。
+    """
+    u = load_universe("tw50")
+    paired = [j for j, i in enumerate(u.pair_index) if i >= 0]
+    unpaired = [j for j, i in enumerate(u.pair_index) if i < 0]
+    torch.manual_seed(0)
+    m = build_model(_cfg("tw50", arch)).eval()
+    with torch.no_grad():
+        y0, _ = m(batch)
+        y1, _ = m({**batch, "x_seq_L1": torch.randn_like(batch["x_seq_L1"])})
+    d = (y1 - y0).abs().mean(dim=0)
+    return int((d > 1e-9).sum()), float(d[paired].mean()), float(d[unpaired].mean())
+
+
+def test_late_fusion_cannot_reach_unpaired_nodes(tw50_batch: dict) -> None:
+    """
+    一般 MAGNET 的 ADR 資訊只到得了有恆等邊的節點。
+
+    這不是缺陷測試而是現況的規格：L2 的圖跑在融合之前，融合是 per-node，
+    之後沒有傳播，所以無配對節點在數值上完全不受 ADR 輸入影響。
+    若哪天這條測試失敗，代表有人改動了融合的位置或順序。
+    """
+    n, paired, unpaired = _adr_reach("magnet", tw50_batch)
+    assert n == 7, f"應只有 7 個配對節點有反應，實際 {n}"
+    assert paired > 1e-6
+    assert unpaired == 0.0, "無配對節點必須是位元零，不是「很小」"
+
+
+def test_intermediate_fusion_reaches_all_nodes(tw50_batch: dict) -> None:
+    """
+    intermediate fusion 的存在理由：融合提前到 L2 圖之前，圖才能把跨市場
+    訊號帶到無配對節點。這是該變體的主要交付物，與 IC 好壞無關。
+    """
+    n, paired, unpaired = _adr_reach("magnet_intermediate", tw50_batch)
+    assert n == 50, f"全部 50 個節點都該有反應，實際 {n}"
+    assert unpaired > 0.0
+    assert unpaired / paired > 0.05, (
+        f"無配對節點收到的訊號量僅為配對節點的 {unpaired/paired:.4f} 倍，"
+        f"傳播雖然接通但幾乎沒有量"
+    )
+
+
+def test_intermediate_fusion_shapes(tw50_batch: dict, k7_batch: dict) -> None:
+    from src.models.magnet_intermediate import MAGNETIntermediate
+    for batch, n2 in ((k7_batch, 7), (tw50_batch, 50)):
+        m = MAGNETIntermediate(_cfg("tw50" if n2 == 50 else "k7")).eval()
+        y, ex = m(batch)
+        assert y.shape == (2, n2)
+        assert ex["h_out"].shape[1] == n2
+        assert ex["gate"].shape[:2] == (2, n2)
+
+
 def test_universe_from_cfg_defaults_to_k7() -> None:
     """舊的 config 快照沒有 data.universe，必須維持可重跑。"""
     assert universe_from_cfg({}).name == "k7"

@@ -1,4 +1,5 @@
 from src.models.multiplex_gnn import MAGNET
+from src.models.magnet_intermediate import MAGNETIntermediate
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_early_fusion import BaselineEarlyFusion
 from src.models.baseline_tw_gnn import BaselineTWGNN
@@ -22,6 +23,8 @@ VALID_ARCHITECTURES = (
     "adv_alstm", "hats", "man_sf", "hgt", "delta_lag", "meig",
     # M8 hierarchical A12 (strong identity pairs + learned weak links)
     "magnet_weak_free", "magnet_weak_industry",
+    # 第 2 階段：intermediate fusion（融合提前到 L2 圖傳播之前）
+    "magnet_intermediate",
 )
 
 
@@ -71,6 +74,8 @@ def build_model(cfg: dict):
         return BaselineDeltaLag(cfg)
     if arch == "meig":
         return BaselineMEIG(cfg)
+    if arch == "magnet_intermediate":
+        return MAGNETIntermediate(cfg)
     if arch in ("magnet_weak_free", "magnet_weak_industry"):
         # 注入 weak_links.mode（MAGNET 內部會讀）；保留 cfg 原有的 lambda 等設定
         mode = "free" if arch == "magnet_weak_free" else "industry"
@@ -82,6 +87,7 @@ def build_model(cfg: dict):
 
 __all__ = [
     "MAGNET",
+    "MAGNETIntermediate",
     "BaselineLSTM",
     "BaselineEarlyFusion",
     "BaselineTWGNN",
