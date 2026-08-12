@@ -98,14 +98,29 @@ class CombinedLoss(nn.Module):
         self.temperature  = align_cfg.get("temperature", 0.1)
         self.mse = nn.MSELoss()
 
+        # rank_normalize：配對比較前先把 ŷ 逐日橫截面標準化。
+        #
+        # 為什麼需要：softplus(-Δŷ) 吃的是原始報酬的差。實測已訓練模型的
+        # ŷ 橫截面 std 只有 0.0039，典型 Δŷ ≈ 0.005，落在 softplus 的線性區——
+        # 排對的配對梯度 -0.4986、排錯的 -0.5，幾乎沒有差別。RankNet 該有的
+        # 「已排對的配對飽和、把力氣集中到難配對」完全沒發生，損失值全程
+        # 停在 ln(2)=0.6931（實測 0.692986，差 0.00016），而它佔總損失 99.94%。
+        # 標準化後 Δ 變成 O(1)，且與 IC 一樣尺度不變，訓練目標才與評估指標對齊。
+        #
+        # 預設 False：開啟會改變所有既有 run 的數值，凍結基準與 e7_acceptance
+        # 的位元確定路徑必須維持不變。要用請在 config 的 loss_weights 下明示。
+        self.rank_normalize = bool(loss_cfg.get("rank_normalize", False))
+
     # ------------------------------------------------------------------
     # ℒ_rank : RankNet pairwise loss
     # ------------------------------------------------------------------
-    @staticmethod
-    def _rank_loss(y_hat: Tensor, y: Tensor) -> Tensor:
+    def _rank_loss(self, y_hat: Tensor, y: Tensor) -> Tensor:
         """
         RankNet pairwise loss（對所有 y_i > y_j 的配對）：
             ℒ_rank = Σ log(1 + exp(-(ŷ_i - ŷ_j)))
+
+        rank_normalize=True 時先把 ŷ 逐日橫截面標準化（見 __init__ 說明）。
+        y 不需標準化——配對遮罩用的是 diff_y > 0，本來就尺度不變。
 
         Shapes:
             y_hat, y : [n] 或 [B, n]
@@ -113,6 +128,10 @@ class CombinedLoss(nn.Module):
         Returns:
             scalar loss
         """
+        if self.rank_normalize:
+            y_hat = ((y_hat - y_hat.mean(dim=-1, keepdim=True))
+                     / (y_hat.std(dim=-1, keepdim=True) + 1e-8))
+
         # 統一升成 [..., n]
         # 計算所有配對差
         # diff_hat[..., i, j] = ŷ_i - ŷ_j

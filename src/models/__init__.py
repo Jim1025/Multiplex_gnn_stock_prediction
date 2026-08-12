@@ -2,6 +2,7 @@ from src.models.multiplex_gnn import MAGNET
 from src.models.magnet_intermediate import MAGNETIntermediate
 from src.models.baseline_lstm import BaselineLSTM
 from src.models.baseline_early_fusion import BaselineEarlyFusion
+from src.models.baseline_dense_fusion import BaselineDenseFusion
 from src.models.baseline_tw_gnn import BaselineTWGNN
 from src.models.baseline_advalstm import BaselineAdvALSTM
 from src.models.baseline_hats import BaselineHATS
@@ -18,7 +19,7 @@ VALID_ARCHITECTURES = (
     # M6 Stage 0 (內部 ablation)
     "magnet", "baseline_lstm", "baseline_tw_gnn", "magnet_no_a12",
     # 第 0 階段：early-fusion 對照（回應「為何不做 early fusion」）
-    "baseline_early_fusion",
+    "baseline_early_fusion", "baseline_dense_fusion",
     # M7 external baselines
     "adv_alstm", "hats", "man_sf", "hgt", "delta_lag", "meig",
     # M8 hierarchical A12 (strong identity pairs + learned weak links)
@@ -56,6 +57,8 @@ def build_model(cfg: dict):
         return BaselineLSTM(cfg)
     if arch == "baseline_early_fusion":
         return BaselineEarlyFusion(cfg)
+    if arch == "baseline_dense_fusion":
+        return BaselineDenseFusion(cfg)
     if arch == "baseline_tw_gnn":
         return BaselineTWGNN(cfg)
     if arch == "magnet_no_a12":
@@ -90,6 +93,7 @@ __all__ = [
     "MAGNETIntermediate",
     "BaselineLSTM",
     "BaselineEarlyFusion",
+    "BaselineDenseFusion",
     "BaselineTWGNN",
     "BaselineAdvALSTM",
     "BaselineHATS",
