@@ -26,6 +26,7 @@ from src.dataset.config import VALID_UNIVERSES, load_universe  # noqa: E402
 
 BASE = ROOT / "configs" / "base.yaml"
 TW50 = ROOT / "configs" / "tw50.yaml"
+IMED = ROOT / "configs" / "tw50_imed_wl0.yaml"
 
 # 允許兩份 config 不同的鍵。每一項都要在 tw50.yaml 檔頭有對應說明。
 ALLOWED_DIFFS = {
@@ -34,6 +35,18 @@ ALLOWED_DIFFS = {
     "data.end_date",
     "evaluation.portfolio.n_side",
     "mlflow.experiment_name",
+}
+
+# tw50_imed_wl0.yaml 是 2x2 消融（融合位置 x 跨層邊可學性）的第四格，
+# 對照組是 tw50chk_wl0_*（融合在圖之後、λ=0）。兩格只能差在融合位置，
+# 其餘任何一項漂移都會讓「主效果 vs 交互作用」的分離失去意義。
+IMED_ALLOWED_DIFFS = {
+    "model.architecture",
+    "mlflow.experiment_name",
+}
+IMED_ALLOWED_EXTRA = {
+    "model.weak_links.mode",
+    "model.weak_links.lambda_sparse",
 }
 
 
@@ -123,3 +136,42 @@ def test_align_loss_disabled_on_asymmetric_universe(cfgs) -> None:
     if u.n_l1 != u.n_l2:
         assert tw50["align_loss.enabled"] is False
         assert float(tw50["loss_weights.align"]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# tw50_imed_wl0.yaml — 2x2 消融第四格
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def imed() -> tuple[dict, dict]:
+    return (_flatten(yaml.safe_load(TW50.read_text())),
+            _flatten(yaml.safe_load(IMED.read_text())))
+
+
+def test_imed_key_set(imed) -> None:
+    """只准多出 weak_links 兩個鍵；少任何一個鍵會讓超參悄悄吃到程式預設值。"""
+    tw50, im = imed
+    assert set(tw50) - set(im) == set(), f"tw50 有但 imed 缺：{sorted(set(tw50) - set(im))}"
+    extra = set(im) - set(tw50)
+    assert extra == IMED_ALLOWED_EXTRA, f"未預期的新增鍵：{sorted(extra - IMED_ALLOWED_EXTRA)}"
+
+
+def test_imed_only_whitelisted_keys_differ(imed) -> None:
+    tw50, im = imed
+    differing = {k for k in tw50 if tw50[k] != im[k]}
+    unexpected = differing - IMED_ALLOWED_DIFFS
+    assert not unexpected, (
+        f"未列入白名單的差異：{sorted(unexpected)}。這一格與 tw50chk_wl0_* "
+        f"只能差在融合位置，其餘漂移會讓 2x2 消融失去意義。"
+    )
+
+
+def test_imed_is_the_intended_cell(imed) -> None:
+    """
+    這一格的定義：融合提前（magnet_intermediate）+ 候選邊可學（mode=free）
+    + λ=0。λ 必須與對照組 tw50chk_wl0_* 相同，否則比較的就不只是融合位置。
+    """
+    _, im = imed
+    assert im["model.architecture"] == "magnet_intermediate"
+    assert im["model.weak_links.mode"] == "free"
+    assert float(im["model.weak_links.lambda_sparse"]) == 0.0

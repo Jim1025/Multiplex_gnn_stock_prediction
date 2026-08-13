@@ -199,6 +199,9 @@ def train(
     patience_override: Optional[int]   = None,
     seed_override:     Optional[int]   = None,
     smooth_window_override: Optional[int] = None,
+    residual_alpha:    Optional[float] = None,
+    gat_layers:        Optional[int]   = None,
+    lambda_sparse:     Optional[float] = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -213,6 +216,17 @@ def train(
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
+        residual_alpha:    若提供，覆寫 cfg.model.residual.alpha（magnet_intermediate
+                           的 initial residual；掃 alpha 用，免得每個值開一份 config）
+        gat_layers:        若提供，覆寫 cfg.model.gat.num_layers（跳數 = 層數；掃
+                           過度平滑用。注意 num_layers=1 時最後一層強制
+                           concat=False/heads=1，故 num_heads 失效）
+        lambda_sparse:     若提供，覆寫 cfg.model.weak_links.lambda_sparse。
+                           base.yaml / tw50.yaml 沒有 weak_links 區塊，直接用
+                           --architecture magnet_weak_free 會靜默吃到程式預設的
+                           1e-3；那個值在 tw50 下會把 1,493 條候選邊全部釘死
+                           （資料梯度中位數 3.7e-04 < lambda），要 lambda=0
+                           必須明講
 
     Returns:
         mlflow_run_id (str)
@@ -241,6 +255,20 @@ def train(
     if seed_override is not None:
         cfg["training"]["seed"] = int(seed_override)
         _overrides.append(f"seed={seed_override}")
+    if residual_alpha is not None:
+        # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
+        cfg.setdefault("model", {}).setdefault("residual", {})["alpha"] = float(residual_alpha)
+        _overrides.append(f"residual_alpha={residual_alpha}")
+    if gat_layers is not None:
+        if gat_layers < 1:
+            raise ValueError(f"--gat-layers 需 >= 1，當前為 {gat_layers}")
+        cfg["model"]["gat"]["num_layers"] = int(gat_layers)
+        _overrides.append(f"gat_layers={gat_layers}")
+    if lambda_sparse is not None:
+        if lambda_sparse < 0:
+            raise ValueError(f"--lambda-sparse 需 >= 0，當前為 {lambda_sparse}")
+        cfg["model"].setdefault("weak_links", {})["lambda_sparse"] = float(lambda_sparse)
+        _overrides.append(f"lambda_sparse={lambda_sparse}")
     if smooth_window_override is not None:
         cfg["training"]["early_stop_smooth_window"] = int(smooth_window_override)
         _overrides.append(f"smooth_window={smooth_window_override}")
@@ -607,6 +635,14 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.training.seed（M8 multi-seed robustness 用）")
     p.add_argument("--smooth-window", type=int, default=None,
                    help="覆寫 cfg.training.early_stop_smooth_window（M8 route 1 選點穩定化；1=現行為）")
+    p.add_argument("--residual-alpha", type=float, default=None,
+                   help="覆寫 cfg.model.residual.alpha（magnet_intermediate 的 "
+                        "initial residual；0=無殘差，即原行為）")
+    p.add_argument("--gat-layers", type=int, default=None,
+                   help="覆寫 cfg.model.gat.num_layers（= 圖上的跳數；掃過度平滑用）")
+    p.add_argument("--lambda-sparse", type=float, default=None,
+                   help="覆寫 cfg.model.weak_links.lambda_sparse。tw50.yaml 無此區塊，"
+                        "不指定會吃到程式預設 1e-3（在 tw50 下等同凍結全部候選邊）")
     p.add_argument("--save-every-epoch", action="store_true",
                    help="逐 epoch 存 checkpoint（M8 Figure 1 軌跡分析用）")
     return p.parse_args()
@@ -628,6 +664,9 @@ if __name__ == "__main__":
         patience_override=args.patience,
         seed_override=args.seed,
         smooth_window_override=args.smooth_window,
+        residual_alpha=args.residual_alpha,
+        gat_layers=args.gat_layers,
+        lambda_sparse=args.lambda_sparse,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
