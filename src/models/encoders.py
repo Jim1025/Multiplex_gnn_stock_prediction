@@ -49,8 +49,45 @@ class SharedLSTM(nn.Module):
         self.bidirectional = cfg.get("bidirectional", False)
         dropout = cfg.get("dropout", 0.0) if cfg["num_layers"] > 1 else 0.0
 
+        # feature_subset：只把 F 維裡的一個子集送進 LSTM。
+        #
+        # 為什麼在模型層做而不是改資料層：資料層是凍結的，而這件事只是
+        # 「模型選擇看哪幾欄」，不是「產生哪些欄」。
+        #
+        # 動機是 ridge 階梯量到的結果——線性模型在 30 維（30 檔美股前一日
+        # 報酬）達到 test IC +0.1020，餵到 5,580 維（30 x 20 天 x 9 特徵）
+        # 掉到 +0.0283，差距 p < 0.0001。同一個退化在神經網路重現
+        # （稀疏 EF +0.051 -> 稠密 EF -0.005）。假設是多出來的天數與技術
+        # 指標在稀釋唯一有效的訊號，這個旋鈕讓它可測。
+        #
+        # 預設 None 即全取，既有 run 的數值不變。cfg["input_dim"] 維持宣告
+        # 的原始欄數（各 baseline 的 == 9 斷言因此不受影響），LSTM 實際的
+        # input_size 才是子集大小。
+        raw_dim = cfg["input_dim"]
+        sub = cfg.get("feature_subset")
+        if sub is None:
+            self.feat_idx = None
+            in_size = raw_dim
+        else:
+            from src.dataset.features import TECH_FEATURE_COLS
+            idx = [TECH_FEATURE_COLS.index(s) if isinstance(s, str) else int(s)
+                   for s in sub]
+            if not idx:
+                raise ValueError("model.lstm.feature_subset 不可為空 list")
+            bad = [i for i in idx if not 0 <= i < raw_dim]
+            if bad:
+                raise ValueError(
+                    f"feature_subset 索引 {bad} 超出 input_dim={raw_dim} 的範圍。"
+                    f"注意 early/dense fusion 的輸入是拼接後的向量，索引指的是"
+                    f"拼接後的位置。"
+                )
+            self.register_buffer("feat_idx", torch.tensor(idx, dtype=torch.long),
+                                 persistent=False)
+            in_size = len(idx)
+        self.in_size = in_size
+
         self.lstm = nn.LSTM(
-            input_size=cfg["input_dim"],
+            input_size=in_size,
             hidden_size=cfg["hidden_dim"],
             num_layers=cfg["num_layers"],
             batch_first=True,
@@ -66,6 +103,8 @@ class SharedLSTM(nn.Module):
         Returns:
             h: [B, n, H_lstm]  — 每個節點最後一步的 hidden state
         """
+        if self.feat_idx is not None:
+            x_seq = x_seq.index_select(-1, self.feat_idx)
         B, T, n, F = x_seq.shape
         # reshape: [B, T, n, F] → [B*n, T, F]
         x = x_seq.permute(0, 2, 1, 3).reshape(B * n, T, F)

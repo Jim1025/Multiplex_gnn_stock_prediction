@@ -202,6 +202,8 @@ def train(
     residual_alpha:    Optional[float] = None,
     gat_layers:        Optional[int]   = None,
     lambda_sparse:     Optional[float] = None,
+    t_history:         Optional[int]   = None,
+    features:          Optional[list]  = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -269,6 +271,16 @@ def train(
             raise ValueError(f"--lambda-sparse 需 >= 0，當前為 {lambda_sparse}")
         cfg["model"].setdefault("weak_links", {})["lambda_sparse"] = float(lambda_sparse)
         _overrides.append(f"lambda_sparse={lambda_sparse}")
+    if t_history is not None:
+        # 同時決定 LSTM 的步數與 MultiplexDataset 取幾天，兩者都讀這一格
+        if t_history < 1:
+            raise ValueError(f"--t-history 需 >= 1，當前為 {t_history}")
+        cfg["model"]["lstm"]["T_history"] = int(t_history)
+        _overrides.append(f"T_history={t_history}")
+    if features is not None:
+        # input_dim 維持宣告的原始欄數，只有 SharedLSTM 的 input_size 會變
+        cfg["model"]["lstm"]["feature_subset"] = list(features)
+        _overrides.append(f"features={list(features)}")
     if smooth_window_override is not None:
         cfg["training"]["early_stop_smooth_window"] = int(smooth_window_override)
         _overrides.append(f"smooth_window={smooth_window_override}")
@@ -643,6 +655,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--lambda-sparse", type=float, default=None,
                    help="覆寫 cfg.model.weak_links.lambda_sparse。tw50.yaml 無此區塊，"
                         "不指定會吃到程式預設 1e-3（在 tw50 下等同凍結全部候選邊）")
+    p.add_argument("--t-history", type=int, default=None,
+                   help="覆寫 cfg.model.lstm.T_history（回看天數；同時影響 dataset）")
+    p.add_argument("--features", nargs="*", default=None,
+                   help="覆寫 cfg.model.lstm.feature_subset，例如 --features log_return"
+                        "（預設全取 9 欄；只影響 LSTM 的 input_size，input_dim 不變）")
     p.add_argument("--save-every-epoch", action="store_true",
                    help="逐 epoch 存 checkpoint（M8 Figure 1 軌跡分析用）")
     return p.parse_args()
@@ -667,6 +684,8 @@ if __name__ == "__main__":
         residual_alpha=args.residual_alpha,
         gat_layers=args.gat_layers,
         lambda_sparse=args.lambda_sparse,
+        t_history=args.t_history,
+        features=args.features,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
