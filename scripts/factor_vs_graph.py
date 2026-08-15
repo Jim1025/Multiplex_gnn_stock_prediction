@@ -41,11 +41,13 @@ train 統計量、walk-forward 不重切。
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import yaml
 from scipy import stats
 from sklearn.decomposition import PCA
@@ -98,10 +100,12 @@ def collect(ds: MultiplexDataset) -> dict:
     X1 = np.empty((len(ds), ds.T, ds.n_l1, len(TECH_FEATURE_COLS)), dtype=np.float32)
     X2 = np.empty((len(ds), ds.T, ds.n_l2, len(TECH_FEATURE_COLS)), dtype=np.float32)
     Y = np.empty((len(ds), ds.n_l2), dtype=np.float32)
+    dates = []
     for i in range(len(ds)):
         s = ds[i]
         X1[i], X2[i], Y[i] = s["x_seq_L1"].numpy(), s["x_seq_L2"].numpy(), s["y"].numpy()
-    return {"X1": X1, "X2": X2, "Y": Y}
+        dates.append(s["target_date"])
+    return {"X1": X1, "X2": X2, "Y": Y, "dates": dates}
 
 
 def design(arm: str, d: dict) -> np.ndarray:
@@ -190,6 +194,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="[24] 的訊號是圖還是因子")
     ap.add_argument("--config", default="configs/tw50.yaml")
     ap.add_argument("--arms", nargs="*", default=list(ARMS))
+    ap.add_argument("--save", nargs="*", default=[],
+                    help="把這些 arm 的 test 預測寫成 runs/{stamp}_fvg_{arm}/，"
+                         "格式與 ridge_ladder / bipartite_screen 相同，"
+                         "供跨方法的逐日配對檢定使用。")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(ROOT / args.config))
@@ -227,6 +235,24 @@ def main() -> None:
         print(f"{arm:8s} {ARMS[arm]:34s} {r['n_params']:6,} {r['alpha']:9.2g} "
               f"{r['val_IC']:+8.4f} {ic:+9.4f} {ric:+8.4f} {pic:+9.4f} {uic:+9.4f}"
               f"   [{time.time()-t0:.1f}s]")
+        if arm in args.save:
+            # arm 名稱含 '/' 與 '+'，不能直接進路徑
+            slug = arm.replace("/", "r").replace("+", "p")
+            d = ROOT / "runs" / f"{time.strftime('%Y%m%d_%H%M')}_fvg_{slug}"
+            (d / "predictions").mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [(te["dates"][t], ds_te.tw_codes[j],
+                  r["Yte"][t, j], te["Y"][t, j])
+                 for t in range(len(te["Y"])) for j in range(ds_te.n_l2)],
+                columns=["target_date", "ticker", "y_hat", "y"],
+            ).to_csv(d / "predictions" / "test_predictions.csv", index=False)
+            json.dump({"slug": d.name, "tag": f"fvg_{arm}", "status": "FINISHED",
+                       "arm": arm, "n_params": r["n_params"], "alpha": r["alpha"],
+                       "val_IC": r["val_IC"],
+                       "test_metrics": {"IC": ic, "RankIC": ric,
+                                        "IC_paired7": pic, "IC_unpaired43": uic}},
+                      open(d / "meta.json", "w"), indent=2, ensure_ascii=False)
+            print(f"{'':8s} -> {d.relative_to(ROOT)}")
 
     # 對照 R2 的逐日配對檢定（IC 與 RankIC 各一）
     if "R2" in series:
