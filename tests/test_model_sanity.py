@@ -10,6 +10,7 @@ Corresponds to IMPLEMENTATION_SPEC §10 Step 5
 
 from __future__ import annotations
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -622,3 +623,77 @@ def test_early_fusion_actually_uses_adr(config: dict, small_batch: dict) -> None
     assert not torch.allclose(y_ref, y_perturbed, atol=1e-6), (
         "擾動 ADR 輸入後預測不變，early-fusion 未實際使用 ADR 特徵"
     )
+
+
+# ---------------------------------------------------------------------------
+# 階段 A-7：耦合前的橫截面去均值（cs_demean）
+# ---------------------------------------------------------------------------
+
+def _magnet_with_demean(config: dict, l1: bool, l2: bool) -> MAGNET:
+    """用同一顆種子建模型，只有 cs_demean 旗標不同。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["cs_demean"] = {"l1": l1, "l2": l2}
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return MAGNET(cfg)
+
+
+def test_cs_demean_defaults_off(config: dict) -> None:
+    """base.yaml 不含 cs_demean 區塊時兩個旗標都必須是 False。
+
+    這條在守既有結果：只要預設變成 True，全部歷史 run 與 k7 凍結基準
+    的數值都會改變，而那是靜默發生的。
+    """
+    torch.manual_seed(config["training"]["seed"])
+    m = MAGNET(config)
+    assert m.cs_demean_l1 is False
+    assert m.cs_demean_l2 is False
+
+
+def test_cs_demean_off_is_bit_identical(config: dict, small_batch: dict) -> None:
+    """顯式關閉與未設定必須位元相同——關閉時不可有任何額外運算。"""
+    torch.manual_seed(config["training"]["seed"])
+    np.random.seed(config["training"]["seed"])
+    m_default = MAGNET(copy.deepcopy(config)).eval()
+    m_off = _magnet_with_demean(config, False, False).eval()
+    with torch.no_grad():
+        y_default, _ = m_default(small_batch)
+        y_off, _ = m_off(small_batch)
+    assert torch.equal(y_default, y_off)
+
+
+def test_cs_demean_zeroes_node_mean(config: dict, small_batch: dict) -> None:
+    """開啟後，被處理那一層的逐維節點平均必須為 0（浮點誤差內）。"""
+    m = _magnet_with_demean(config, True, True).eval()
+    with torch.no_grad():
+        _, extras = m(small_batch)
+    for key in ("h_L1", "h_L2"):
+        node_mean = extras[key].mean(dim=-2)          # [B, d']
+        assert node_mean.abs().max() < 1e-5, (
+            f"{key} 去均值後節點平均應為 0，實際最大 {node_mean.abs().max():.2e}"
+        )
+
+
+def test_cs_demean_is_per_layer(config: dict, small_batch: dict) -> None:
+    """只開 l1 時 L2 必須完全不受影響，反之亦然。
+
+    兩個旗標若不小心共用同一個分支，這條會抓到。
+    """
+    m_off = _magnet_with_demean(config, False, False).eval()
+    m_l1 = _magnet_with_demean(config, True, False).eval()
+    m_l2 = _magnet_with_demean(config, False, True).eval()
+    with torch.no_grad():
+        _, ex_off = m_off(small_batch)
+        _, ex_l1 = m_l1(small_batch)
+        _, ex_l2 = m_l2(small_batch)
+    assert torch.equal(ex_l1["h_L2"], ex_off["h_L2"]), "只開 l1 卻動到了 h_L2"
+    assert torch.equal(ex_l2["h_L1"], ex_off["h_L1"]), "只開 l2 卻動到了 h_L1"
+    assert not torch.equal(ex_l1["h_L1"], ex_off["h_L1"]), "開了 l1 但 h_L1 沒變"
+    assert not torch.equal(ex_l2["h_L2"], ex_off["h_L2"]), "開了 l2 但 h_L2 沒變"
+
+
+def test_cs_demean_adds_no_parameters(config: dict) -> None:
+    """去均值是無參數運算，開關不應改變參數量。"""
+    n_off = sum(p.numel() for p in _magnet_with_demean(config, False, False).parameters())
+    n_on = sum(p.numel() for p in _magnet_with_demean(config, True, True).parameters())
+    assert n_off == n_on

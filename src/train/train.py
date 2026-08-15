@@ -200,6 +200,7 @@ def train(
     seed_override:     Optional[int]   = None,
     smooth_window_override: Optional[int] = None,
     residual_alpha:    Optional[float] = None,
+    cs_demean:         Optional[str]   = None,
     gat_layers:        Optional[int]   = None,
     lambda_sparse:     Optional[float] = None,
     t_history:         Optional[int]   = None,
@@ -218,6 +219,8 @@ def train(
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
+        cs_demean:         若提供，覆寫 cfg.model.cs_demean。可為 none / l1 / l2 / both，
+                           控制耦合前是否對節點維度去均值（階段 A-7）。
         residual_alpha:    若提供，覆寫 cfg.model.residual.alpha（magnet_intermediate
                            的 initial residual；掃 alpha 用，免得每個值開一份 config）
         gat_layers:        若提供，覆寫 cfg.model.gat.num_layers（跳數 = 層數；掃
@@ -261,6 +264,18 @@ def train(
         # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
         cfg.setdefault("model", {}).setdefault("residual", {})["alpha"] = float(residual_alpha)
         _overrides.append(f"residual_alpha={residual_alpha}")
+    if cs_demean is not None:
+        # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值。
+        # 用字串而非兩個 bool 旗標：掃描時 --cs-demean both 比
+        # --cs-demean-l1 --cs-demean-l2 少一個「只開了一半」的出錯面。
+        choices = {"none": (False, False), "l1": (True, False),
+                   "l2": (False, True),    "both": (True, True)}
+        if cs_demean not in choices:
+            raise ValueError(
+                f"--cs-demean 需為 {sorted(choices)} 之一，當前為 {cs_demean!r}")
+        l1, l2 = choices[cs_demean]
+        cfg.setdefault("model", {})["cs_demean"] = {"l1": l1, "l2": l2}
+        _overrides.append(f"cs_demean={cs_demean}")
     if gat_layers is not None:
         if gat_layers < 1:
             raise ValueError(f"--gat-layers 需 >= 1，當前為 {gat_layers}")
@@ -650,6 +665,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--residual-alpha", type=float, default=None,
                    help="覆寫 cfg.model.residual.alpha（magnet_intermediate 的 "
                         "initial residual；0=無殘差，即原行為）")
+    p.add_argument("--cs-demean", type=str, default=None,
+                   choices=["none", "l1", "l2", "both"],
+                   help="覆寫 cfg.model.cs_demean（階段 A-7）。耦合前對節點維度"
+                        "去均值，拆掉表示塌縮（實測 L1 餘弦 +0.9997 -> +0.1616）。"
+                        "預設 none = 原行為。")
     p.add_argument("--gat-layers", type=int, default=None,
                    help="覆寫 cfg.model.gat.num_layers（= 圖上的跳數；掃過度平滑用）")
     p.add_argument("--lambda-sparse", type=float, default=None,
@@ -682,6 +702,7 @@ if __name__ == "__main__":
         seed_override=args.seed,
         smooth_window_override=args.smooth_window,
         residual_alpha=args.residual_alpha,
+        cs_demean=args.cs_demean,
         gat_layers=args.gat_layers,
         lambda_sparse=args.lambda_sparse,
         t_history=args.t_history,

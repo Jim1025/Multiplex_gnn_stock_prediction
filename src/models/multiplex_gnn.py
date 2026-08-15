@@ -122,6 +122,30 @@ class MAGNET(nn.Module):
             persistent=False,
         )
 
+        # 階段 A-7：耦合前的橫截面去均值（cross-sectional demeaning）
+        #
+        # 量到的問題：訓練後 L1 的 30 個美股表示彼此餘弦相似度 +0.9997、
+        # L2 的 50 個台股表示 +0.9995——兩層的節點表示都指向同一個方向，
+        # 橫截面上分不出彼此，而排序任務要的正是橫截面差異。逐維扣掉當日
+        # 的節點平均後，L1 降到 +0.1616、L2 降到 +0.0621（T1F9 s42，10 天平均）。
+        #
+        # 為什麼扣掉的是共同成分而不是訊號：ridge 階梯的 M30r（30 檔美股
+        # 減去等權平均）test IC +0.0912，對照完整 R2 的 +0.1020——去均值後
+        # 的殘差保留了 89% 的訊號。共同成分主要是市場方向，對橫截面排序
+        # 本來就沒有貢獻（所有節點同加一個常數，名次不變）。
+        #
+        # 只去均值，不要再除以橫截面標準差：實測除完 L1 反而回到 +0.9275，
+        # 因為 std 小的維度會把主導殘差方向放大。
+        #
+        # 位置：proj 之後、跨層耦合之前。與 projection.layer_norm 正交
+        # ——後者在特徵維度上正規化單一節點，這裡在節點維度上對齊全體。
+        #
+        # 預設 False：開啟會改變所有既有 run 的數值，k7 凍結基準與
+        # e7_acceptance 的位元確定路徑必須維持不變。
+        cs_cfg = m_cfg.get("cs_demean", {}) or {}
+        self.cs_demean_l1 = bool(cs_cfg.get("l1", False))
+        self.cs_demean_l2 = bool(cs_cfg.get("l2", False))
+
         weak_cfg = m_cfg.get("weak_links", {}) or {}
         self.weak_mode   = weak_cfg.get("mode")            # None | "free" | "industry"
         self.weak_lambda = float(weak_cfg.get("lambda_sparse", 1e-3))
@@ -217,6 +241,13 @@ class MAGNET(nn.Module):
         h_L1 = self.proj_L1(h_gat_L1)  # [B, n1, d']
         h_L2 = self.proj_L2(h_gat_L2)  # [B, n2, d']
 
+        # 階段 A-7：橫截面去均值（見 __init__ 的說明）。
+        # 兩個旗標預設皆為 False，關閉時完全不進入這段，既有 run 位元不變。
+        if self.cs_demean_l1:
+            h_L1 = self._cs_demean(h_L1)
+        if self.cs_demean_l2:
+            h_L2 = self._cs_demean(h_L2)
+
         # ── Phase 2: 跨市場融合 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §4
         # 先把 L1 對齊到 L2 的索引空間（[B, n1, d'] → [B, n2, d']），
@@ -243,6 +274,17 @@ class MAGNET(nn.Module):
         if self.weak_mode is not None:
             extras["weak_beta"] = self.weak_beta * self.weak_mask  # [n1, n2] 分析用
         return y_hat, extras
+
+    @staticmethod
+    def _cs_demean(h: Tensor) -> Tensor:
+        """
+        逐維橫截面去均值：對節點維度扣掉當日全體節點的平均。
+
+            h'[b, i, k] = h[b, i, k] - mean_i h[b, i, k]
+
+        節點維度是倒數第二維（[B, n, d'] 或 [n, d'] 皆適用），故用 dim=-2。
+        """
+        return h - h.mean(dim=-2, keepdim=True)
 
     # ------------------------------------------------------------------
     # 內部工具
