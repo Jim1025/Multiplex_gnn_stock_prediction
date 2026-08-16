@@ -697,3 +697,157 @@ def test_cs_demean_adds_no_parameters(config: dict) -> None:
     n_off = sum(p.numel() for p in _magnet_with_demean(config, False, False).parameters())
     n_on = sum(p.numel() for p in _magnet_with_demean(config, True, True).parameters())
     assert n_off == n_on
+
+
+# ---------------------------------------------------------------------------
+# 階段 A-1+3：稠密可學耦合矩陣 A（per-node 載荷）
+# ---------------------------------------------------------------------------
+
+def _magnet_dense(config: dict, **coupling) -> MAGNET:
+    cfg = copy.deepcopy(config)
+    cfg["model"]["architecture"] = "magnet_dense_a"
+    if coupling:
+        cfg["model"]["coupling"] = coupling
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return build_model(cfg)
+
+
+def test_dense_a_defaults_off(config: dict) -> None:
+    """未指定 coupling 時 MAGNET 不得建出 coupling_A。
+
+    守的是既有結果：稠密 A 會改變所有歷史 run 與 k7 凍結基準的數值。
+    """
+    torch.manual_seed(config["training"]["seed"])
+    m = MAGNET(config)
+    assert m.coupling_mode is None
+    assert not hasattr(m, "coupling_A")
+
+
+def test_dense_a_param_count_and_init(config: dict) -> None:
+    """A 為 [n1, n2]；配對位置 = init_paired，其餘 = init_other（預設 1/n1）。"""
+    m = _magnet_dense(config)
+    A = m.coupling_A.detach()
+    assert A.shape == (m.n_l1, m.n_l2)
+    assert A.numel() == m.n_l1 * m.n_l2
+    for j in range(m.n_l2):
+        if m.has_pair[j]:
+            assert A[m.pair_src[j], j].item() == pytest.approx(1.0)
+    # 找一個非配對位置驗 init_other
+    off = [(i, j) for j in range(m.n_l2) for i in range(m.n_l1)
+           if not (m.has_pair[j] and i == m.pair_src[j].item())]
+    assert A[off[0]].item() == pytest.approx(1.0 / m.n_l1)
+
+
+def test_dense_a_init_other_zero_matches_identity(config: dict, small_batch: dict) -> None:
+    """init_other=0 時，A 只在配對位置為 1，耦合輸出必須等於現行的恆等邊路徑。
+
+    這是 dense 模式的正確性錨點：它必須把現行行為含為特例，
+    否則之後任何比較都分不清是「稠密邊有效」還是「實作換了語意」。
+    """
+    m_dense = _magnet_dense(config, init_other=0.0).eval()
+    torch.manual_seed(config["training"]["seed"])
+    np.random.seed(config["training"]["seed"])
+    m_ident = MAGNET(copy.deepcopy(config)).eval()          # coupling_mode=None
+    d_prime = config["model"]["projection"]["d_prime"]
+    h = torch.randn(2, m_dense.n_l1, d_prime)
+    with torch.no_grad():
+        out_dense = m_dense._augment_weak(h)
+        out_ident = m_ident._augment_weak(h)
+    assert torch.allclose(out_dense, out_ident, atol=1e-6), (
+        f"最大差 {(out_dense - out_ident).abs().max():.2e}"
+    )
+
+
+def test_dense_a_conflicts_with_weak_links(config: dict) -> None:
+    """dense 已涵蓋所有跨層邊，不可與 weak_links 併用，必須明確報錯。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["architecture"] = "magnet_dense_a"
+    cfg["model"]["weak_links"] = {"mode": "free"}
+    with pytest.raises(ValueError, match="互斥"):
+        build_model(cfg)
+
+
+def test_dense_a_rejects_bad_mode(config: dict) -> None:
+    cfg = copy.deepcopy(config)
+    cfg["model"]["coupling"] = {"mode": "sparse"}
+    with pytest.raises(ValueError, match="coupling.mode"):
+        MAGNET(cfg)
+
+
+# ---------------------------------------------------------------------------
+# 階段 A-2a：原始特徵到耦合點的跳接（raw_skip）
+# ---------------------------------------------------------------------------
+
+def _magnet_skip(config: dict, **skip) -> MAGNET:
+    cfg = copy.deepcopy(config)
+    if skip:
+        cfg["model"]["raw_skip"] = skip
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return MAGNET(cfg)
+
+
+def test_raw_skip_defaults_off(config: dict) -> None:
+    """base.yaml 無 raw_skip 區塊時兩個旗標必須為 False，且不得建出跳接模組。"""
+    torch.manual_seed(config["training"]["seed"])
+    m = MAGNET(config)
+    assert m.raw_skip_l1 is False and m.raw_skip_l2 is False
+    assert not hasattr(m, "skip_L1") and not hasattr(m, "skip_L2")
+
+
+def test_raw_skip_off_is_bit_identical(config: dict, small_batch: dict) -> None:
+    """顯式關閉與未設定必須位元相同。"""
+    torch.manual_seed(config["training"]["seed"])
+    np.random.seed(config["training"]["seed"])
+    m_default = MAGNET(copy.deepcopy(config)).eval()
+    m_off = _magnet_skip(config, l1=False, l2=False).eval()
+    with torch.no_grad():
+        y_default, _ = m_default(small_batch)
+        y_off, _ = m_off(small_batch)
+    assert torch.equal(y_default, y_off)
+
+
+def test_raw_skip_zero_init_matches_baseline(config: dict, small_batch: dict) -> None:
+    """zero_init=True 時跳接權重為 0，輸出必須等於未開啟跳接的模型。
+
+    這是 2a 的正確性錨點：開啟後的模型必須把原行為含為起點，
+    否則之後分不清效果來自跳接還是來自參數擾動。
+    """
+    m_zero = _magnet_skip(config, l1=True, l2=True, zero_init=True).eval()
+    torch.manual_seed(config["training"]["seed"])
+    np.random.seed(config["training"]["seed"])
+    m_base = MAGNET(copy.deepcopy(config)).eval()
+    with torch.no_grad():
+        y_zero, _ = m_zero(small_batch)
+        y_base, _ = m_base(small_batch)
+    assert torch.allclose(y_zero, y_base, atol=1e-6), (
+        f"最大差 {(y_zero - y_base).abs().max():.2e}"
+    )
+
+
+def test_raw_skip_is_per_layer(config: dict, small_batch: dict) -> None:
+    """只開 l1 時 h_L2 不得改變，反之亦然。"""
+    m_off = _magnet_skip(config, l1=False, l2=False).eval()
+    m_l1 = _magnet_skip(config, l1=True, l2=False).eval()
+    m_l2 = _magnet_skip(config, l1=False, l2=True).eval()
+    with torch.no_grad():
+        _, ex_off = m_off(small_batch)
+        _, ex_l1 = m_l1(small_batch)
+        _, ex_l2 = m_l2(small_batch)
+    assert torch.equal(ex_l1["h_L2"], ex_off["h_L2"]), "只開 l1 卻動到了 h_L2"
+    assert torch.equal(ex_l2["h_L1"], ex_off["h_L1"]), "只開 l2 卻動到了 h_L1"
+    assert not torch.equal(ex_l1["h_L1"], ex_off["h_L1"]), "開了 l1 但 h_L1 沒變"
+
+
+def test_raw_skip_respects_feature_subset(config: dict) -> None:
+    """跳接吃的欄位必須與 SharedLSTM 相同，否則等於偷偷多給資訊。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["lstm"]["feature_subset"] = ["log_return", "RSI_14"]
+    cfg["model"]["raw_skip"] = {"l1": True}
+    torch.manual_seed(cfg["training"]["seed"])
+    m = MAGNET(cfg)
+    assert m.lstm.in_size == 2
+    assert m.skip_L1[1].in_features == 2, "跳接的輸入維度未跟隨 feature_subset"
+    x = torch.randn(2, 5, m.n_l1, cfg["model"]["lstm"]["input_dim"])
+    assert m._raw_last(x).shape == (2, m.n_l1, 2)

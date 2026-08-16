@@ -146,6 +146,71 @@ class MAGNET(nn.Module):
         self.cs_demean_l1 = bool(cs_cfg.get("l1", False))
         self.cs_demean_l2 = bool(cs_cfg.get("l2", False))
 
+        # 階段 A-1+3：稠密可學耦合矩陣 A（per-node 載荷）
+        #
+        # 現行的跨層耦合是「固定權重 1 的恆等邊 + init 0 的候選邊」，等價於
+        # 一個結構被寫死的 A：只有 7 個位置是 1，其餘由 weak_beta 從 0 出發。
+        # 三個已量測到的後果：
+        #   1. 43/50 節點的跨市場輸入位元為零（結構可達 + 擾動兩法一致）
+        #   2. lambda=1e-3 讓候選邊只送出台股自身訊號的 0.08%（假 null 的來源）
+        #   3. 模型沒有任何 per-node 參數 —— 台積電與台塑走同一組權重，
+        #      而跨市場曝險本來就是個股專屬的
+        #
+        # 本模式把兩條通道合併成單一可學矩陣：
+        #     h_in[:, j] = sum_i A[i, j] * h_L1[:, i]
+        # A[:, j] 就是台股 j 的載荷向量，30 x 50 = 1,500 個節點專屬參數，
+        # 與 [24] 的 per-target 迴歸係數數量相同。
+        #
+        # 初始化 A[p(j), j] = init_paired（預設 1，等於保留恆等邊的起點），
+        # 其餘 = init_other（預設 1/n1）。取 1/n1 的理由：sum_i (1/n1) h_L1[i]
+        # 就是等權平均，而 ridge 階梯的 M1（美股等權平均 1 維）單獨 test IC
+        # +0.0736——50 個節點在第 0 步就拿到目前只有 7 個節點拿得到的東西。
+        # 對照 init 0：lambda=0 訓練後 beta 只長到 2.965e-03，是 1/30 的 1/11。
+        #
+        # 不加 L1 稀疏懲罰：lambda=1e-3 已證實會把邊凍住；[24] 的 t 檢定篩邊
+        # 在 30x50 尺度下保留 92% 的配對（tau=2 vs tau=0 差 +0.0013, p=0.59），
+        # 這個規模不需要選邊。
+        #
+        # 上限（先行測過）：以現行編碼器的 h_L1 做 per-target 線性映射，
+        # test IC +0.0435，對照現況 +0.0269。可回收約 +0.017，但到不了
+        # 原始報酬的 +0.1020——那段損失在編碼器裡（特徵稀釋 -0.031、
+        # LSTM -0.023、GAT_L1 -0.005），不是耦合層能修的。
+        #
+        # 預設 None：既有 run 與 k7 凍結基準的數值必須維持不變。
+        # 階段 A-2a：原始特徵到耦合點的跳接（raw skip）
+        #
+        # 量到的問題：以 per-target 線性映射能從各位置抽出的 test IC
+        #     raw    原始特徵（F3 設定，3 x 30 = 90 維）   +0.0874
+        #     h_L1   現行耦合點（960 維）                  +0.0448   <- 編碼器丟掉 49%
+        #     concat [h_L1 ; raw]                        +0.0666
+        # 模型實際做到 +0.0269，是自身耦合點上限的 60%。也就是說耦合層還能
+        # 榨出 +0.018，而把 raw 接進耦合點可以再多 +0.022——後者是目前所有
+        # 未動的改動裡最大的一塊。
+        #
+        # 這一項不是為了「拆掉表示塌縮」：那個假說已被三個實驗推翻
+        # （cs_demean 拿掉共同成分 IC 掉到 -0.0021；dense A 在無約束下自己把
+        # 稠密邊縮到 13%；拿掉 RSI_14+BB_pos 後 IC 掉 45%）。塌縮是訊號本身。
+        # 這裡修的是另一件事：編碼器在抵達耦合點前丟掉了一半可線性抽取的訊號。
+        #
+        # 形式：h_L1 <- proj_L1(...) + skip_L1(x_raw[:, -1])，形狀不變，
+        # fusion 與 head 都不用改，三階段順序也不變（故仍屬機制層改動）。
+        # 跳接吃的特徵與 LSTM 完全相同（共用 feature_subset），避免把
+        # 「多給了資訊」誤算成「跳接有效」。
+        #
+        # 預設關閉：開啟會改變所有既有 run 與 k7 凍結基準的數值。
+        skip_cfg = m_cfg.get("raw_skip", {}) or {}
+        self.raw_skip_l1 = bool(skip_cfg.get("l1", False))
+        self.raw_skip_l2 = bool(skip_cfg.get("l2", False))
+        self.raw_skip_zero_init = bool(skip_cfg.get("zero_init", False))
+
+        coup_cfg = m_cfg.get("coupling", {}) or {}
+        self.coupling_mode = coup_cfg.get("mode")          # None | "dense"
+        if self.coupling_mode not in (None, "dense"):
+            raise ValueError(
+                f"model.coupling.mode 只支援 None 或 'dense'，"
+                f"當前為 {self.coupling_mode!r}"
+            )
+
         weak_cfg = m_cfg.get("weak_links", {}) or {}
         self.weak_mode   = weak_cfg.get("mode")            # None | "free" | "industry"
         self.weak_lambda = float(weak_cfg.get("lambda_sparse", 1e-3))
@@ -154,6 +219,25 @@ class MAGNET(nn.Module):
                 "weak_mask", self._build_weak_mask(self.weak_mode, u)
             )
             self.weak_beta = nn.Parameter(torch.zeros(u.n_l1, u.n_l2))
+
+        if self.coupling_mode == "dense":
+            if self.weak_mode is not None:
+                # dense 已經涵蓋全部 n1 x n2 條邊，再疊 weak_beta 等於同一組邊
+                # 有兩份權重，梯度會在兩者之間任意分配，A 的數值不再可解讀。
+                raise ValueError(
+                    "model.coupling.mode='dense' 與 weak_links.mode 互斥："
+                    "dense 的 A 已涵蓋所有跨層邊（含恆等邊），"
+                    f"不可再啟用 weak_links（當前 mode={self.weak_mode!r}）。"
+                )
+            init_paired = float(coup_cfg.get("init_paired", 1.0))
+            init_other = coup_cfg.get("init_other")
+            init_other = 1.0 / u.n_l1 if init_other is None else float(init_other)
+            A0 = torch.full((u.n_l1, u.n_l2), init_other, dtype=torch.float32)
+            for j, i in enumerate(u.pair_index):
+                if i >= 0:
+                    A0[i, j] = init_paired
+            self.coupling_A = nn.Parameter(A0)
+            self.coupling_init = (init_paired, init_other)
 
         d_prime   = proj_cfg["d_prime"]
         H_lstm    = lstm_cfg["hidden_dim"]
@@ -188,6 +272,27 @@ class MAGNET(nn.Module):
             f"SharedLSTM input_dim 應與 TECH_FEATURE_COLS 維度一致（9），"
             f"當前為 {lstm_cfg['input_dim']}"
         )
+
+        # 階段 A-2a：跳接模組。**刻意放在 __init__ 最後**——建立 nn.Linear 會
+        # 消耗 RNG，若放在中間，開啟跳接會連帶位移 fusion 與 head 的初始化，
+        # 那樣同一顆種子下「開/關」兩個模型就不只差一條跳接，效果無法歸因。
+        # （這一點是 test_raw_skip_zero_init_matches_baseline 抓到的。）
+        #
+        # in_dim 取 SharedLSTM 實際吃到的維度（feature_subset 生效後的 in_size），
+        # 確保兩條路徑的資訊集相同。
+        # LayerNorm 在前：原始 9 維的尺度差到 5000 倍（RSI_14 約 50、
+        # log_return 約 0.01），不正規化的話線性層的條件數會被 RSI 主導。
+        # 不用 bias：常數項對每個節點同加同減，對橫截面排序無作用。
+        if self.raw_skip_l1 or self.raw_skip_l2:
+            def _mk_skip() -> nn.Module:
+                lin = nn.Linear(self.lstm.in_size, d_prime, bias=False)
+                if self.raw_skip_zero_init:
+                    nn.init.zeros_(lin.weight)     # 開啟時起點即現行模型
+                return nn.Sequential(nn.LayerNorm(self.lstm.in_size), lin)
+            if self.raw_skip_l1:
+                self.skip_L1 = _mk_skip()
+            if self.raw_skip_l2:
+                self.skip_L2 = _mk_skip()
 
     # ------------------------------------------------------------------
     # forward
@@ -241,6 +346,13 @@ class MAGNET(nn.Module):
         h_L1 = self.proj_L1(h_gat_L1)  # [B, n1, d']
         h_L2 = self.proj_L2(h_gat_L2)  # [B, n2, d']
 
+        # 階段 A-2a：原始特徵跳接（見 __init__ 的說明）。
+        # 取最後一步 x[:, -1]，並用 SharedLSTM 的 feat_idx 取同一組欄位。
+        if self.raw_skip_l1:
+            h_L1 = h_L1 + self.skip_L1(self._raw_last(x_L1))
+        if self.raw_skip_l2:
+            h_L2 = h_L2 + self.skip_L2(self._raw_last(x_L2))
+
         # 階段 A-7：橫截面去均值（見 __init__ 的說明）。
         # 兩個旗標預設皆為 False，關閉時完全不進入這段，既有 run 位元不變。
         if self.cs_demean_l1:
@@ -273,7 +385,23 @@ class MAGNET(nn.Module):
         }
         if self.weak_mode is not None:
             extras["weak_beta"] = self.weak_beta * self.weak_mask  # [n1, n2] 分析用
+        if self.coupling_mode == "dense":
+            extras["coupling_A"] = self.coupling_A                 # [n1, n2] 分析用
         return y_hat, extras
+
+    def _raw_last(self, x_seq: Tensor) -> Tensor:
+        """
+        取序列最後一步的原始特徵，並套用與 SharedLSTM 相同的 feature_subset。
+
+            x_seq : [B, T, n, F]  ->  [B, n, in_size]
+
+        共用 feat_idx 是刻意的：跳接若看得到 LSTM 看不到的欄位，
+        實驗就分不清是「跳接有效」還是「多給了資訊」。
+        """
+        x = x_seq[:, -1]                                   # [B, n, F]
+        if self.lstm.feat_idx is not None:
+            x = x.index_select(-1, self.lstm.feat_idx)
+        return x
 
     @staticmethod
     def _cs_demean(h: Tensor) -> Tensor:
@@ -367,6 +495,9 @@ class MAGNET(nn.Module):
         Returns:
             [B, n2, d']
         """
+        if self.coupling_mode == "dense":
+            # 單一可學矩陣，恆等邊已折進 A 的初始值，不再另外相加
+            return torch.einsum("ij,bid->bjd", self.coupling_A, h_L1)
         ident = h_L1.index_select(dim=1, index=self.pair_src)      # [B, n2, d']
         ident = ident * self.has_pair.view(1, -1, 1).to(ident.dtype)
         if self.weak_mode is None:

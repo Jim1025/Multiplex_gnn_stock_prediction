@@ -201,6 +201,8 @@ def train(
     smooth_window_override: Optional[int] = None,
     residual_alpha:    Optional[float] = None,
     cs_demean:         Optional[str]   = None,
+    raw_skip:          Optional[str]   = None,
+    coupling_init_other: Optional[float] = None,
     gat_layers:        Optional[int]   = None,
     lambda_sparse:     Optional[float] = None,
     t_history:         Optional[int]   = None,
@@ -219,6 +221,11 @@ def train(
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
+        coupling_init_other: 若提供，覆寫 cfg.model.coupling.init_other（稠密 A 的非配對
+                           位置初始值）。預設 None -> 程式內取 1/n1。只在
+                           --architecture magnet_dense_a 下有作用。
+        raw_skip:          若提供，覆寫 cfg.model.raw_skip。可為 none / l1 / l2 / both，
+                           控制是否把原始特徵（最後一步）跳接到耦合點（階段 A-2a）。
         cs_demean:         若提供，覆寫 cfg.model.cs_demean。可為 none / l1 / l2 / both，
                            控制耦合前是否對節點維度去均值（階段 A-7）。
         residual_alpha:    若提供，覆寫 cfg.model.residual.alpha（magnet_intermediate
@@ -264,6 +271,21 @@ def train(
         # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
         cfg.setdefault("model", {}).setdefault("residual", {})["alpha"] = float(residual_alpha)
         _overrides.append(f"residual_alpha={residual_alpha}")
+    if coupling_init_other is not None:
+        # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
+        cfg.setdefault("model", {}).setdefault("coupling", {})["init_other"] = float(coupling_init_other)
+        _overrides.append(f"coupling_init_other={coupling_init_other}")
+    if raw_skip is not None:
+        # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
+        choices = {"none": (False, False), "l1": (True, False),
+                   "l2": (False, True),    "both": (True, True)}
+        if raw_skip not in choices:
+            raise ValueError(
+                f"--raw-skip 需為 {sorted(choices)} 之一，當前為 {raw_skip!r}")
+        l1, l2 = choices[raw_skip]
+        blk = cfg.setdefault("model", {}).setdefault("raw_skip", {})
+        blk["l1"], blk["l2"] = l1, l2
+        _overrides.append(f"raw_skip={raw_skip}")
     if cs_demean is not None:
         # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值。
         # 用字串而非兩個 bool 旗標：掃描時 --cs-demean both 比
@@ -665,6 +687,15 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--residual-alpha", type=float, default=None,
                    help="覆寫 cfg.model.residual.alpha（magnet_intermediate 的 "
                         "initial residual；0=無殘差，即原行為）")
+    p.add_argument("--coupling-init-other", type=float, default=None,
+                   help="覆寫 cfg.model.coupling.init_other（稠密 A 的非配對位置初始值）。"
+                        "不給則用 1/n1；給 0 等於從現行 MAGNET 的結構出發。"
+                        "只在 --architecture magnet_dense_a 下有作用。")
+    p.add_argument("--raw-skip", type=str, default=None,
+                   choices=["none", "l1", "l2", "both"],
+                   help="覆寫 cfg.model.raw_skip（階段 A-2a）。把原始特徵最後一步"
+                        "跳接到耦合點；量到的耦合點上限由 +0.0448 升到 +0.0666。"
+                        "預設 none = 原行為。")
     p.add_argument("--cs-demean", type=str, default=None,
                    choices=["none", "l1", "l2", "both"],
                    help="覆寫 cfg.model.cs_demean（階段 A-7）。耦合前對節點維度"
@@ -703,6 +734,8 @@ if __name__ == "__main__":
         smooth_window_override=args.smooth_window,
         residual_alpha=args.residual_alpha,
         cs_demean=args.cs_demean,
+        raw_skip=args.raw_skip,
+        coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,
         lambda_sparse=args.lambda_sparse,
         t_history=args.t_history,

@@ -26,6 +26,8 @@ VALID_ARCHITECTURES = (
     "magnet_weak_free", "magnet_weak_industry",
     # 第 2 階段：intermediate fusion（融合提前到 L2 圖傳播之前）
     "magnet_intermediate",
+    # 階段 A-1+3：稠密可學耦合矩陣 A（per-node 載荷；取代恆等邊 + 候選邊）
+    "magnet_dense_a",
 )
 
 
@@ -79,6 +81,12 @@ def build_model(cfg: dict):
         return BaselineMEIG(cfg)
     if arch == "magnet_intermediate":
         return MAGNETIntermediate(cfg)
+    if arch == "magnet_dense_a":
+        # 注入 coupling.mode（MAGNET 內部會讀）；保留 cfg 原有的 init_* 設定。
+        # 與 magnet_weak_* 同樣用局部 cfg，不改動呼叫端傳進來的 dict。
+        coup_cfg = {**(cfg["model"].get("coupling", {}) or {}), "mode": "dense"}
+        cfg_local = {**cfg, "model": {**cfg["model"], "coupling": coup_cfg}}
+        return MAGNET(cfg_local)
     if arch in ("magnet_weak_free", "magnet_weak_industry"):
         # 注入 weak_links.mode（MAGNET 內部會讀）；保留 cfg 原有的 lambda 等設定
         mode = "free" if arch == "magnet_weak_free" else "industry"
