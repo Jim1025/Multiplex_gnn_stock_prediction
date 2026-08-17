@@ -202,6 +202,7 @@ def train(
     residual_alpha:    Optional[float] = None,
     cs_demean:         Optional[str]   = None,
     raw_skip:          Optional[str]   = None,
+    raw_skip_mode:     Optional[str]   = None,
     coupling_init_other: Optional[float] = None,
     gat_layers:        Optional[int]   = None,
     lambda_sparse:     Optional[float] = None,
@@ -224,6 +225,9 @@ def train(
         coupling_init_other: 若提供，覆寫 cfg.model.coupling.init_other（稠密 A 的非配對
                            位置初始值）。預設 None -> 程式內取 1/n1。只在
                            --architecture magnet_dense_a 下有作用。
+        raw_skip_mode:     若提供，覆寫 cfg.model.raw_skip.mode（add / concat）。
+                           add 是 A-2a（已測，耦合點資訊未增加）；
+                           concat 是 A-2a'，proj 讓出幾維給原始特徵，保留可分性。
         raw_skip:          若提供，覆寫 cfg.model.raw_skip。可為 none / l1 / l2 / both，
                            控制是否把原始特徵（最後一步）跳接到耦合點（階段 A-2a）。
         cs_demean:         若提供，覆寫 cfg.model.cs_demean。可為 none / l1 / l2 / both，
@@ -286,6 +290,12 @@ def train(
         blk = cfg.setdefault("model", {}).setdefault("raw_skip", {})
         blk["l1"], blk["l2"] = l1, l2
         _overrides.append(f"raw_skip={raw_skip}")
+    if raw_skip_mode is not None:
+        if raw_skip_mode not in ("add", "concat"):
+            raise ValueError(
+                f"--raw-skip-mode 需為 add 或 concat，當前為 {raw_skip_mode!r}")
+        cfg.setdefault("model", {}).setdefault("raw_skip", {})["mode"] = raw_skip_mode
+        _overrides.append(f"raw_skip_mode={raw_skip_mode}")
     if cs_demean is not None:
         # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值。
         # 用字串而非兩個 bool 旗標：掃描時 --cs-demean both 比
@@ -696,6 +706,11 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.model.raw_skip（階段 A-2a）。把原始特徵最後一步"
                         "跳接到耦合點；量到的耦合點上限由 +0.0448 升到 +0.0666。"
                         "預設 none = 原行為。")
+    p.add_argument("--raw-skip-mode", type=str, default=None,
+                   choices=["add", "concat"],
+                   help="覆寫 cfg.model.raw_skip.mode。add=階段 A-2a（已測無效）；"
+                        "concat=A-2a'，proj 讓出 concat_dim 維給原始特徵，"
+                        "保留兩條路徑的可分性（拼接上限 +0.0662 vs 相加 +0.0446）。")
     p.add_argument("--cs-demean", type=str, default=None,
                    choices=["none", "l1", "l2", "both"],
                    help="覆寫 cfg.model.cs_demean（階段 A-7）。耦合前對節點維度"
@@ -735,6 +750,7 @@ if __name__ == "__main__":
         residual_alpha=args.residual_alpha,
         cs_demean=args.cs_demean,
         raw_skip=args.raw_skip,
+        raw_skip_mode=args.raw_skip_mode,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,
         lambda_sparse=args.lambda_sparse,

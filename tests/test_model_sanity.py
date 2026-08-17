@@ -851,3 +851,113 @@ def test_raw_skip_respects_feature_subset(config: dict) -> None:
     assert m.skip_L1[1].in_features == 2, "跳接的輸入維度未跟隨 feature_subset"
     x = torch.randn(2, 5, m.n_l1, cfg["model"]["lstm"]["input_dim"])
     assert m._raw_last(x).shape == (2, m.n_l1, 2)
+
+
+# ---------------------------------------------------------------------------
+# 階段 A-2a'：拼接式跳接（raw_skip mode=concat）
+# ---------------------------------------------------------------------------
+
+def test_raw_skip_concat_keeps_d_prime(config: dict, small_batch: dict) -> None:
+    """concat 模式下 proj 讓出 concat_dim 維，h_L1 / h_L2 仍是 d'。
+
+    這條在守 fusion 的介面：只要總維度不變，fusion 與 head 就不用改，
+    也不強制 L1 與 L2 同時開啟。
+    """
+    d_prime = config["model"]["projection"]["d_prime"]
+    m = _magnet_skip(config, l1=True, mode="concat").eval()
+    assert m.proj_L1.linear.out_features == d_prime - m.raw_concat_dim
+    assert m.proj_L2.linear.out_features == d_prime, "只開 l1 不該動到 proj_L2"
+    with torch.no_grad():
+        _, extras = m(small_batch)
+    assert extras["h_L1"].shape[-1] == d_prime
+    assert extras["h_L2"].shape[-1] == d_prime
+
+
+def test_raw_skip_concat_tail_is_raw(config: dict, small_batch: dict) -> None:
+    """拼接後的最後 concat_dim 維必須就是跳接的輸出，不得被其他運算污染。"""
+    m = _magnet_skip(config, l1=True, mode="concat").eval()
+    with torch.no_grad():
+        _, extras = m(small_batch)
+        direct = m.skip_L1(m._raw_last(small_batch["x_seq_L1"]))
+    assert torch.equal(extras["h_L1"][..., -m.raw_concat_dim:], direct)
+
+
+def test_raw_skip_concat_default_dim_is_in_size(config: dict) -> None:
+    """未指定 concat_dim 時取 SharedLSTM 的 in_size：原始特徵幾維就給幾維。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["lstm"]["feature_subset"] = ["log_return", "RSI_14"]
+    cfg["model"]["raw_skip"] = {"l1": True, "mode": "concat"}
+    torch.manual_seed(cfg["training"]["seed"])
+    m = MAGNET(cfg)
+    assert m.raw_concat_dim == 2 == m.lstm.in_size
+
+
+def test_raw_skip_concat_rejects_bad_dim(config: dict) -> None:
+    """concat_dim 必須落在 (0, d_prime)，否則 proj 的輸出維度會非法。"""
+    d_prime = config["model"]["projection"]["d_prime"]
+    for bad in (0, d_prime, d_prime + 1):
+        cfg = copy.deepcopy(config)
+        cfg["model"]["raw_skip"] = {"l1": True, "mode": "concat", "concat_dim": bad}
+        with pytest.raises(ValueError, match="concat_dim"):
+            MAGNET(cfg)
+
+
+def test_raw_skip_concat_rejects_zero_init(config: dict) -> None:
+    """concat 改變了 proj 的輸出維度，歸零跳接也還原不了原模型，須明確擋掉。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["raw_skip"] = {"l1": True, "mode": "concat", "zero_init": True}
+    with pytest.raises(ValueError, match="zero_init"):
+        MAGNET(cfg)
+
+
+def test_raw_skip_rejects_bad_mode(config: dict) -> None:
+    cfg = copy.deepcopy(config)
+    cfg["model"]["raw_skip"] = {"l1": True, "mode": "cat"}
+    with pytest.raises(ValueError, match="raw_skip.mode"):
+        MAGNET(cfg)
+
+
+def test_raw_skip_norm_default_is_batchnorm(config: dict) -> None:
+    """預設正規化必須是逐特徵跨節點（_FeatureNorm），不是 LayerNorm。
+
+    LayerNorm 正規化特徵軸，F=3 時把 3 個數字壓到剩 1 個自由度，
+    橫截面差異被刪掉——實測跳接路徑 raw +0.0874 -> +0.0332。
+    階段 A-2a / 2a' 兩次實驗因此都不算數，這條測試防止再犯。
+    """
+    from src.models.multiplex_gnn import _FeatureNorm
+    m = _magnet_skip(config, l1=True)
+    assert m.raw_skip_norm == "batchnorm"
+    assert isinstance(m.skip_L1[0], _FeatureNorm)
+
+
+def test_feature_norm_preserves_cross_node_spread(config: dict) -> None:
+    """_FeatureNorm 必須保留節點之間的差異，LayerNorm 則會抹掉。
+
+    用一組尺度差很大、但節點間有明確排序的輸入：正規化後
+    逐特徵的節點排序必須不變。
+    """
+    from src.models.multiplex_gnn import _FeatureNorm
+    x = torch.tensor([[[1.0, 50.0, 0.5],
+                       [2.0, 55.0, 0.7],
+                       [0.5, 45.0, 0.3]]])            # [1, 3 nodes, 3 feat]
+    fn = _FeatureNorm(3)
+    fn.train()
+    out = fn(x)
+    for f in range(3):
+        assert torch.equal(out[0, :, f].argsort(), x[0, :, f].argsort()), (
+            f"特徵 {f} 的節點排序被改變了"
+        )
+    # 對照：LayerNorm 會讓三個節點的輸出幾乎相同
+    ln_out = torch.nn.LayerNorm(3, elementwise_affine=False)(x)
+    spread_fn = out[0].std(dim=0).mean()
+    spread_ln = ln_out[0].std(dim=0).mean()
+    assert spread_fn > spread_ln * 5, (
+        f"_FeatureNorm 的節點間離散度 {spread_fn:.4f} 應遠大於 LayerNorm 的 {spread_ln:.4f}"
+    )
+
+
+def test_raw_skip_norm_rejects_bad_value(config: dict) -> None:
+    cfg = copy.deepcopy(config)
+    cfg["model"]["raw_skip"] = {"l1": True, "norm": "groupnorm"}
+    with pytest.raises(ValueError, match="raw_skip.norm"):
+        MAGNET(cfg)

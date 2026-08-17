@@ -36,6 +36,36 @@ from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
 
 
+class _FeatureNorm(nn.Module):
+    """
+    逐特徵、跨節點的標準化（BatchNorm 的語意）。
+
+    為什麼不能用 LayerNorm：LayerNorm 正規化的是**特徵軸**——把每個節點自己的
+    F 個數字壓成 mean=0、std=1。F=3 時 3 個數字加 2 個約束，自由度只剩 1，
+    「哪一檔股票動得比較多」這個橫截面資訊被整個刪掉。實測跳接路徑上
+    raw +0.0874 -> LayerNorm 後 +0.0311，掉了 64%（階段 A-2a / 2a' 兩次
+    實驗因此都不算數，見 raw_skip 的說明）。
+
+    這裡要的是相反的方向：同一個特徵在不同節點之間對齊尺度，
+    讓 RSI_14（約 50）與 log_return（約 0.01）進入線性層時條件數相當，
+    而節點之間的差異完全保留。
+
+    揭露：BatchNorm 訓練時用當前 batch 的統計量，而 batch 是 8 張快照，
+    等於在 8 天內共用統計量。這不是 look-ahead（不會用到未來 batch），
+    但論文中須說明。要完全避免可改用 norm="none"。
+
+    Shapes: [..., F] -> [..., F]
+    """
+
+    def __init__(self, num_features: int) -> None:
+        super().__init__()
+        self.bn = nn.BatchNorm1d(num_features)
+
+    def forward(self, x: Tensor) -> Tensor:
+        shape = x.shape
+        return self.bn(x.reshape(-1, shape[-1])).reshape(shape)
+
+
 class MAGNET(nn.Module):
     """
     MAGNET — Multiplex ADR-Guided Network for Equity Trading
@@ -202,6 +232,36 @@ class MAGNET(nn.Module):
         self.raw_skip_l1 = bool(skip_cfg.get("l1", False))
         self.raw_skip_l2 = bool(skip_cfg.get("l2", False))
         self.raw_skip_zero_init = bool(skip_cfg.get("zero_init", False))
+        # mode = "add"（A-2a，已測，無效）| "concat"（A-2a'）
+        #
+        # 為什麼要有 concat：2a 的相加把原始特徵壓進一個已被編碼器佔滿的 d' 維
+        # 空間，兩者重疊不可分。實測耦合點可抽取的資訊完全沒動（+0.0448 ->
+        # +0.0446），而拼接的同一組表示是 +0.0662。差別在算子，不在資訊。
+        #
+        # concat 模式下 proj 的輸出維度讓出 concat_dim 維給原始特徵，
+        # 兩者拼起來仍是 d'——所以 fusion / head 的介面完全不用改，
+        # 也不要求 L1 與 L2 同時開啟。
+        self.raw_skip_mode = skip_cfg.get("mode", "add")
+        if self.raw_skip_mode not in ("add", "concat"):
+            raise ValueError(
+                f"model.raw_skip.mode 只支援 'add' 或 'concat'，"
+                f"當前為 {self.raw_skip_mode!r}"
+            )
+        self.raw_concat_dim = skip_cfg.get("concat_dim")   # None -> 取 lstm.in_size
+        # norm：跳接前的正規化。
+        #   "batchnorm"（預設）逐特徵跨節點對齊尺度，節點差異保留
+        #   "none"          不正規化，資訊零損失但線性層條件數差
+        #   "layernorm"     逐節點跨特徵——**已證實有害**，僅供重現舊 run
+        #
+        # 變更揭露：2026-08-16 之前的 raw_skip run（tag tw50_T1F3skip* 與
+        # tw50_T1F3cat*）用的是 layernorm，其 config_snapshot 沒有 norm 欄位。
+        # 那批的結論（跳接無效）不成立，因為原始特徵在進耦合點前已被壓掉 64%。
+        self.raw_skip_norm = skip_cfg.get("norm", "batchnorm")
+        if self.raw_skip_norm not in ("batchnorm", "none", "layernorm"):
+            raise ValueError(
+                f"model.raw_skip.norm 需為 batchnorm / none / layernorm，"
+                f"當前為 {self.raw_skip_norm!r}"
+            )
 
         coup_cfg = m_cfg.get("coupling", {}) or {}
         self.coupling_mode = coup_cfg.get("mode")          # None | "dense"
@@ -251,9 +311,27 @@ class MAGNET(nn.Module):
         self.gat_L1 = GATEncoder(gat_cfg)
         self.gat_L2 = GATEncoder(gat_cfg)
 
+        # 階段 A-2a'：concat 模式下，proj 讓出 concat_dim 維給原始特徵路徑。
+        # 預設讓出 lstm.in_size 維——原始特徵有幾維就給幾維，剛好能無損通過，
+        # 再多是浪費（線性層只是換基底），再少會壓縮。
+        d_raw = (self.lstm.in_size if self.raw_concat_dim is None
+                 else int(self.raw_concat_dim))
+        self.raw_concat_dim = d_raw
+        cat_l1 = self.raw_skip_l1 and self.raw_skip_mode == "concat"
+        cat_l2 = self.raw_skip_l2 and self.raw_skip_mode == "concat"
+        for flag, name in ((cat_l1, "L1"), (cat_l2, "L2")):
+            if flag and not 0 < d_raw < d_prime:
+                raise ValueError(
+                    f"raw_skip.concat_dim 需落在 (0, d_prime={d_prime})，"
+                    f"當前為 {d_raw}（{name}）"
+                )
         # Projection：L1 / L2 各自獨立
-        self.proj_L1 = TypeProjection(proj_cfg, in_dim=H_gat)
-        self.proj_L2 = TypeProjection(proj_cfg, in_dim=H_gat)
+        self.proj_L1 = TypeProjection(
+            {**proj_cfg, "d_prime": d_prime - d_raw} if cat_l1 else proj_cfg,
+            in_dim=H_gat)
+        self.proj_L2 = TypeProjection(
+            {**proj_cfg, "d_prime": d_prime - d_raw} if cat_l2 else proj_cfg,
+            in_dim=H_gat)
 
         # ── Phase 2 ───────────────────────────────────────────────────
         self.fusion = CrossLayerFusion(fuse_cfg, d_prime=d_prime)
@@ -280,15 +358,32 @@ class MAGNET(nn.Module):
         #
         # in_dim 取 SharedLSTM 實際吃到的維度（feature_subset 生效後的 in_size），
         # 確保兩條路徑的資訊集相同。
-        # LayerNorm 在前：原始 9 維的尺度差到 5000 倍（RSI_14 約 50、
-        # log_return 約 0.01），不正規化的話線性層的條件數會被 RSI 主導。
+        # 正規化在前：原始特徵的尺度差到 5000 倍（RSI_14 約 50、
+        # log_return 約 0.01），不處理的話線性層的條件數會被 RSI 主導。
+        # 必須是逐特徵跨節點（_FeatureNorm），不可用 LayerNorm——後者
+        # 正規化特徵軸，會把橫截面差異刪掉，見 _FeatureNorm 的說明。
         # 不用 bias：常數項對每個節點同加同減，對橫截面排序無作用。
         if self.raw_skip_l1 or self.raw_skip_l2:
+            out_dim = (self.raw_concat_dim if self.raw_skip_mode == "concat"
+                       else d_prime)
+
             def _mk_skip() -> nn.Module:
-                lin = nn.Linear(self.lstm.in_size, d_prime, bias=False)
+                lin = nn.Linear(self.lstm.in_size, out_dim, bias=False)
                 if self.raw_skip_zero_init:
+                    if self.raw_skip_mode == "concat":
+                        # concat 下 proj 的輸出維度已經變了，權重歸零也回不到
+                        # 原模型；留著這個選項只會給出一個假的「錨點」。
+                        raise ValueError(
+                            "raw_skip.zero_init 只在 mode='add' 下有意義："
+                            "concat 會改變 proj 的輸出維度，歸零也無法還原原模型。"
+                        )
                     nn.init.zeros_(lin.weight)     # 開啟時起點即現行模型
-                return nn.Sequential(nn.LayerNorm(self.lstm.in_size), lin)
+                norm: nn.Module = {
+                    "batchnorm": lambda: _FeatureNorm(self.lstm.in_size),
+                    "none":      nn.Identity,
+                    "layernorm": lambda: nn.LayerNorm(self.lstm.in_size),
+                }[self.raw_skip_norm]()
+                return nn.Sequential(norm, lin)
             if self.raw_skip_l1:
                 self.skip_L1 = _mk_skip()
             if self.raw_skip_l2:
@@ -349,9 +444,13 @@ class MAGNET(nn.Module):
         # 階段 A-2a：原始特徵跳接（見 __init__ 的說明）。
         # 取最後一步 x[:, -1]，並用 SharedLSTM 的 feat_idx 取同一組欄位。
         if self.raw_skip_l1:
-            h_L1 = h_L1 + self.skip_L1(self._raw_last(x_L1))
+            r1 = self.skip_L1(self._raw_last(x_L1))
+            h_L1 = (torch.cat([h_L1, r1], dim=-1)
+                    if self.raw_skip_mode == "concat" else h_L1 + r1)
         if self.raw_skip_l2:
-            h_L2 = h_L2 + self.skip_L2(self._raw_last(x_L2))
+            r2 = self.skip_L2(self._raw_last(x_L2))
+            h_L2 = (torch.cat([h_L2, r2], dim=-1)
+                    if self.raw_skip_mode == "concat" else h_L2 + r2)
 
         # 階段 A-7：橫截面去均值（見 __init__ 的說明）。
         # 兩個旗標預設皆為 False，關閉時完全不進入這段，既有 run 位元不變。
