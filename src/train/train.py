@@ -396,6 +396,25 @@ def train(
     criterion = build_criterion(cfg).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_dec)
 
+    # ── 評估用的獨立模型（見 base.yaml training.eval_device）────────
+    # 所有 evaluate() 都走 eval_device（預設 cpu），因為 MPS 的 scatter-add
+    # 聚合順序不固定：同一份權重連評 5 次 test IC 全距 0.0169，而 CPU 是
+    # 位元相同。記錄下來的 metric 必須是可重現的那一個。
+    #
+    # 用另一個 model 實例而不是把 model 搬來搬去：後者會讓 optimizer 的
+    # exp_avg 還在 MPS、param 已在 CPU，下一次 step() 就炸。
+    # 非持久 buffer（pair_src / has_pair / feat_idx）由 cfg 決定，
+    # eval_model 用同一份 cfg 建，本來就已經對了，不需要也不會被 copy。
+    eval_device = get_device(t_cfg.get("eval_device", "cpu"))
+    eval_model = build_model(cfg).to(eval_device)
+    eval_criterion = build_criterion(cfg).to(eval_device)
+    print(f"[eval] eval_device={eval_device} (metrics 由此產生，須可重現)")
+
+    def _eval_ready() -> torch.nn.Module:
+        """把訓練中的權重同步到 eval_model，回傳可直接評估的模型。"""
+        eval_model.load_state_dict(model.state_dict())
+        return eval_model
+
     # M5 Step 4: CosineAnnealingWarmRestarts（可用 --no-scheduler 關閉做 ablation）
     # T_0=10 → 第一個 cycle 10 個 epoch；T_mult=2 → 之後每 cycle 長度加倍
     # 動機：opt_p2/p7-p10 觀察到 LR=1e-3 持續訓練，模型在 epoch 2-8 衝高 val IC 後就崩
@@ -476,7 +495,8 @@ def train(
                 grad_clip=grad_clip, log_every=log_every, epoch=epoch,
             )
 
-            val_stats = evaluate(model, val_loader, device, criterion=criterion)
+            val_stats = evaluate(_eval_ready(), val_loader, eval_device,
+                                 criterion=eval_criterion)
             val_ic   = val_stats["IC"]
             val_icir = val_stats["ICIR"]
 
@@ -562,7 +582,7 @@ def train(
             print("[test] WARNING: best ckpt 不存在（IC 從未為正），用 final 評估")
 
         test_stats = evaluate(
-            model, test_loader, device, criterion=criterion,
+            _eval_ready(), test_loader, eval_device, criterion=eval_criterion,
             eval_cfg=cfg.get("evaluation"),
         )
         print(
@@ -605,7 +625,8 @@ def train(
         test_pred_path = run_dir / "predictions" / "test_predictions.csv"
         val_pred_path  = run_dir / "predictions" / "val_predictions.csv"
         test_stats["predictions"].to_csv(test_pred_path, index=False)
-        val_pred_dump = evaluate(model, val_loader, device, criterion=criterion)["predictions"]
+        val_pred_dump = evaluate(_eval_ready(), val_loader, eval_device,
+                                 criterion=eval_criterion)["predictions"]
         val_pred_dump.to_csv(val_pred_path, index=False)
 
         if bool(mf_cfg.get("log_artifacts", True)):
@@ -615,6 +636,30 @@ def train(
                 mlflow.log_artifact(str(best_ckpt_path), artifact_path="checkpoints")
             mlflow.log_artifact(str(final_ckpt_path), artifact_path="checkpoints")
             mlflow.log_artifact(str(run_dir / "config_snapshot.yaml"))
+
+        # ── 自我驗證：best.pt 必須重現剛剛記下的 test IC ──────────
+        # 這是 2026-08-16 之前那批 run 壞掉的地方——metric 在 MPS 上算，
+        # 換一個 process 重載 best.pt 再評就對不上（全距 0.0169）。
+        # 現在每個 run 自己檢查一次，1.3 秒，對不上就當場停。
+        roundtrip_ic = None
+        if best_ckpt_path.exists():
+            verify_model = build_model(cfg).to(eval_device)
+            load_checkpoint(best_ckpt_path, verify_model, optimizer=None,
+                            map_location=eval_device)
+            roundtrip_ic = float(evaluate(
+                verify_model, test_loader, eval_device,
+                eval_cfg=cfg.get("evaluation"),
+            )["IC"])
+            drift = abs(roundtrip_ic - float(test_stats["IC"]))
+            if drift > 1e-4:
+                raise RuntimeError(
+                    f"checkpoint 無法重現自己的 test IC："
+                    f"記錄 {float(test_stats['IC']):+.6f} vs 重載 {roundtrip_ic:+.6f} "
+                    f"(差 {drift:.2e} > 1e-4)。eval_device={eval_device}；"
+                    f"若為 mps 請改回 cpu——MPS 的 scatter-add 不可重現。"
+                )
+            print(f"[verify] best.pt 重現 test IC {roundtrip_ic:+.6f} "
+                  f"(差 {drift:.2e}) OK")
 
         # ── 寫 meta.json + 補 INDEX.csv 一列 ─────────────────────
         end_ms = int(time.time() * 1000)
@@ -628,6 +673,9 @@ def train(
             "n_epochs":   epoch + 1,
             "best_epoch": best_epoch,
             "best_val_IC": float(best_val_ic) if best_val_ic > -float("inf") else None,
+            # metric 是在哪個 device 上算的。cpu 以外的值代表數字不保證可重現。
+            "eval_device": str(eval_device),
+            "test_IC_roundtrip": roundtrip_ic,
             "test_metrics": {
                 "IC":     float(test_stats["IC"]),
                 "RankIC": float(test_stats["RankIC"]),

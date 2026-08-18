@@ -109,7 +109,18 @@ def discover(universe: str = "tw50") -> dict[str, dict[str, str]]:
             continue
         if (c.get("data") or {}).get("universe") != universe:
             continue
-        if not os.path.exists(os.path.join(d, "predictions", "test_predictions.csv")):
+        # reeval 模式下，沒有 checkpoint 的 run（ridge / bipartite 等非神經
+        # 基準）本來就沒有重評對象——它們是 sklearn 在 CPU 上算的，
+        # 記錄的 CSV 就是權威值。這種 run 回退到 test_predictions.csv，
+        # 並在下方明列，不做靜默回退。
+        if (PRED_FILE != "test_predictions.csv"
+                and not os.path.exists(os.path.join(d, "predictions", PRED_FILE))
+                and not os.path.exists(os.path.join(d, "checkpoints", "best.pt"))
+                and os.path.exists(os.path.join(d, "predictions", "test_predictions.csv"))):
+            _FALLBACK.append(os.path.basename(d))
+            _PRED_OVERRIDE[d] = "test_predictions.csv"
+        if not os.path.exists(os.path.join(d, "predictions",
+                                           _PRED_OVERRIDE.get(d, PRED_FILE))):
             continue
         name = re.sub(r"^\d{8}_\d{4}_", "", os.path.basename(d))
         m = re.match(r"^(.*)_s(\d+)$", name)
@@ -118,9 +129,19 @@ def discover(universe: str = "tw50") -> dict[str, dict[str, str]]:
     return arms
 
 
+# 讀哪一份 predictions。預設是 run 當下寫的 test_predictions.csv；
+# 2026-08-16 之前的 run 那份是在 MPS 上算的、不可重現（見
+# scripts/reeval_checkpoints.py），要用 --predictions reeval 換成
+# CPU 重評版本 test_predictions_reeval.csv。
+PRED_FILE = "test_predictions.csv"
+_PRED_OVERRIDE: dict[str, str] = {}
+_FALLBACK: list[str] = []
+
+
 def daily_series(run_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """回傳 (dates, IC 序列, RankIC 序列)。全數為 NaN 的日子保留，配對時再遮。"""
-    df = pd.read_csv(os.path.join(run_dir, "predictions", "test_predictions.csv"))
+    df = pd.read_csv(os.path.join(run_dir, "predictions",
+                                  _PRED_OVERRIDE.get(run_dir, PRED_FILE)))
     H = df.pivot(index="target_date", columns="ticker", values="y_hat").sort_index()
     Y = df.pivot(index="target_date", columns="ticker", values="y").sort_index()
     Hn, Yn = H.to_numpy(), Y.to_numpy()
@@ -309,9 +330,23 @@ def main() -> None:
     ap.add_argument("--base", default=None, help="臨時指定基準 arm（搭配 --vs）")
     ap.add_argument("--vs", nargs="*", default=None, help="臨時指定對照 arm")
     ap.add_argument("--list", action="store_true", help="列出可用的 arm 後結束")
+    ap.add_argument("--predictions", choices=["recorded", "reeval"], default="recorded",
+                    help="recorded=run 當下寫的 CSV（MPS，不可重現）；"
+                         "reeval=CPU 重評版本，由 scripts/reeval_checkpoints.py 產生")
     args = ap.parse_args()
 
+    global PRED_FILE
+    if args.predictions == "reeval":
+        PRED_FILE = "test_predictions_reeval.csv"
+    print(f"[paired_daily] predictions = {PRED_FILE}")
+
     arms = discover(args.universe)
+    if _FALLBACK:
+        print(f"[paired_daily] 下列 {len(_FALLBACK)} 個 run 沒有 checkpoint"
+              f"（非神經基準，sklearn/CPU 產生，記錄值即權威值），"
+              f"回退讀 test_predictions.csv：")
+        for name in sorted(_FALLBACK):
+            print(f"    {name}")
     if args.list:
         print(f"universe={args.universe} 有預測檔的 arm：")
         for a in sorted(arms):

@@ -395,3 +395,124 @@ def test_checkpoint_roundtrip(
         assert torch.allclose(y_hat_a, y_hat_b, atol=1e-6), (
             "save→load 後 forward 結果不一致"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: checkpoint 必須重現自己記錄的 test IC
+# ---------------------------------------------------------------------------
+# 迴歸來源：2026-08-16 那批 run 的 meta.json / predictions CSV 都無法由自己的
+# best.pt 重現。原因不在 save/load（那條路位元正確），而在 metric 算在 MPS 上：
+# GATv2Conv 的鄰居聚合走 scatter-add，MPS 後端的浮點加總順序 run 之間不固定。
+# 同一份 best.pt 在 MPS 上連評 5 次 test IC = +0.0466 / +0.0362 / +0.0318 /
+# +0.0359 / +0.0297（全距 0.0169，與跨 seed 的 sd 0.0174 同量級），
+# 在 CPU 上則是 5 次位元相同的 +0.058480。
+#
+# 下面兩個測試鎖住的是「記錄下來的數字可以被重現」這個性質本身，
+# 不是某個特定 device 的行為。
+
+def _train_a_few_steps(model, dataset, config, device, n_steps: int = 3) -> None:
+    """跑幾個 optimizer step，讓 BatchNorm running stats 離開初始值。"""
+    loader = DataLoader(dataset, batch_size=4, shuffle=False,
+                        collate_fn=multiplex_collate, num_workers=0)
+    criterion = build_criterion(config).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model.train()
+    for step, batch in enumerate(loader):
+        if step >= n_steps:
+            break
+        batch = {k: (v.to(device) if isinstance(v, torch.Tensor)
+                     else [t.to(device) for t in v]
+                     if isinstance(v, list) and v and isinstance(v[0], torch.Tensor)
+                     else v)
+                 for k, v in batch.items()}
+        y_hat, extras = model(batch)
+        loss, _ = model.compute_loss(y_hat, batch["y"], extras)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+
+
+def test_checkpoint_reproduces_recorded_test_ic(
+    val_dataset: MultiplexDataset,
+    train_dataset: MultiplexDataset,
+    config: dict,
+    device: torch.device,
+) -> None:
+    """存檔當下記錄的 IC，換一個 model 實例重載後必須一致到 1e-4 內。
+
+    這正是 train.py 寫 meta.json 的流程：evaluate 記數字 → save_checkpoint
+    → （之後）load_checkpoint → evaluate。兩次 IC 對不上就代表記錄不可信。
+    """
+    set_seed(config["training"]["seed"])
+    model = MAGNET(config).to(device)
+    _train_a_few_steps(model, train_dataset, config, device)
+
+    loader = DataLoader(val_dataset, batch_size=32, shuffle=False,
+                        collate_fn=multiplex_collate, num_workers=0)
+
+    # 1) 評估並「記錄」——等同 meta.json 的 test_metrics
+    recorded = evaluate(model, loader, device)
+    recorded_ic = recorded["IC"]
+
+    # 2) 存檔（權重此刻的狀態）
+    with tempfile.TemporaryDirectory() as td:
+        ckpt = Path(td) / "best.pt"
+        save_checkpoint(ckpt, model, optimizer=None, epoch=0,
+                        best_val_ic=recorded_ic)
+
+        # 3) 全新實例重載後重評
+        reloaded = MAGNET(config).to(device)
+        load_checkpoint(ckpt, reloaded, optimizer=None, map_location=device)
+        replay = evaluate(reloaded, loader, device)
+
+    drift = abs(replay["IC"] - recorded_ic)
+    assert drift < 1e-4, (
+        f"checkpoint 無法重現自己記錄的 test IC："
+        f"記錄 {recorded_ic:+.6f} vs 重載 {replay['IC']:+.6f}（差 {drift:.2e}）。"
+        f"metric 若算在非確定性 device 上就會這樣。"
+    )
+
+
+def test_evaluate_is_deterministic(
+    val_dataset: MultiplexDataset,
+    train_dataset: MultiplexDataset,
+    config: dict,
+    device: torch.device,
+) -> None:
+    """同一份權重連評兩次，預測必須位元相同。
+
+    MPS 上這條會掛（scatter-add 加總順序不固定），CPU 上恆成立。
+    記錄用的 device 必須通過這個測試。
+    """
+    set_seed(config["training"]["seed"])
+    model = MAGNET(config).to(device)
+    _train_a_few_steps(model, train_dataset, config, device)
+
+    loader = DataLoader(val_dataset, batch_size=32, shuffle=False,
+                        collate_fn=multiplex_collate, num_workers=0)
+    first  = evaluate(model, loader, device)
+    second = evaluate(model, loader, device)
+
+    max_dev = float(np.abs(
+        first["predictions"].y_hat.to_numpy()
+        - second["predictions"].y_hat.to_numpy()
+    ).max())
+    assert max_dev == 0.0, (
+        f"同一份權重兩次評估的預測不同（最大差 {max_dev:.3e}）——"
+        f"此 device 不可用於產生記錄值"
+    )
+    assert first["IC"] == second["IC"]
+
+
+def test_eval_device_is_reproducible(config: dict) -> None:
+    """base.yaml 的 eval_device 必須是已知可重現的 device。
+
+    這是設定層的護欄：把它改成 mps/auto 會讓所有 meta.json 重新變成
+    無法重現的單次抽樣，而且不會有任何錯誤訊息。
+    """
+    eval_device = config["training"].get("eval_device", "cpu")
+    assert eval_device == "cpu", (
+        f"training.eval_device = {eval_device!r}；記錄用的評估只允許 cpu，"
+        f"因為 MPS/CUDA 的 scatter-add 聚合順序不保證 run 間一致。"
+        f"訓練仍可用 training.device 走 MPS。"
+    )

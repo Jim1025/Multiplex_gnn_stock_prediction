@@ -57,6 +57,18 @@ training:
   lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
   weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
   device: auto           # auto | cpu | mps | cuda
+  # 評估專用 device。預設 cpu，且不要改成 auto/mps。
+  #
+  # 為什麼：GATv2Conv 的鄰居聚合走 scatter-add，MPS 後端的浮點加總順序在
+  # run 之間不固定。同一份 best.pt 在 MPS 上連評 5 次，test IC 落在
+  # +0.0298 .. +0.0466（全距 0.0169，與跨 seed 的 sd 0.0174 同量級）；
+  # 同樣 5 次在 CPU 上是位元相同的 +0.058480。
+  # 也就是說 MPS 記下來的 metric 是一次抽樣，連它自己都重現不了——
+  # 2026-08-16 之前所有 run 的 meta.json / predictions CSV 都受此影響。
+  #
+  # 訓練仍走 training.device（MPS 快很多）；只有 evaluate() 換到這個
+  # device，全 246 天一次 1.3 秒，成本可忽略。
+  eval_device: cpu       # cpu（可重現）| auto | mps | cuda
   num_workers: 0         # MPS 上建議 0（multiprocessing 不穩）
   pin_memory: false
   grad_clip: 1.0         # 梯度裁剪上限

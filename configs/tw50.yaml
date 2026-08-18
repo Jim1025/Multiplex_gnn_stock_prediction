@@ -87,6 +87,10 @@ training:
   lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
   weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
   device: auto           # auto | cpu | mps | cuda
+  # 記錄用的評估一律走 cpu：MPS 的 scatter-add 聚合順序 run 間不固定，
+  # 同一份 best.pt 連評 5 次 test IC 全距 0.0169（CPU 為位元相同）。
+  # 訓練仍走上面的 device。詳見 configs/base.yaml 的完整說明。
+  eval_device: cpu       # cpu（可重現）| auto | mps | cuda
   num_workers: 0         # MPS 上建議 0（multiprocessing 不穩）
   pin_memory: false
   grad_clip: 1.0         # 梯度裁剪上限
