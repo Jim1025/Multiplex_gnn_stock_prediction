@@ -21,6 +21,12 @@ model:
     T_history: 20         # 回看 20 個交易日
     bidirectional: false  # 預測任務不看未來
     dropout: 0.1
+    input_norm: none      # none（預設，維持既有 run）| batchnorm
+                          # batchnorm = 逐特徵跨節點對齊尺度，放在 LSTM 之前。
+                          # 動機：資料層不做正規化，LSTM 吃到的 RSI_14 (std 11.5)
+                          # 比 log_return (std 0.0245) 大 471 倍，初始化時 4 成閘門
+                          # 已飽和，且 weight_decay 1e-3 > log_return 方向的資料
+                          # 曲率 4.97e-4，主幹最後等於只看 RSI。詳見 encoders.py。
   gat:
     hidden_dim: 64
     num_layers: 2
@@ -55,6 +61,11 @@ training:
   patience: 15           # M4.5 Phase 1: 10 → 15（給更多耐心觀察收斂）
   batch_size: 32
   lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
+  optimizer: adam        # adam（預設，維持既有 run）| adamw
+                         # torch.optim.Adam 的 weight_decay 是 L2-in-gradient，
+                         # 會被 Adam 的分母除過；對真實梯度接近零的參數等於一個
+                         # 固定大小往零推的步伐。adamw 用解耦衰減，可分離
+                         # 「正規化不足」與「衰減耦合」兩個機制。
   weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
   device: auto           # auto | cpu | mps | cuda
   # 評估專用 device。預設 cpu，且不要改成 auto/mps。

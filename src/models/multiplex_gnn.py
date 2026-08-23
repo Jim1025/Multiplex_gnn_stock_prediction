@@ -31,39 +31,15 @@ import torch.nn as nn
 from torch import Tensor
 
 from src.models._universe import universe_from_cfg
-from src.models.encoders import SharedLSTM, GATEncoder, TypeProjection
+from src.models.encoders import (SharedLSTM, GATEncoder, TypeProjection,
+                                 FeatureNorm)
 from src.models.fusion import CrossLayerFusion
 from src.models.prediction_head import PredictionHead, CombinedLoss
 
 
-class _FeatureNorm(nn.Module):
-    """
-    逐特徵、跨節點的標準化（BatchNorm 的語意）。
-
-    為什麼不能用 LayerNorm：LayerNorm 正規化的是**特徵軸**——把每個節點自己的
-    F 個數字壓成 mean=0、std=1。F=3 時 3 個數字加 2 個約束，自由度只剩 1，
-    「哪一檔股票動得比較多」這個橫截面資訊被整個刪掉。實測跳接路徑上
-    raw +0.0874 -> LayerNorm 後 +0.0311，掉了 64%（階段 A-2a / 2a' 兩次
-    實驗因此都不算數，見 raw_skip 的說明）。
-
-    這裡要的是相反的方向：同一個特徵在不同節點之間對齊尺度，
-    讓 RSI_14（約 50）與 log_return（約 0.01）進入線性層時條件數相當，
-    而節點之間的差異完全保留。
-
-    揭露：BatchNorm 訓練時用當前 batch 的統計量，而 batch 是 8 張快照，
-    等於在 8 天內共用統計量。這不是 look-ahead（不會用到未來 batch），
-    但論文中須說明。要完全避免可改用 norm="none"。
-
-    Shapes: [..., F] -> [..., F]
-    """
-
-    def __init__(self, num_features: int) -> None:
-        super().__init__()
-        self.bn = nn.BatchNorm1d(num_features)
-
-    def forward(self, x: Tensor) -> Tensor:
-        shape = x.shape
-        return self.bn(x.reshape(-1, shape[-1])).reshape(shape)
+# _FeatureNorm 已移到 encoders.py（SharedLSTM 的 input_norm 也要用同一個），
+# 這裡保留原名以免既有 import 與測試失效。
+_FeatureNorm = FeatureNorm
 
 
 class MAGNET(nn.Module):

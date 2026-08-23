@@ -55,6 +55,7 @@ model:
     T_history: 20         # 回看 20 個交易日
     bidirectional: false  # 預測任務不看未來
     dropout: 0.1
+    input_norm: none      # none（預設）| batchnorm，見 base.yaml 的完整說明
   gat:
     hidden_dim: 64
     num_layers: 2
@@ -94,6 +95,7 @@ training:
   patience: 15           # M4.5 Phase 1: 10 → 15（給更多耐心觀察收斂）
   batch_size: 32
   lr: 0.001              # M4.5 Phase 2: 3e-3 → 1e-3（Phase 1 觀察到 3e-3 後期會崩盤）
+  optimizer: adam        # adam（預設）| adamw，見 base.yaml 的完整說明
   weight_decay: 0.001    # M4.5 Phase 1: 0.0001 → 0.001（10× regularization）
   device: auto           # auto | cpu | mps | cuda
   # 記錄用的評估一律走 cpu：MPS 的 scatter-add 聚合順序 run 間不固定，

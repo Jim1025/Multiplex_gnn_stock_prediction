@@ -20,6 +20,35 @@ from torch_geometric.nn import GATv2Conv
 # SharedLSTM
 # ---------------------------------------------------------------------------
 
+class FeatureNorm(nn.Module):
+    """
+    逐特徵、跨節點的標準化（BatchNorm 的語意）。
+
+    為什麼不能用 LayerNorm：LayerNorm 正規化的是**特徵軸**——把每個節點自己的
+    F 個數字壓成 mean=0、std=1。F=3 時 3 個數字加 2 個約束，自由度只剩 1，
+    「哪一檔股票動得比較多」這個橫截面資訊被整個刪掉。實測跳接路徑上
+    raw +0.0874 -> LayerNorm 後 +0.0311，掉了 64%。
+
+    這裡要的是相反的方向：同一個特徵在不同節點之間對齊尺度，
+    讓 RSI_14（約 50）與 log_return（約 0.01）進入線性層時條件數相當，
+    而節點之間的差異完全保留。
+
+    揭露：BatchNorm 訓練時用當前 batch 的統計量，而 batch 是數張快照，
+    等於在數天內共用統計量。這不是 look-ahead（不會用到未來 batch），
+    但論文中須說明。
+
+    Shapes: [..., F] -> [..., F]
+    """
+
+    def __init__(self, num_features: int) -> None:
+        super().__init__()
+        self.bn = nn.BatchNorm1d(num_features)
+
+    def forward(self, x: Tensor) -> Tensor:
+        shape = x.shape
+        return self.bn(x.reshape(-1, shape[-1])).reshape(shape)
+
+
 class SharedLSTM(nn.Module):
     """
     時序編碼器（Shared LSTM）。
@@ -86,6 +115,42 @@ class SharedLSTM(nn.Module):
             in_size = len(idx)
         self.in_size = in_size
 
+        # input_norm：LSTM 輸入端的逐特徵跨節點正規化。
+        #
+        # 存在理由（回應口試「跳接是不是在補洞」的質疑）：
+        # 資料層不做任何正規化，所以 LSTM 吃到的是原始尺度，訓練期實測
+        #     log_return  std 0.0245
+        #     RSI_14      std 11.5374      <- 相差 471 倍
+        #     BB_pos      std 0.3236
+        # 後果有三，全部量測過：
+        #   (1) 輸入共變異數的條件數 kappa = 2.68e5（正規化後 20.1），
+        #       橫截面有效秩 1.0019、節點間餘弦 +0.999988——30 檔美股的
+        #       特徵向量幾乎就是「RSI 乘一個共同方向」。
+        #   (2) 初始化時 37~44% 的 LSTM 閘門 |z| > 4 已經飽和，
+        #       平均 sigma'(z) 只有 0.055~0.072（健康上限 0.25）。
+        #       正規化後飽和比例 0.0%、導數 0.248。
+        #   (3) 模型逃離飽和的方式是縮小輸入權重，而 weight_decay 1e-3
+        #       大於 log_return 方向的資料曲率 4.97e-4——正則化在那個方向上
+        #       比資料更有力。10 顆種子實測，訓練後進入閘門的量級
+        #       RSI : BB_pos : log_return = 8000 : 45 : 1，
+        #       主幹等於一個只看 RSI 的編碼器。
+        #
+        # raw_skip 之所以有效，是因為它自帶 FeatureNorm，成為全模型唯一
+        # 一處逐特徵正規化；那個 Linear(3->3, no bias) 創造不了資訊。
+        # 這個旋鈕把正規化移到它該在的位置，讓「跳接是補洞還是架構貢獻」
+        # 變成可證偽的檢定：若開啟本項後跳接不再有增益，跳接就是補洞。
+        #
+        # 預設 none：既有 run 與 k7 凍結基準的數值必須維持不變。
+        self.input_norm_mode = cfg.get("input_norm", "none")
+        if self.input_norm_mode not in ("none", "batchnorm"):
+            raise ValueError(
+                f"model.lstm.input_norm 需為 none 或 batchnorm，"
+                f"當前為 {self.input_norm_mode!r}"
+            )
+        self.input_norm = (FeatureNorm(in_size)
+                           if self.input_norm_mode == "batchnorm"
+                           else nn.Identity())
+
         self.lstm = nn.LSTM(
             input_size=in_size,
             hidden_size=cfg["hidden_dim"],
@@ -105,6 +170,8 @@ class SharedLSTM(nn.Module):
         """
         if self.feat_idx is not None:
             x_seq = x_seq.index_select(-1, self.feat_idx)
+        # 正規化放在取子集之後：統計量只由實際餵進 LSTM 的那幾欄決定。
+        x_seq = self.input_norm(x_seq)
         B, T, n, F = x_seq.shape
         # reshape: [B, T, n, F] → [B*n, T, F]
         x = x_seq.permute(0, 2, 1, 3).reshape(B * n, T, F)

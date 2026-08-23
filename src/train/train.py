@@ -203,6 +203,8 @@ def train(
     cs_demean:         Optional[str]   = None,
     raw_skip:          Optional[str]   = None,
     raw_skip_mode:     Optional[str]   = None,
+    input_norm:        Optional[str]   = None,
+    optimizer_name:    Optional[str]   = None,
     coupling_init_other: Optional[float] = None,
     gat_layers:        Optional[int]   = None,
     lambda_sparse:     Optional[float] = None,
@@ -226,6 +228,8 @@ def train(
                            位置初始值）。預設 None -> 程式內取 1/n1。只在
                            --architecture magnet_dense_a 下有作用。
         raw_skip_mode:     若提供，覆寫 cfg.model.raw_skip.mode（add / concat）。
+        input_norm:        若提供，覆寫 cfg.model.lstm.input_norm（none / batchnorm）。
+        optimizer_name:    若提供，覆寫 cfg.training.optimizer（adam / adamw）。
                            add 是 A-2a（已測，耦合點資訊未增加）；
                            concat 是 A-2a'，proj 讓出幾維給原始特徵，保留可分性。
         raw_skip:          若提供，覆寫 cfg.model.raw_skip。可為 none / l1 / l2 / both，
@@ -296,6 +300,19 @@ def train(
                 f"--raw-skip-mode 需為 add 或 concat，當前為 {raw_skip_mode!r}")
         cfg.setdefault("model", {}).setdefault("raw_skip", {})["mode"] = raw_skip_mode
         _overrides.append(f"raw_skip_mode={raw_skip_mode}")
+    if input_norm is not None:
+        # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值
+        if input_norm not in ("none", "batchnorm"):
+            raise ValueError(
+                f"--input-norm 需為 none 或 batchnorm，當前為 {input_norm!r}")
+        cfg.setdefault("model", {}).setdefault("lstm", {})["input_norm"] = input_norm
+        _overrides.append(f"input_norm={input_norm}")
+    if optimizer_name is not None:
+        if optimizer_name not in ("adam", "adamw"):
+            raise ValueError(
+                f"--optimizer 需為 adam 或 adamw，當前為 {optimizer_name!r}")
+        cfg.setdefault("training", {})["optimizer"] = optimizer_name
+        _overrides.append(f"optimizer={optimizer_name}")
     if cs_demean is not None:
         # 覆寫在 config_snapshot.yaml 之前套用，快照裡看得到實際用的值。
         # 用字串而非兩個 bool 旗標：掃描時 --cs-demean both 比
@@ -394,7 +411,17 @@ def train(
     print(f"[model] architecture={cfg['model'].get('architecture', 'magnet')} "
           f"({sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable params)")
     criterion = build_criterion(cfg).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_dec)
+    # optimizer：adam（預設）| adamw。見 configs/base.yaml training.optimizer。
+    opt_name = str(t_cfg.get("optimizer", "adam")).lower()
+    if opt_name == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr,
+                                     weight_decay=weight_dec)
+    elif opt_name == "adamw":
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr,
+                                      weight_decay=weight_dec)
+    else:
+        raise ValueError(f"training.optimizer 需為 adam 或 adamw，當前為 {opt_name!r}")
+    print(f"[optim] {opt_name} lr={lr} weight_decay={weight_dec}")
 
     # ── 評估用的獨立模型（見 base.yaml training.eval_device）────────
     # 所有 evaluate() 都走 eval_device（預設 cpu），因為 MPS 的 scatter-add
@@ -759,6 +786,18 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.model.raw_skip.mode。add=階段 A-2a（已測無效）；"
                         "concat=A-2a'，proj 讓出 concat_dim 維給原始特徵，"
                         "保留兩條路徑的可分性（拼接上限 +0.0662 vs 相加 +0.0446）。")
+    p.add_argument("--input-norm", type=str, default=None,
+                   choices=["none", "batchnorm"],
+                   help="覆寫 cfg.model.lstm.input_norm。batchnorm=在 LSTM 之前"
+                        "逐特徵跨節點對齊尺度。動機：原始尺度下 RSI_14 的 std 是"
+                        "log_return 的 471 倍，初始化時 4 成閘門已飽和，且 "
+                        "weight_decay 1e-3 > log_return 方向的資料曲率 4.97e-4。"
+                        "預設 none = 原行為。")
+    p.add_argument("--optimizer", type=str, default=None,
+                   choices=["adam", "adamw"],
+                   help="覆寫 cfg.training.optimizer。adamw 用解耦 weight decay，"
+                        "可分離「正規化不足」與「衰減耦合」兩個機制。"
+                        "預設 adam = 原行為。")
     p.add_argument("--cs-demean", type=str, default=None,
                    choices=["none", "l1", "l2", "both"],
                    help="覆寫 cfg.model.cs_demean（階段 A-7）。耦合前對節點維度"
@@ -799,6 +838,8 @@ if __name__ == "__main__":
         cs_demean=args.cs_demean,
         raw_skip=args.raw_skip,
         raw_skip_mode=args.raw_skip_mode,
+        input_norm=args.input_norm,
+        optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,
         lambda_sparse=args.lambda_sparse,
