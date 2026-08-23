@@ -404,7 +404,9 @@ class MAGNET(nn.Module):
         # ── Phase 1: LSTM 時序編碼 ────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §3.1
         h_lstm_L1 = self.lstm(x_L1)   # [B, n, H_lstm]
-        h_lstm_L2 = self.lstm(x_L2)   # [B, n, H_lstm]（共用同一份 LSTM）
+        h_lstm_L2 = self.lstm(x_L2, layer=1)   # [B, n, H_lstm]（共用同一份 LSTM；
+        #                                    layer=1 只在 input_norm_scope
+        #                                    ="per_layer" 時才切到第二組正規化）
 
         # ── Phase 1: GAT 圖編碼 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §3.2

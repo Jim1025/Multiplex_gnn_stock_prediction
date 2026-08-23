@@ -37,11 +37,23 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-BEST = "tw50_T1F3bnl1"          # 目前最佳，所有比較的基準
+# 主結果 arm。2026-08-23 由 tw50_T1F3bnl1 換成 tw50_inbnw_noskip：
+#   - IC +0.0475 -> +0.0517，種子 sd 0.0180 -> 0.0021（小 8.6 倍）
+#   - 結構更簡單：拿掉拼接跳接，只把逐特徵正規化移到 LSTM 之前並改用 AdamW
+#   - 換基準的理由不是 IC（兩者統計上分不出來，配對 t p=0.31），
+#     而是跳接的增益已被證實由前處理缺陷造成：修好輸入正規化之後，
+#     跳接的增量由 +0.0234（逐日與跨種子雙雙通過 Holm）掉到 +0.0060（皆不顯著）
+#   - 代價：RankIC 由 +0.0513 掉到 +0.0351，須在表下揭露
+BEST = "tw50_inbnw_noskip"      # 主結果，所有比較的基準
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
 NEURAL = [
-    ("MAGNET + BN 拼接跳接（本版）", "tw50_T1F3bnl1", "本專案", "F3, T=1, L=1"),
+    ("MAGNET + 輸入正規化 + AdamW（本版）", "tw50_inbnw_noskip", "本專案",
+     "F3, T=1, L=1, 無跳接"),
+    ("　└ 同上，Adam", "tw50_inbn_noskip", "本專案", "分離 AdamW 的貢獻"),
+    ("　└ 同上，再加拼接跳接", "tw50_inbn_skip", "本專案", "跳接是否仍有增量"),
+    ("　└ 同上，F9", "tw50_inbnw_f9_noskip", "本專案", "特徵數是否仍無差異"),
+    ("MAGNET + BN 拼接跳接（前版）", "tw50_T1F3bnl1", "本專案", "F3, T=1, L=1"),
     ("MAGNET 原始（9 特徵 T=20 L=2）", "tw50chk_wl0",  "本專案", "F9, T=20, L=2"),
     ("MAGNET F9 T=1 L=1",            "tw50_T1F9",     "本專案", "F9, T=1, L=1"),
     ("MAGNET F3（無跳接）",            "tw50_T1F3rb",   "本專案", "F3, T=1, L=1"),
@@ -64,8 +76,17 @@ NONNEURAL = [
 ]
 
 
+# 預測檔來源。reeval = CPU 重評版（scripts/reeval_checkpoints.py 產生），
+# recorded = run 當下寫的 CSV。含 GAT 的 arm 在 MPS 上的 scatter-add 不可重現，
+# 同一份 best.pt 連評 5 次 test IC 全距 0.0169，所以本表預設走 reeval；
+# 無重評檔的 arm（無 GAT，或本來就在 CPU 上評的新 run）自動回退到 recorded。
+PREDICTIONS = "reeval"
+
+
 def daily_series(run_dir: str):
-    f = os.path.join(run_dir, "predictions", "test_predictions.csv")
+    f = os.path.join(run_dir, "predictions", "test_predictions_reeval.csv")
+    if PREDICTIONS != "reeval" or not os.path.exists(f):
+        f = os.path.join(run_dir, "predictions", "test_predictions.csv")
     if not os.path.exists(f):
         return None
     df = pd.read_csv(f)
@@ -110,6 +131,9 @@ def neural_stats(arm: str):
     ics, rics, per_ic, per_ric, params = [], [], [], [], None
     for s, d in sorted(runs.items(), key=lambda kv: int(kv[0])):
         tm = (json.load(open(os.path.join(d, "meta.json"))).get("test_metrics") or {})
+        rv = os.path.join(d, "meta_reeval.json")
+        if PREDICTIONS == "reeval" and os.path.exists(rv):
+            tm = {**tm, **json.load(open(rv))["reevaluated"]}
         if tm.get("IC") is None:
             continue
         per_ic.append(tm["IC"]); per_ric.append(tm["RankIC"])
@@ -184,21 +208,27 @@ def fmt(v, nd=4, signed=True):
 def main() -> None:
     ap = argparse.ArgumentParser(description="產出跨方法總結果表")
     ap.add_argument("--no-write", action="store_true")
+    ap.add_argument("--predictions", choices=["reeval", "recorded"],
+                    default="reeval",
+                    help="reeval=CPU 重評（預設，可重現）；"
+                         "recorded=run 當下寫的 CSV（含 GAT 的 arm 走 MPS，不可重現）")
     args = ap.parse_args()
+    global PREDICTIONS
+    PREDICTIONS = args.predictions
 
     rows = []
     for label, arm, cat, note in NEURAL:
         st = neural_stats(arm)
         if st is None:
             print(f"[skip] {label}（找不到 {arm}）"); continue
-        rows.append((label, cat, note, st))
+        rows.append((label, cat, note, st, arm))
     for label, pat, cat, note in NONNEURAL:
         st = nonneural_stats(pat)
         if st is None:
             print(f"[skip] {label}（找不到 {pat}）"); continue
-        rows.append((label, cat, note, st))
+        rows.append((label, cat, note, st, pat))
 
-    base = next(st for lbl, _, _, st in rows if lbl.startswith("MAGNET + BN"))
+    base = next(st for _, _, _, st, arm in rows if arm == BEST)
     out = []
     out.append("# 跨方法結果表")
     out.append("")
@@ -209,16 +239,17 @@ def main() -> None:
     out.append("")
     out.append("| 方法 | 類別 | 設定 | n | test IC | sd | RankIC | sd | dIC | 逐日 p | 跨種子 Welch p | MW p |")
     out.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
-    for label, cat, note, st in sorted(rows, key=lambda r: -r[3]["ic"]):
+    for label, cat, note, st, arm in sorted(rows, key=lambda r: -r[3]["ic"]):
         d_ic, p_pd = paired_daily(base, st, "ic")
         pw, pu, _ = across_seed(base, st, "ic")
-        star = " **" if label.startswith("MAGNET + BN") else " "
+        is_base = (arm == BEST)
+        star = " **" if is_base else " "
         out.append(
             f"|{star}{label}{star.strip()} | {cat} | {note} | {st['n']} | "
             f"{fmt(st['ic'])} | {fmt(st['ic_sd'], signed=False)} | "
             f"{fmt(st['ric'])} | {fmt(st['ric_sd'], signed=False)} | "
-            f"{'—' if label.startswith('MAGNET + BN') else fmt(d_ic)} | "
-            f"{'—' if label.startswith('MAGNET + BN') else fmt(p_pd, signed=False)} | "
+            f"{'—' if is_base else fmt(d_ic)} | "
+            f"{'—' if is_base else fmt(p_pd, signed=False)} | "
             f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
     out.append("")
     out.append("## 讀表注意")

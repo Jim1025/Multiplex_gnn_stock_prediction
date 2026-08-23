@@ -147,9 +147,32 @@ class SharedLSTM(nn.Module):
                 f"model.lstm.input_norm 需為 none 或 batchnorm，"
                 f"當前為 {self.input_norm_mode!r}"
             )
-        self.input_norm = (FeatureNorm(in_size)
-                           if self.input_norm_mode == "batchnorm"
-                           else nn.Identity())
+        # input_norm_scope：shared（預設）= 兩層共用一個 FeatureNorm；
+        # per_layer = 每層各一個，與 raw_skip 的 skip_L1 / skip_L2 同做法。
+        #
+        # 為什麼要有這個旋鈕：SharedLSTM 在 MAGNET 的 forward 裡被呼叫兩次
+        # （L1 30 檔美股、L2 50 檔台股），shared 模式下兩次共用同一組
+        # running stats 與 affine 參數。實測合併統計量無法讓兩個市場各自
+        # 回到 std 1——美股側的 log_return 正規化後 std 1.4304、台股側 0.9350，
+        # 市場之間仍留約 1.53 倍的殘餘尺度差（原本特徵之間是 471 倍，
+        # 主要的病已經治好，這是剩下的尾巴）。
+        #
+        # 預設 shared：既有 run（tw50_inbn* / tw50_inbnw*）的數值必須維持不變。
+        self.input_norm_scope = cfg.get("input_norm_scope", "shared")
+        if self.input_norm_scope not in ("shared", "per_layer"):
+            raise ValueError(
+                f"model.lstm.input_norm_scope 需為 shared 或 per_layer，"
+                f"當前為 {self.input_norm_scope!r}"
+            )
+
+        def _mk_norm():
+            return (FeatureNorm(in_size) if self.input_norm_mode == "batchnorm"
+                    else nn.Identity())
+
+        # 名稱保持 input_norm，既有 checkpoint 的鍵不變。
+        self.input_norm = _mk_norm()
+        if self.input_norm_scope == "per_layer":
+            self.input_norm_l2 = _mk_norm()
 
         self.lstm = nn.LSTM(
             input_size=in_size,
@@ -160,10 +183,12 @@ class SharedLSTM(nn.Module):
             dropout=dropout,
         )
 
-    def forward(self, x_seq: Tensor) -> Tensor:
+    def forward(self, x_seq: Tensor, layer: int = 0) -> Tensor:
         """
         Args:
             x_seq: [B, T, n, F]
+            layer: 0 = L1（預設，單層呼叫者不必傳）、1 = L2。
+                   只在 input_norm_scope="per_layer" 時有作用。
 
         Returns:
             h: [B, n, H_lstm]  — 每個節點最後一步的 hidden state
@@ -171,7 +196,8 @@ class SharedLSTM(nn.Module):
         if self.feat_idx is not None:
             x_seq = x_seq.index_select(-1, self.feat_idx)
         # 正規化放在取子集之後：統計量只由實際餵進 LSTM 的那幾欄決定。
-        x_seq = self.input_norm(x_seq)
+        nrm = getattr(self, "input_norm_l2", None) if layer == 1 else None
+        x_seq = (nrm or self.input_norm)(x_seq)
         B, T, n, F = x_seq.shape
         # reshape: [B, T, n, F] → [B*n, T, F]
         x = x_seq.permute(0, 2, 1, 3).reshape(B * n, T, F)

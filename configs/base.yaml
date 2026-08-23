@@ -22,6 +22,11 @@ model:
     bidirectional: false  # 預測任務不看未來
     dropout: 0.1
     input_norm: none      # none（預設，維持既有 run）| batchnorm
+    input_norm_scope: shared   # shared（預設，兩層共用一個 FeatureNorm）| per_layer
+                          # SharedLSTM 在 MAGNET 裡被呼叫兩次（L1 30 檔 / L2 50 檔），
+                          # shared 下兩次共用 running stats 與 affine 參數；實測合併
+                          # 統計量無法讓兩市場各自回到 std 1（US log_return 1.4304 /
+                          # TW 0.9350，殘餘 1.53 倍）。per_layer 每層各一個。
                           # batchnorm = 逐特徵跨節點對齊尺度，放在 LSTM 之前。
                           # 動機：資料層不做正規化，LSTM 吃到的 RSI_14 (std 11.5)
                           # 比 log_return (std 0.0245) 大 471 倍，初始化時 4 成閘門

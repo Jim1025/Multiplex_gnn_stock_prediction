@@ -204,6 +204,7 @@ def train(
     raw_skip:          Optional[str]   = None,
     raw_skip_mode:     Optional[str]   = None,
     input_norm:        Optional[str]   = None,
+    input_norm_scope:  Optional[str]   = None,
     optimizer_name:    Optional[str]   = None,
     coupling_init_other: Optional[float] = None,
     gat_layers:        Optional[int]   = None,
@@ -307,6 +308,14 @@ def train(
                 f"--input-norm 需為 none 或 batchnorm，當前為 {input_norm!r}")
         cfg.setdefault("model", {}).setdefault("lstm", {})["input_norm"] = input_norm
         _overrides.append(f"input_norm={input_norm}")
+    if input_norm_scope is not None:
+        if input_norm_scope not in ("shared", "per_layer"):
+            raise ValueError(
+                f"--input-norm-scope 需為 shared 或 per_layer，"
+                f"當前為 {input_norm_scope!r}")
+        cfg.setdefault("model", {}).setdefault("lstm", {})["input_norm_scope"] = \
+            input_norm_scope
+        _overrides.append(f"input_norm_scope={input_norm_scope}")
     if optimizer_name is not None:
         if optimizer_name not in ("adam", "adamw"):
             raise ValueError(
@@ -793,6 +802,11 @@ def _parse_args() -> argparse.Namespace:
                         "log_return 的 471 倍，初始化時 4 成閘門已飽和，且 "
                         "weight_decay 1e-3 > log_return 方向的資料曲率 4.97e-4。"
                         "預設 none = 原行為。")
+    p.add_argument("--input-norm-scope", type=str, default=None,
+                   choices=["shared", "per_layer"],
+                   help="覆寫 cfg.model.lstm.input_norm_scope。shared=兩層共用一個"
+                        "FeatureNorm（預設，殘餘市場間尺度差約 1.53 倍）；"
+                        "per_layer=每層各一個，與 raw_skip 的做法一致。")
     p.add_argument("--optimizer", type=str, default=None,
                    choices=["adam", "adamw"],
                    help="覆寫 cfg.training.optimizer。adamw 用解耦 weight decay，"
@@ -839,6 +853,7 @@ if __name__ == "__main__":
         raw_skip=args.raw_skip,
         raw_skip_mode=args.raw_skip_mode,
         input_norm=args.input_norm,
+        input_norm_scope=args.input_norm_scope,
         optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,

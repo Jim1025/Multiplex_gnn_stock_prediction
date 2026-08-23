@@ -50,6 +50,7 @@ model:
     bidirectional: false  # 預測任務不看未來
     dropout: 0.1
     input_norm: none      # none（預設）| batchnorm，見 base.yaml 的完整說明
+    input_norm_scope: shared   # shared（預設）| per_layer，見 base.yaml
   gat:
     hidden_dim: 64
     num_layers: 2
