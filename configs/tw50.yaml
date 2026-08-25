@@ -57,6 +57,8 @@ model:
     num_heads: 4
     dropout: 0.1
     use_edge_attr: true   # 邊權 |ρ| 餵入 attention
+    graph_ablate: none    # 見 base.yaml 的完整說明
+    graph_ablate_seed: 42
     concat: true          # heads 用 concat（最後一層改 average）
   projection:
     d_prime: 32           # 共同潛在維度
@@ -65,6 +67,16 @@ model:
   fusion:
     attention_hidden: 64
     gate_activation: sigmoid
+  weak_links:             # 見 base.yaml 的完整說明
+    lambda_sparse: 0.0
+    beta_layer: false
+    beta_init_std: 0.3
+    beta_alpha_mean: 1.0
+    beta_gamma_mean: 0.0
+    beta_b_init_std: 0.0
+    beta_use_identity: true
+    beta_use_factor: true
+    beta_use_residual: true
   prediction_head:
     hidden_dim: 64
     dropout: 0.2

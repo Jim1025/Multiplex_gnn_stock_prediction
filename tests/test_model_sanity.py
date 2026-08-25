@@ -961,3 +961,76 @@ def test_raw_skip_norm_rejects_bad_value(config: dict) -> None:
     cfg["model"]["raw_skip"] = {"l1": True, "norm": "groupnorm"}
     with pytest.raises(ValueError, match="raw_skip.norm"):
         MAGNET(cfg)
+
+
+# ---------------------------------------------------------------------------
+# beta 層（階段 P1）
+# ---------------------------------------------------------------------------
+
+def _beta_cfg(**wl):
+    """在 tw50 的 magnet_weak_free 設定上覆寫 weak_links。"""
+    import yaml
+    cfg = yaml.safe_load(open(ROOT / "configs" / "tw50.yaml"))
+    cfg["model"]["architecture"] = "magnet_weak_free"
+    cfg["model"]["lstm"]["T_history"] = 1
+    cfg["model"]["gat"]["num_layers"] = 1
+    cfg["model"]["weak_links"] = {**(cfg["model"].get("weak_links") or {}), **wl}
+    return cfg
+
+
+def test_beta_layer_degenerates_to_current_model():
+    """beta_init_std=0、B 零初始化時，耦合必須逐位元等於現行 MAGNET。
+
+    這是既有 run 不受影響的保證：新旋鈕預設關閉，而且就算打開、
+    把離散度設為 0，數值也不能動。
+    """
+    import torch
+    from src.models import build_model
+    torch.manual_seed(42)
+    m0 = build_model(_beta_cfg(beta_layer=False))
+    torch.manual_seed(42)
+    m1 = build_model(_beta_cfg(beta_layer=True, beta_init_std=0.0,
+                               beta_alpha_mean=1.0, beta_gamma_mean=0.0,
+                               beta_b_init_std=0.0))
+    m0.eval(); m1.eval()
+    d = m0.proj_L1.linear.out_features if hasattr(m0.proj_L1, 'linear') else 32
+    x = torch.randn(3, m0.n_l1, d)
+    with torch.no_grad():
+        diff = (m0._augment_weak(x) - m1._augment_weak(x)).abs().max().item()
+    assert diff == 0.0, f"beta 層在退化設定下應位元相同，實得 max|diff|={diff:.3e}"
+    assert bool((m1.beta_alpha == 1).all()), "alpha 初始應全為 1"
+    assert bool((m1.beta_gamma == 0).all()), "gamma 初始應全為 0"
+
+
+def test_beta_layer_is_a_reparametrisation():
+    """gamma_j = colsum_j(B) 時，beta 層與原式等價。
+
+    這說明 beta 層做的事是把「因子暴露」從 B 的欄和裡解耦出來——
+    原式強制 gamma 等於 colsum，beta 層讓兩者各自自由。
+    """
+    import torch
+    from src.models import build_model
+    torch.manual_seed(0)
+    m_new = build_model(_beta_cfg(beta_layer=True, beta_init_std=0.0))
+    torch.manual_seed(0)
+    m_old = build_model(_beta_cfg(beta_layer=False))
+    with torch.no_grad():
+        m_new.weak_beta.normal_(0.0, 0.05)
+        m_old.weak_beta.copy_(m_new.weak_beta)
+        m_new.beta_gamma.copy_((m_new.weak_beta * m_new.weak_mask).sum(0))
+    m_new.eval(); m_old.eval()
+    d = m_new.proj_L1.linear.out_features if hasattr(m_new.proj_L1, 'linear') else 32
+    x = torch.randn(3, m_new.n_l1, d)
+    with torch.no_grad():
+        diff = (m_new._augment_weak(x) - m_old._augment_weak(x)).abs().max().item()
+    assert diff < 1e-5, f"重參數化應等價，實得 max|diff|={diff:.3e}"
+
+
+def test_beta_layer_dispersed_init():
+    """初始離散度必須真的出現在參數上（P0 設計原則的實作保證）。"""
+    import torch
+    from src.models import build_model
+    torch.manual_seed(42)
+    m = build_model(_beta_cfg(beta_layer=True, beta_init_std=0.3))
+    assert m.beta_alpha.std().item() > 0.1, "alpha 初始離散度過小"
+    assert m.beta_gamma.std().item() > 0.1, "gamma 初始離散度過小"

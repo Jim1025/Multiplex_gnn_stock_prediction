@@ -63,6 +63,8 @@ model:
     num_heads: 4
     dropout: 0.1
     use_edge_attr: true   # 邊權 |ρ| 餵入 attention
+    graph_ablate: none    # 見 base.yaml 的完整說明
+    graph_ablate_seed: 42
     concat: true          # heads 用 concat（最後一層改 average）
   projection:
     d_prime: 32           # 共同潛在維度
@@ -77,6 +79,14 @@ model:
   weak_links:
     mode: free            # 1,493 條候選邊（30x50 扣掉 7 條恆等邊）
     lambda_sparse: 0.0    # 見檔頭第 2 點；與 tw50chk_wl0_* 一致
+    beta_layer: false     # 階段 P1，見 base.yaml 的完整說明
+    beta_init_std: 0.3
+    beta_alpha_mean: 1.0
+    beta_gamma_mean: 0.0
+    beta_b_init_std: 0.0
+    beta_use_identity: true
+    beta_use_factor: true
+    beta_use_residual: true
 
 loss_weights:
   mse: 1.0

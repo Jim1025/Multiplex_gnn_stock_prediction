@@ -38,6 +38,13 @@ model:
     num_heads: 4
     dropout: 0.1
     use_edge_attr: true   # 邊權 |ρ| 餵入 attention
+    graph_ablate: none    # 層內圖 A₁/A₂ 的消融（跨層邊的消融見 weak_links.beta_use_*）
+                          #   none（預設）| empty_l1 | empty_l2 | empty_both
+                          #                | rand_l1  | rand_l2  | rand_both
+                          # empty=只留 self-loop（保留 GAT 參數，只拿掉訊息傳遞）
+                          # rand =保留邊數與 edge_attr，只打亂端點
+                          #       （檢驗「相關係數挑出的結構」是否有資訊）
+    graph_ablate_seed: 42 # rand 模式的亂數種子
     concat: true          # heads 用 concat（最後一層改 average）
   projection:
     d_prime: 32           # 共同潛在維度
@@ -46,6 +53,27 @@ model:
   fusion:
     attention_hidden: 64
     gate_activation: sigmoid
+  weak_links:             # 只在 architecture = magnet_weak_free / _industry 下生效；
+                          # mode 由 --architecture 注入，其餘從這裡讀
+    lambda_sparse: 0.0    # 候選邊 B 的 L1 懲罰。1e-3 已證實會把邊凍在 0
+                          # （L1 在 0 點的次梯度會把參數釘住），故設 0。
+                          # 注意這與 training.weight_decay 是兩個獨立通道。
+    beta_layer: false     # 階段 P1：ĥ₁ⱼ = α_j·h₁_p(j)·[paired] + γ_j·h̄₁
+                          #                + Σᵢ B[i,j]·(h₁ᵢ − h̄₁)
+                          # 動機：跨市場訊號 72% 是 rank-1（每日一個純量 x 每檔一個
+                          # beta），而現行設計的 beta 只有「配對=1 / 無配對=0」兩級。
+                          # 這裡升級成 50 級連續，候選邊改吃殘差，不與 γ 競爭同一個
+                          # 方向。預設 false，既有 run 的數值不變。
+    beta_init_std: 0.3    # α_j / γ_j 的初始離散度。**必須 > 0**：對 50 檔台股相同的
+                          # 量對橫截面 IC 的貢獻恰好為零（實測全給 h̄₁ -> IC +0.0036），
+                          # 價值全在跨股票的離散度。
+    beta_alpha_mean: 1.0  # α 初始均值（1.0 = 保留現行恆等邊的滿量級）
+    beta_gamma_mean: 0.0  # γ 初始均值（0.0 = 共同部分不貢獻 IC，初始質量全放在離散度）
+    beta_b_init_std: 0.0  # weak_beta 的初始離散度（0 = 維持現行零初始化）
+    beta_use_identity: true   # ① α_j·h₁_p(j)·[paired]（7 檔的 ADR 特異訊號）
+    beta_use_factor: true     # ② γ_j·h̄₁（50 檔的市場因子暴露）
+    beta_use_residual: true   # ③ Σᵢ B[i,j]·(h₁ᵢ − h̄₁)（扣掉共同成分後的個股結構）
+                              # 三個開關供消融；預設全開＝完整 beta 層
   prediction_head:
     hidden_dim: 64
     dropout: 0.2

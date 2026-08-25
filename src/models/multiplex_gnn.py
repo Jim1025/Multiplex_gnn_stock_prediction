@@ -239,6 +239,27 @@ class MAGNET(nn.Module):
                 f"當前為 {self.raw_skip_norm!r}"
             )
 
+        # ── 層內圖的消融（A₁ / A₂）─────────────────────────────
+        # 存在理由：跨層邊（恆等 + 候選）已在 §26 消融過，
+        # 但層內由 |rho| > tau 建的相關係數圖從未單獨檢驗。
+        #
+        #   empty_*  只留 self-loop：保留 GAT 的參數，只拿掉訊息傳遞。
+        #            比「直接繞過 GAT」乾淨，後者會同時少掉一批參數。
+        #   rand_*   保留邊數與 edge_attr 的分布，只打亂端點：
+        #            檢驗「相關係數挑出來的結構」是否有資訊，
+        #            而不只是「有沒有圖」。
+        #
+        # 預設 none：既有 run 數值不變。
+        gat_cfg_ab = m_cfg.get("gat", {}) or {}
+        self.graph_ablate = gat_cfg_ab.get("graph_ablate", "none")
+        _ok = {"none", "empty_l1", "empty_l2", "empty_both",
+               "rand_l1", "rand_l2", "rand_both"}
+        if self.graph_ablate not in _ok:
+            raise ValueError(
+                f"model.gat.graph_ablate 需為 {sorted(_ok)} 之一，"
+                f"當前為 {self.graph_ablate!r}")
+        self.graph_ablate_seed = int(gat_cfg_ab.get("graph_ablate_seed", 42))
+
         coup_cfg = m_cfg.get("coupling", {}) or {}
         self.coupling_mode = coup_cfg.get("mode")          # None | "dense"
         if self.coupling_mode not in (None, "dense"):
@@ -255,6 +276,65 @@ class MAGNET(nn.Module):
                 "weak_mask", self._build_weak_mask(self.weak_mode, u)
             )
             self.weak_beta = nn.Parameter(torch.zeros(u.n_l1, u.n_l2))
+
+        # ── beta 層（階段 P1）──────────────────────────────────────
+        # 存在理由（回應「43 檔無配對台股拿不到跨市場訊號」）：
+        #
+        # 量到的事實：
+        #   (1) 跨市場訊號 72% 是 rank-1——每天一個純量（美股市場報酬）
+        #       乘上每檔台股一個 beta，就拿到最好線性 baseline 的 72%
+        #       （+0.0738 / +0.1020）；rank-3 拿到 87%。
+        #   (2) h_L1 有 99.86% 的能量在共同成分 c 上，特異成分只有 0.14%。
+        #   (3) 恆等邊給 7 檔滿量級 5.61、候選邊給 43 檔 0.0042，差 1,345 倍。
+        #   (4) 恆等邊 60% 的價值來自「有沒有配對」這個二元分組 x 市場因子，
+        #       只有 40% 是 ADR 特有的——把恆等邊換成美股均值仍保留 60%。
+        #
+        # 統一設計原則（§24.2）：任何耦合路徑，若其輸出對 50 檔台股是同一個
+        # 向量，對橫截面 IC 的貢獻恰好為零，不論量級多大。實測：全部 50 檔
+        # 都給 h̄₁ -> IC +0.0036（≈ 0）。所以價值全在**跨股票的離散度**。
+        #
+        # 形式：
+        #   ĥ₁ⱼ = α_j·h₁_p(j)·[paired] + γ_j·h̄₁ + Σᵢ B[i,j]·(h₁ᵢ − h̄₁)
+        #         └ ADR 路徑，可學權重  └ 因子暴露   └ 殘差聚合（去掉共同成分）
+        #
+        # 三項各司其職，不重複計算共同成分：γ_j 承載 beta 暴露（現行設計只有
+        # 「配對 = 1 / 無配對 = 0」兩級，這裡升級成 50 級連續），
+        # B 改吃殘差所以不再與 γ 競爭同一個方向。
+        #
+        # 退化保證：alpha_mean=1、gamma_mean=0、init_std=0、B=0 時
+        # 逐位元等於現行 MAGNET，故既有 run 不受影響（tests 有驗）。
+        #
+        # 初始化必須分散（P0）：零初始化在飽和加法通道裡長不起來
+        # （實測 B 從 0 出發，訓練後 |B|max 仍只有 0.0005）。
+        self.beta_layer = bool(weak_cfg.get("beta_layer", False))
+        if self.beta_layer:
+            if self.weak_mode is None:
+                raise ValueError(
+                    "model.weak_links.beta_layer 需要 weak_links.mode 不為 None"
+                )
+            std = float(weak_cfg.get("beta_init_std", 0.3))
+            a_mu = float(weak_cfg.get("beta_alpha_mean", 1.0))
+            g_mu = float(weak_cfg.get("beta_gamma_mean", 0.0))
+            b_std = float(weak_cfg.get("beta_b_init_std", 0.0))
+            # 三項的開關（消融用）。預設全開＝完整 beta 層。
+            #   use_identity ①  α_j·h₁_p(j)·[paired]   7 檔的 ADR 特異訊號
+            #   use_factor   ②  γ_j·h̄₁                 50 檔的市場因子暴露
+            #   use_residual ③  Σᵢ B[i,j]·(h₁ᵢ − h̄₁)   扣掉共同成分後的個股結構
+            self.beta_use_identity = bool(weak_cfg.get("beta_use_identity", True))
+            self.beta_use_factor = bool(weak_cfg.get("beta_use_factor", True))
+            self.beta_use_residual = bool(weak_cfg.get("beta_use_residual", True))
+            if not any((self.beta_use_identity, self.beta_use_factor,
+                        self.beta_use_residual)):
+                raise ValueError("beta 層的三項不可同時關閉")
+            if std < 0 or b_std < 0:
+                raise ValueError("beta_init_std / beta_b_init_std 不可為負")
+            self.beta_alpha = nn.Parameter(
+                torch.randn(u.n_l2) * std + a_mu)
+            self.beta_gamma = nn.Parameter(
+                torch.randn(u.n_l2) * std + g_mu)
+            if b_std > 0:
+                with torch.no_grad():
+                    self.weak_beta.normal_(0.0, b_std)
 
         if self.coupling_mode == "dense":
             if self.weak_mode is not None:
@@ -411,6 +491,9 @@ class MAGNET(nn.Module):
         # ── Phase 1: GAT 圖編碼 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §3.2
         # 每張快照獨立跑 GAT（edge_index 已是單張快照的局部索引）
+        if self.graph_ablate != "none":
+            ei_L1, ea_L1 = self._ablate_graph(ei_L1, ea_L1, x_L1.size(2), "l1")
+            ei_L2, ea_L2 = self._ablate_graph(ei_L2, ea_L2, x_L2.size(2), "l2")
         h_gat_L1 = self._apply_gat_batched(self.gat_L1, h_lstm_L1, ei_L1, ea_L1)  # [B, n1, H_gat]
         h_gat_L2 = self._apply_gat_batched(self.gat_L2, h_lstm_L2, ei_L2, ea_L2)  # [B, n2, H_gat]
 
@@ -561,7 +644,8 @@ class MAGNET(nn.Module):
         """
         把 L1 對齊到 L2 的索引空間，並併入弱連結：
 
-            ĥ1_j = h1_{p(j)} + Σ_i beta_eff[i,j]·h1_i
+            ĥ1_j = h1_{p(j)} + Σ_i beta_eff[i,j]·h1_i          （預設）
+            ĥ1_j = α_j·h1_{p(j)} + γ_j·h̄1 + Σ_i B[i,j]·(h1_i − h̄1)  （beta 層）
 
         第一項是恆等邊（權重固定 1，存在與否已知）；p(j) < 0 的節點
         沒有這一項，補零向量。第二項是候選邊，beta init 0
@@ -580,8 +664,54 @@ class MAGNET(nn.Module):
         if self.weak_mode is None:
             return ident
         beta_eff = self.weak_beta * self.weak_mask                 # [n1, n2]
-        h_weak = torch.einsum("ij,bid->bjd", beta_eff, h_L1)       # [B, n2, d']
-        return ident + h_weak
+        if not self.beta_layer:
+            h_weak = torch.einsum("ij,bid->bjd", beta_eff, h_L1)   # [B, n2, d']
+            return ident + h_weak
+        # beta 層：三項各司其職，見 __init__ 的說明
+        #   ĥ₁ⱼ = α_j·h₁_p(j)·[paired] + γ_j·h̄₁ + Σᵢ B[i,j]·(h₁ᵢ − h̄₁)
+        hbar = h_L1.mean(dim=1, keepdim=True)                      # [B, 1, d']
+        out = torch.zeros_like(ident)
+        if self.beta_use_identity:                                 # ①
+            out = out + ident * self.beta_alpha.view(1, -1, 1)
+        if self.beta_use_factor:                                   # ②
+            out = out + self.beta_gamma.view(1, -1, 1) * hbar
+        if self.beta_use_residual:                                 # ③
+            out = out + torch.einsum("ij,bid->bjd", beta_eff, h_L1 - hbar)
+        return out
+
+    def _ablate_graph(self, edge_index, edge_attr, n_nodes: int, side: str):
+        """層內圖的消融。side = "l1" | "l2"。
+
+        empty：回傳空的 edge_index（GATv2Conv 的 add_self_loops 會補上
+               self-loop，所以節點仍有自己的訊息，只是沒有鄰居）。
+        rand ：保留邊數與 edge_attr 的值，只把端點重抽（不含自環）。
+               用固定 seed，且以「快照序號」推進，讓每張快照的隨機圖不同
+               但整體可重現。
+        """
+        mode = self.graph_ablate
+        if mode == "none" or not (mode.endswith("both") or mode.endswith(side)):
+            return edge_index, edge_attr
+        is_list = isinstance(edge_index, (list, tuple))
+        eis = list(edge_index) if is_list else [edge_index]
+        eas = list(edge_attr) if is_list else [edge_attr]
+        out_i, out_a = [], []
+        for k, (ei, ea) in enumerate(zip(eis, eas)):
+            if mode.startswith("empty"):
+                out_i.append(torch.zeros(2, 0, dtype=torch.long, device=ei.device))
+                out_a.append(ea.new_zeros((0,) + tuple(ea.shape[1:])))
+                continue
+            m = ei.size(1)
+            g = torch.Generator(device="cpu").manual_seed(
+                self.graph_ablate_seed * 1_000_003 + k)
+            src = torch.randint(0, n_nodes, (m,), generator=g)
+            dst = torch.randint(0, n_nodes, (m,), generator=g)
+            bad = src == dst                       # 去掉自環，GAT 自己會加
+            dst[bad] = (dst[bad] + 1) % n_nodes
+            out_i.append(torch.stack([src, dst]).to(ei.device))
+            out_a.append(ea)                       # 邊權的值分布保持不變
+        if is_list:
+            return out_i, out_a
+        return out_i[0], out_a[0]
 
     @staticmethod
     def _apply_gat_batched(

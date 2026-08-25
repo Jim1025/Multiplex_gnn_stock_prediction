@@ -205,6 +205,10 @@ def train(
     raw_skip_mode:     Optional[str]   = None,
     input_norm:        Optional[str]   = None,
     input_norm_scope:  Optional[str]   = None,
+    beta_layer:        Optional[bool]  = None,
+    beta_init_std:     Optional[float] = None,
+    beta_ablate:       Optional[str]   = None,
+    graph_ablate:      Optional[str]   = None,
     optimizer_name:    Optional[str]   = None,
     coupling_init_other: Optional[float] = None,
     gat_layers:        Optional[int]   = None,
@@ -316,6 +320,35 @@ def train(
         cfg.setdefault("model", {}).setdefault("lstm", {})["input_norm_scope"] = \
             input_norm_scope
         _overrides.append(f"input_norm_scope={input_norm_scope}")
+    if beta_layer is not None:
+        cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_layer"] = \
+            bool(beta_layer)
+        _overrides.append(f"beta_layer={beta_layer}")
+    if beta_init_std is not None:
+        cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_init_std"] = \
+            float(beta_init_std)
+        _overrides.append(f"beta_init_std={beta_init_std}")
+    if beta_ablate is not None:
+        # 消融：關掉 beta 層的某一項。identity=①、factor=②、residual=③
+        keys = {"identity": "beta_use_identity", "factor": "beta_use_factor",
+                "residual": "beta_use_residual"}
+        blk = cfg.setdefault("model", {}).setdefault("weak_links", {})
+        for name in beta_ablate.split(","):
+            name = name.strip()
+            if name not in keys:
+                raise ValueError(
+                    f"--beta-ablate 只接受 {sorted(keys)} 的逗號組合，"
+                    f"當前為 {name!r}")
+            blk[keys[name]] = False
+        _overrides.append(f"beta_ablate={beta_ablate}")
+    if graph_ablate is not None:
+        ok = {"none", "empty_l1", "empty_l2", "empty_both",
+              "rand_l1", "rand_l2", "rand_both"}
+        if graph_ablate not in ok:
+            raise ValueError(
+                f"--graph-ablate 需為 {sorted(ok)} 之一，當前為 {graph_ablate!r}")
+        cfg.setdefault("model", {}).setdefault("gat", {})["graph_ablate"] = graph_ablate
+        _overrides.append(f"graph_ablate={graph_ablate}")
     if optimizer_name is not None:
         if optimizer_name not in ("adam", "adamw"):
             raise ValueError(
@@ -807,6 +840,23 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.model.lstm.input_norm_scope。shared=兩層共用一個"
                         "FeatureNorm（預設，殘餘市場間尺度差約 1.53 倍）；"
                         "per_layer=每層各一個，與 raw_skip 的做法一致。")
+    p.add_argument("--beta-layer", action="store_true", default=None,
+                   help="開啟 model.weak_links.beta_layer（階段 P1）。每檔台股一個"
+                        "可學的 ADR 權重 alpha_j 與市場因子暴露 gamma_j，候選邊改吃"
+                        "殘差。目標是 rank-1 beta 模型的 +0.0738。")
+    p.add_argument("--graph-ablate", type=str, default=None,
+                   choices=["none", "empty_l1", "empty_l2", "empty_both",
+                            "rand_l1", "rand_l2", "rand_both"],
+                   help="層內圖 A₁/A₂ 的消融。empty=只留 self-loop（拿掉訊息傳遞，"
+                        "保留 GAT 參數）；rand=保留邊數與 edge_attr、只打亂端點"
+                        "（檢驗相關係數挑出的結構是否有資訊）。")
+    p.add_argument("--beta-ablate", type=str, default=None,
+                   help="關掉 beta 層的某幾項（逗號分隔）："
+                        "identity=① ADR 特異訊號、factor=② 市場因子暴露、"
+                        "residual=③ 殘差聚合。例：--beta-ablate identity")
+    p.add_argument("--beta-init-std", type=float, default=None,
+                   help="覆寫 model.weak_links.beta_init_std（alpha/gamma 的初始"
+                        "離散度）。設為 0 會讓 beta 層在初始化點逐位元退化成現行 MAGNET。")
     p.add_argument("--optimizer", type=str, default=None,
                    choices=["adam", "adamw"],
                    help="覆寫 cfg.training.optimizer。adamw 用解耦 weight decay，"
@@ -854,6 +904,10 @@ if __name__ == "__main__":
         raw_skip_mode=args.raw_skip_mode,
         input_norm=args.input_norm,
         input_norm_scope=args.input_norm_scope,
+        beta_layer=args.beta_layer,
+        beta_init_std=args.beta_init_std,
+        beta_ablate=args.beta_ablate,
+        graph_ablate=args.graph_ablate,
         optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,

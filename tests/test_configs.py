@@ -44,9 +44,12 @@ IMED_ALLOWED_DIFFS = {
     "model.architecture",
     "mlflow.experiment_name",
 }
+# 2026-08-24：lambda_sparse 與 beta_* 一併搬進 base.yaml / tw50.yaml
+# （超參一律從 configs 讀，不留在 .py 的 .get() 預設裡），
+# 所以 imed 唯一還能多出來的鍵只剩 mode——它由 --architecture 決定，
+# 不是超參。
 IMED_ALLOWED_EXTRA = {
     "model.weak_links.mode",
-    "model.weak_links.lambda_sparse",
 }
 
 

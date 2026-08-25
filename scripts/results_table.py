@@ -48,6 +48,8 @@ BEST = "tw50_inbnw_noskip"      # 主結果，所有比較的基準
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
 NEURAL = [
+    ("MAGNET + beta 層（階段 P1）", "tw50_beta", "本專案",
+     "每檔一個 alpha_j / gamma_j"),
     ("MAGNET + 輸入正規化 + AdamW（本版）", "tw50_inbnw_noskip", "本專案",
      "F3, T=1, L=1, 無跳接"),
     ("　└ 同上，Adam", "tw50_inbn_noskip", "本專案", "分離 AdamW 的貢獻"),
