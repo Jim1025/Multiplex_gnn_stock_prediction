@@ -35,7 +35,7 @@ from src.dataset.multiplex_dataset import MultiplexDataset, multiplex_collate  #
 from src.models import build_model  # noqa: E402
 from src.models._universe import universe_from_cfg  # noqa: E402
 
-W, H = 1850, 1090
+W, H = 1800, 900          # 規則 6：寬高比 2:1
 
 INK = "#1f2933"
 GREY = "#5b6672"
@@ -158,6 +158,112 @@ def plane(x, y, w, h, skew, fill, stroke, nodes, edges, ncol, nstroke, labels):
         text(px, py + 3.5, labels[i], 9, "#ffffff", "middle", "700")
     return pos
 
+
+# ══════════════════════════ 繪圖基元 ══════════════════════════
+# 規則 2：只保留熱圖、圓柱、堆疊卡片、平面示意四種圖形，
+#         而且**全圖只有一種箭頭樣式**（細實線 + 單一箭頭標記）。
+def esc(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def text(x, y, t, size=16, fill=INK, anchor="middle", weight="400",
+         style="normal"):
+    add(f'<text x="{x}" y="{y}" font-size="{size}" fill="{fill}" '
+        f'text-anchor="{anchor}" font-weight="{weight}" '
+        f'font-style="{style}">{esc(t)}</text>')
+
+
+def rect(x, y, w, h, fill="#ffffff", stroke=INK, sw=1.5, rx=0):
+    add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" '
+        f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>')
+
+
+def box(x, y, w, h, lines, fill="#ffffff", stroke=INK, sw=1.6, rx=6,
+        hs=15.5, bs=12.5, hf=None, bf=None):
+    rect(x, y, w, h, fill, stroke, sw, rx)
+    cx, n = x + w / 2, len(lines)
+    total = hs + 5 + (n - 1) * (bs + 5)
+    yy = y + (h - total) / 2 + hs
+    text(cx, yy, lines[0], hs, hf or INK, "middle", "700")
+    for ln in lines[1:]:
+        yy += bs + 5
+        text(cx, yy, ln, bs, bf or GREY)
+
+
+def region(x, y, w, h, title, tsize=17):
+    """規則 1：Phase 標題畫在虛線框外面。"""
+    add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="6" fill="none" '
+        f'stroke="{DASH}" stroke-width="1.8" stroke-dasharray="9,6"/>')
+    text(x, y - 10, title, tsize, INK, "start", "700")
+
+
+def arrow(pts, label=None, lx=None, ly=None):
+    """全圖唯一的箭頭樣式。pts 為折線的頂點串。"""
+    d = " ".join(f"{'M' if i == 0 else 'L'}{x},{y}"
+                 for i, (x, y) in enumerate(pts))
+    add(f'<path d="{d}" fill="none" stroke="{LINE}" stroke-width="1.7" '
+        f'marker-end="url(#tri)"/>')
+    if label:
+        mx = lx if lx is not None else (pts[0][0] + pts[-1][0]) / 2
+        my = ly if ly is not None else (pts[0][1] + pts[-1][1]) / 2 - 8
+        text(mx, my, label, 12, GREY, "middle", "400", "italic")
+
+
+def cylinder(cx, top, w, h, label1, label2):
+    rx, ry = w / 2, 11
+    add(f'<path d="M{cx-rx},{top+ry} v{h-2*ry} a{rx},{ry} 0 0 0 {2*rx},0 '
+        f'v{-(h-2*ry)}" fill="#fdfdfd" stroke="{INK}" stroke-width="1.6"/>')
+    add(f'<ellipse cx="{cx}" cy="{top+ry}" rx="{rx}" ry="{ry}" fill="#ffffff" '
+        f'stroke="{INK}" stroke-width="1.6"/>')
+    text(cx, top + h / 2 + 3, label1, 15, INK, "middle", "700")
+    text(cx, top + h / 2 + 22, label2, 12.5, GREY)
+
+
+def stack(x, y, w, h, lines, n=3, off=6):
+    """堆疊卡片：代表「每張日快照各跑一次」。"""
+    for k in range(n - 1, 0, -1):
+        add(f'<rect x="{x + k * off}" y="{y - k * off}" width="{w}" '
+            f'height="{h}" rx="4" fill="#ffffff" stroke="{LINE}" '
+            f'stroke-width="1.2"/>')
+    box(x, y, w, h, lines)
+
+
+def heat(x, y, w, h, arr, title=None, sub=None, rowlab=None, collab=None):
+    im = Image.fromarray(arr.astype(np.uint8), mode="RGB")
+    buf = io.BytesIO(); im.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    add(f'<image x="{x}" y="{y}" width="{w}" height="{h}" '
+        f'preserveAspectRatio="none" image-rendering="pixelated" '
+        f'href="data:image/png;base64,{b64}" '
+        f'xlink:href="data:image/png;base64,{b64}"/>')
+    add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" '
+        f'stroke="{BLUE_S}" stroke-width="1.5"/>')
+    if title:
+        text(x + w / 2, y - (22 if sub else 9), title, 14, INK, "middle", "700")
+    if sub:
+        text(x + w / 2, y - 7, sub, 11.5, GREY)
+    if collab:
+        text(x + w / 2, y + h + 15, collab, 11.5, GREY)
+    if rowlab:
+        add(f'<text transform="translate({x-9},{y+h/2}) rotate(-90)" '
+            f'font-size="11.5" fill="{GREY}" text-anchor="middle">'
+            f'{esc(rowlab)}</text>')
+
+
+def plane(x, y, w, h, skew, fill, stroke, nodes, edges, ncol, nstroke, labels):
+    add(f'<path d="M{x+skew},{y} L{x+w+skew},{y} L{x+w},{y+h} L{x},{y+h} Z" '
+        f'fill="{fill}" stroke="{stroke}" stroke-width="1.3" opacity="0.85"/>')
+    pos = [(x + u * w + (1 - v) * skew, y + v * h) for (u, v) in nodes]
+    for a, b in edges:
+        add(f'<line x1="{pos[a][0]:.1f}" y1="{pos[a][1]:.1f}" '
+            f'x2="{pos[b][0]:.1f}" y2="{pos[b][1]:.1f}" stroke="{nstroke}" '
+            f'stroke-width="1.2" opacity="0.75"/>')
+    for i, (px, py) in enumerate(pos):
+        add(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="8" fill="{ncol}" '
+            f'stroke="{nstroke}" stroke-width="1.2"/>')
+        text(px, py + 3, labels[i], 8, "#ffffff", "middle", "700")
+    return pos
+
 # ══════════════════════════ 真實資料 ══════════════════════════
 def load_real(run_dir: Path, date: str) -> dict:
     cfg_path = run_dir / "config_snapshot.yaml"
@@ -233,205 +339,147 @@ def rgb_beta(B: np.ndarray, pair) -> np.ndarray:
     return out
 
 
-# ══════════════════════════ 版面 ══════════════════════════
+
+
+# ══════════════════════════ 版面（2:1）══════════════════════════
+# 定案風格（2026-08-25）：
+#   1 Phase 標題畫在虛線框外面
+#   2 全圖只有一種箭頭樣式；保留熱圖、圓柱、堆疊卡片、平面示意四種圖形
+#   3 維度 / 節點數 / 邊數直接標在圖上
+#   4 不放算式，耦合路徑一律白話描述
+#   5 只畫架構，不放任何 IC 或探針讀數
+#   6 寬高比 2:1
+#   Phase 1 是**單一個框**，內含美股列、跨層接線、台股列。
 def build(d: dict, date: str) -> str:
     s.clear()
     add(f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
         f'xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'font-family="\'Helvetica Neue\', Arial, sans-serif">')
-    mk = "".join(
-        f'<marker id="{n}" markerWidth="10" markerHeight="10" refX="7" '
-        f'refY="3.4" orient="auto"><path d="M0,0 L7,3.4 L0,6.8 Z" '
-        f'fill="{c}"/></marker>'
-        for n, c in [("tri", LINE), ("triA", AMB_S), ("triR", RED),
-                     ("triB", "#2f5fa8")])
-    add(f"<defs>{mk}</defs>")
+    add(f'<defs><marker id="tri" markerWidth="9" markerHeight="9" refX="6.5" '
+        f'refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 Z" '
+        f'fill="{LINE}"/></marker></defs>')
     add(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
-    DY = 654
+    DY = 430
 
-    # ───── 左：資料來源與特徵建構 ─────
-    box(28, 196, 168, 78, ["US daily OHLCV", "30 tickers"])
-    box(28, 196 + DY, 168, 78, ["TW daily OHLCV", "50 tickers"])
-    text(112, 976, "Yahoo Finance", 13, GREY, "middle", "400", "italic")
-    text(112, 996, "2019-01 to 2025-12", 13, GREY, "middle", "400", "italic")
+    # ───── 左：資料來源 ─────
+    cylinder(96, 258, 118, 86, "US OHLCV", "30 tickers")
+    cylinder(96, 273 + DY, 118, 86, "TW OHLCV", "50 tickers")
+    text(96, 390, "Yahoo Finance", 11.5, GREY, "middle", "400", "italic")
+    text(96, 406, "2019-01 to 2025-12", 11.5, GREY, "middle", "400", "italic")
 
-    rect(214, 196, 42, 732, GRN_F, GRN_S, 1.8, rx=9)
-    add(f'<text transform="translate(237,562) rotate(-90)" font-size="18" '
+    rect(170, 128, 34, 672, GRN_F, GRN_S, 1.6, rx=7)
+    add(f'<text transform="translate(187,459) rotate(-90)" font-size="15" '
         f'fill="#22452a" text-anchor="middle" font-weight="700">'
         f'Feature and graph construction</text>')
-    for yy in (234, 234 + DY):
-        arrow(198, yy, 210, yy)
-        arrow(258, yy, 270, yy)
-    text(28, 1030, "9 technical indicators computed, 3 fed to the model", 13.5,
-         GREY, "start", "400", "italic")
-    text(28, 1052, f"edge drawn iff |correlation| > {d['tau']}, "
-                   f"60-day window ending at t-1", 13.5, GREY, "start", "400",
+    for yy in (301, 316 + DY):
+        arrow([(158, yy), (166, yy)])
+        arrow([(206, yy), (222, yy)])
+    text(24, 818, "9 technical indicators computed, 3 fed to the model",
+         12, GREY, "start", "400", "italic")
+    text(24, 836, f"edge drawn iff |correlation| > {d['tau']}, "
+                  f"60-day window ending at t-1", 12, GREY, "start", "400",
          "italic")
 
-    # ───── Phase 1 / L1（美股層）─────
-    # 每個方塊的文字都放得下框寬；維度標註畫在方塊上緣之上，不壓到框線。
-    region(262, 54, 690, 300, "Phase 1 — US market layer")
-    box(272, 200, 112, 68, ["US features", "day t, 3 each"])
-    arrow(386, 234, 420, 234, label="30 x 3", ly=186)
-    box(424, 194, 150, 80, ["Shared LSTM", "hidden 64"])
-    text(499, 292, "same weights as the TW layer", 13, GREY, "middle", "400",
-         "italic")
-    arrow(576, 234, 610, 234, label="30 x 64", ly=186)
-    heat(633, 74, 92, 92, rgb_adj(d["A1"]))
-    text(737, 94, "US correlation graph", 14, INK, "start", "700")
-    text(737, 114, f"day t, {d['n_edge_1']} directed edges", 13, GREY, "start")
-    text(737, 134, "rebuilt every day", 13, GREY, "start")
-    text(737, 154, "attention also reads |corr|", 13, GREY, "start")
-    arrow(679, 168, 679, 190, DASH, 1.5, "tri", "5,4")
-    box(614, 194, 130, 80, ["GATv2", "1 layer, 1 head"])
-    arrow(746, 234, 780, 234, label="30 x 64", ly=186)
-    box(784, 194, 158, 80,
-        ["Type projection", "linear, GELU, LayerNorm", "output 29 dims"],
-        body_size=13)
-    text(863, 322, "Within-market information", 14.5, GREY, "middle", "400",
-         "italic")
-    probe(330, 150, "+0.0874", "raw features, before the encoder")
+    # ───── Phase 1：單一個框，含兩個市場列與中間的跨層接線 ─────
+    region(226, 128, 720, 672, "Phase 1 — Dual-market encoding")
+    for tag, dy, n, A, ekey, note in [
+            ("US", 0, 30, d["A1"], "n_edge_1", "shared LSTM weights"),
+            ("TW", DY, 50, d["A2"], "n_edge_2", "same LSTM weights"),
+    ]:
+        box(238, 268 + dy, 112, 66, [f"{tag} features", "day t", "3 per stock"])
+        arrow([(352, 301 + dy), (378, 301 + dy)], f"{n} x 3", ly=259 + dy)
+        box(380, 268 + dy, 116, 66,
+            ["Input norm", "per feature,", "across stocks"], AMB_F, AMB_S, 1.8)
+        arrow([(498, 301 + dy), (524, 301 + dy)])
+        stack(526, 268 + dy, 120, 66, ["Shared LSTM", "hidden 64"])
+        text(586, 354 + dy, note, 11.5, GREY, "middle", "400", "italic")
+        arrow([(654, 301 + dy), (680, 301 + dy)], f"{n} x 64", ly=259 + dy)
+        heat(700, 174 + dy, 60, 60, rgb_adj(A))
+        text(772, 194 + dy, f"{tag} correlation graph", 13, INK, "start", "700")
+        text(772, 212 + dy, f"{d[ekey]} directed edges", 11.5, GREY, "start")
+        text(772, 229 + dy, "rebuilt every day", 11.5, GREY, "start")
+        arrow([(730, 238 + dy), (730, 266 + dy)])
+        stack(682, 268 + dy, 118, 66, ["GATv2", "1 layer, 1 head"])
+        arrow([(808, 301 + dy), (828, 301 + dy)])
+        box(830, 268 + dy, 116, 66, ["Type projection", "to 32 dims"])
+        arrow([(948, 301 + dy), (982, 301 + dy)],
+              "32, to Phase 2" if dy == 0 else "32, to fusion",
+              lx=964, ly=259 + dy)
 
-    # ───── Phase 1 / L2（台股層）─────
-    region(262, 54 + DY, 690, 300, "Phase 1 — Taiwan market layer")
-    box(272, 200 + DY, 112, 68, ["TW features", "day t, 3 each"])
-    arrow(386, 234 + DY, 420, 234 + DY, label="50 x 3", ly=186 + DY)
-    box(424, 194 + DY, 150, 80, ["Shared LSTM", "hidden 64"])
-    text(499, 292 + DY, "same weights as the US layer", 13, GREY, "middle",
-         "400", "italic")
-    arrow(576, 234 + DY, 610, 234 + DY, label="50 x 64", ly=186 + DY)
-    heat(633, 74 + DY, 92, 92, rgb_adj(d["A2"]))
-    text(737, 94 + DY, "TW correlation graph", 14, INK, "start", "700")
-    text(737, 114 + DY, f"day t, {d['n_edge_2']} directed edges", 13, GREY,
-         "start")
-    text(737, 134 + DY, "same rule as the US layer", 13, GREY, "start")
-    text(737, 154 + DY, "its own GAT weights", 13, GREY, "start")
-    arrow(679, 168 + DY, 679, 190 + DY, DASH, 1.5, "tri", "5,4")
-    box(614, 194 + DY, 130, 80, ["GATv2", "1 layer, 1 head"])
-    arrow(746, 234 + DY, 780, 234 + DY, label="50 x 64", ly=186 + DY)
-    box(784, 194 + DY, 158, 80,
-        ["Type projection", "linear, GELU, LayerNorm", "output 32 dims"],
-        body_size=13)
-    text(863, 322 + DY, "Within-market information", 14.5, GREY, "middle",
-         "400", "italic")
-
-    # ───── 中：跨層接線示意 ─────
-    text(276, 386, "Cross-layer wiring", 15, INK, "start", "700")
-    p_us = plane(272, 402, 200, 80, 42, "#dff0df", "#7aa77a",
+    # ───── Phase 1 中段：跨層接線 ─────
+    text(238, 390, "Cross-layer connecting", 14, INK, "start", "700")
+    p_us = plane(242, 404, 178, 56, 34, "#dff0df", "#7aa77a",
                  [(.10, .25), (.34, .64), (.55, .18), (.75, .66), (.93, .30)],
                  [(0, 1), (1, 2), (2, 3), (3, 4), (0, 2)], "#3f9c4f", "#2c6e3a",
                  ["TSM", "UMC", "ASX", "AMD", "CHT"])
-    p_tw = plane(272, 544, 200, 80, 42, "#fde3cf", "#d79a6a",
+    p_tw = plane(242, 490, 178, 56, 34, "#fde3cf", "#d79a6a",
                  [(.10, .25), (.30, .66), (.52, .20), (.73, .66), (.91, .30)],
                  [(0, 1), (1, 3), (2, 3), (3, 4), (0, 2)], "#e07b39", "#a8542a",
                  ["2330", "2303", "3711", "2454", "2412"])
-    for k, kind in [(0, "id"), (1, "id"), (2, "id"), (4, "id"), (3, "cand")]:
-        col, dsh, wd = ((INK, "6,0", 1.9) if kind == "id"
-                        else ("#9aa5b1", "4,5", 1.2))
+    for k in (0, 1, 2, 4):
         add(f'<line x1="{p_us[k][0]:.1f}" y1="{p_us[k][1]:.1f}" '
-            f'x2="{p_tw[k][0]:.1f}" y2="{p_tw[k][1]:.1f}" stroke="{col}" '
-            f'stroke-width="{wd}" stroke-dasharray="{dsh}"/>')
-    text(276, 648, "solid: the 7 ADR pairs, weight fixed at 1", 13.5, GREY,
-         "start", "400", "italic")
-    text(276, 668, "dashed: the other 43 TW stocks, learned weights", 13.5,
-         GREY, "start", "400", "italic")
-
-    # ───── 中：raw skip 與拼接 ─────
-    box(516, 400, 264, 108,
-        ["Raw skip", "each feature normalised across nodes",
-         "then a 3 to 3 linear map", "output 3 dims"],
-        AMB_F, AMB_S, 2.2, 9, 18, 13.5, "#7c3f06", "#7c4a09")
-    elbow([(328, 270), (328, 356), (504, 356), (504, 454), (510, 454)],
-          AMB_S, 2.2, "triA", "8,5")
-    arrow(782, 454, 789, 454, AMB_S, 2.2, "triA")
-    box(793, 400, 140, 108, ["concat", "29 + 3", "32 dims"], "#ffffff",
-        AMB_S, 2.0, 9, 18, 14)
-    arrow(863, 276, 863, 392)
-    probe(863, 542, "+0.0754", "at the coupling point, with the skip")
-    text(863, 580, "without the skip it is +0.0448", 13, RED, "middle", "400",
-         "italic")
+            f'x2="{p_tw[k][0]:.1f}" y2="{p_tw[k][1]:.1f}" stroke="{INK}" '
+            f'stroke-width="1.7"/>')
+    text(474, 414, "7 TW stocks have a US listing", 12, GREY, "start")
+    text(474, 432, "of the same company", 12, GREY, "start")
+    text(474, 464, "the other 43 have none —", 12, GREY, "start")
+    text(474, 482, "they reach the US side only", 12, GREY, "start")
+    text(474, 500, "through the two paths at right", 12, GREY, "start")
 
     # ───── Phase 2 ─────
-    X2, CX2 = 1008, 1246
-    region(X2, 250, 476, 700, "Phase 2 — Cross-market coupling and fusion")
-    heat(X2 + 28, 372, 250, 150, rgb_beta(d["B"], d["pair"]),
+    region(984, 128, 470, 672, "Phase 2 — Cross-market coupling and fusion")
+    heat(1104, 208, 216, 118, rgb_beta(d["B"], d["pair"]),
          title="Learned coupling weights",
          sub="every US stock may reach every TW stock",
          rowlab="30 US stocks", collab="50 TW stocks")
-    for i, (cx, lab) in enumerate([
-            (IDENT, "the 7 ADR pairs — a separate path, weight fixed at 1"),
-            ("#15528f", "learned weight, positive"),
-            ("#a02d28", "learned weight, negative"),
-    ]):
-        yy = 556 + i * 24
-        add(f'<rect x="{X2+28}" y="{yy-12}" width="16" height="16" '
-            f'fill="{cx}" stroke="{BLUE_S}" stroke-width="0.9"/>')
-        text(X2 + 54, yy + 1, lab, 13.5, GREY, "start")
-    text(X2 + 28, 644, "1,493 candidate edges, none pruned to zero", 13.5, RED,
-         "start", "400", "italic")
-    text(X2 + 28, 666,
-         "largest weight 0.018, median 0.003 — sparsity penalty off",
-         13.5, RED, "start", "400", "italic")
-
-    box(X2 + 28, 686, 424, 100,
-        ["Cross-market aggregation",
-         "each TW stock adds its ADR partner, if it has one,",
-         "plus a weighted sum over all 30 US stocks",
-         "the 43 unpaired stocks get only the weighted sum"],
-        BLUE_F, "#5b7fa6", 1.8, 9, 17, 13.5, "#173d61", "#3d5f7f")
-    arrow(CX2, 788, CX2, 804)
-    box(X2 + 28, 812, 424, 130,
-        ["Gated fusion", "one valve per dimension decides how much",
-         "US state to mix into each TW stock",
-         "measured flat: 0.502, spread across stocks 0.0005"],
-        AMB_F, AMB_S, 2.2, 9, 19, 13.5, "#7c3f06", "#7c4a09")
-
-    elbow([(937, 432), (978, 432), (978, 306), (X2 + 22, 306)], RED, 2, "triR",
-          "9,5")
-    text(978, 296, "30 x 32", 13, RED, "middle", "400", "italic")
-    elbow([(946, 234 + DY), (978, 234 + DY), (978, 876), (X2 + 22, 876)],
-          "#2f5fa8", 2, "triB", "9,5")
-    text(978, 916, "50 x 32", 13, "#2f5fa8", "middle", "400", "italic")
+    box(1000, 372, 438, 62,
+        ["Path 1 — ADR partner",
+         "the 7 paired stocks copy their US twin, one learnable weight each"])
+    box(1000, 448, 438, 62,
+        ["Path 2 — US market factor",
+         "all 50 stocks, one learnable exposure per stock"],
+        AMB_F, AMB_S, 1.8, hf="#7c3f06", bf="#7c4a09")
+    box(1000, 524, 438, 62,
+        ["Path 3 — residual structure",
+         "what is left of each US stock after the market factor is removed"])
+    for yy in (434, 510):
+        arrow([(1219, yy), (1219, yy + 12)])
+    arrow([(1219, 586), (1219, 612)])
+    box(1000, 614, 438, 74,
+        ["Gated fusion",
+         "one valve per dimension decides how much",
+         "US state to mix into each TW stock"],
+        BLUE_F, "#5b7fa6", 1.8, hf="#173d61", bf="#3d5f7f")
+    text(1219, 718, "the three paths are summed, then fused with the TW side",
+         12, GREY, "middle", "400", "italic")
+    arrow([(982, 301), (992, 301), (992, 332), (1104, 332)])
+    arrow([(982, 301 + DY), (992, 301 + DY), (992, 651), (998, 651)])
 
     # ───── Phase 3 ─────
-    X3, CX3 = 1510, 1663
-    region(X3, 250, 306, 700, "Phase 3 — Ranking", 19)
-    elbow([(X2 + 452, 876), (1494, 876), (1494, 380), (X3 + 72, 380)])
-    box(X3 + 76, 340, 152, 84, ["Prediction head", "32 to 64 to 1", "one ReLU"])
-    text(CX3, 452, "model output   test IC +0.0475", 14, RED, "middle", "700",
-         "italic")
-    text(CX3, 471, "63% of what the coupling point holds", 13, RED, "middle",
-         "400", "italic")
-    arrow(CX3, 484, CX3, 512)
-    box(X3 + 26, 520, 252, 122,
+    region(1486, 128, 300, 672, "Phase 3 — Rank-oriented prediction")
+    arrow([(1438, 651), (1462, 651), (1462, 288), (1520, 288)])
+    stack(1522, 254, 226, 68, ["Prediction head", "32 to 64 to 1, one ReLU"])
+    arrow([(1636, 322), (1636, 362)])
+    box(1500, 364, 268, 96,
         ["Predicted return", "one number per TW stock, day t+1",
-         "ranked across the 50 stocks",
-         "scored by cross-sectional IC"])
-    text(CX3, 664, "246 test days, 10 seeds", 15, RED, "middle", "700")
-    arrow(CX3, 682, CX3, 706)
-    box(X3 + 26, 714, 252, 132,
-        ["Training objective", "squared error, weight 1",
-         "ranking loss, weight 0.5", "variance floor, weight 0.1",
-         "gradient shares 27 / 71 / 2 percent"],
-        BLUE_F, "#5b7fa6", 1.8, 9, 17, 13.5, "#173d61", "#3d5f7f")
-    text(CX3, 880, "walk-forward split, never shuffled", 13.5, GREY, "middle",
-         "400", "italic")
-    text(CX3, 902, "model chosen on validation IC", 13.5, GREY, "middle",
+         "ranked across the 50 stocks"])
+    arrow([(1636, 460), (1636, 500)])
+    box(1500, 502, 268, 96,
+        ["Training objective", "squared error, ranking loss,",
+         "variance floor  (weights 1 / 0.5 / 0.1)"],
+        BLUE_F, "#5b7fa6", 1.8, hf="#173d61", bf="#3d5f7f")
+    text(1636, 640, "AdamW, walk-forward split, never shuffled",
+         12, GREY, "middle", "400", "italic")
+    text(1636, 660, "model chosen on validation IC", 12, GREY, "middle",
          "400", "italic")
 
     # ───── 圖例 ─────
-    add(f'<rect x="1040" y="1016" width="22" height="15" fill="{AMB_F}" '
-        f'stroke="{AMB_S}" stroke-width="1.6"/>')
-    text(1072, 1029, "added in MAGNET-v2", 14, GREY, "start")
-    add(f'<line x1="1240" y1="1024" x2="1280" y2="1024" stroke="{RED}" '
-        f'stroke-width="2" stroke-dasharray="9,5"/>')
-    text(1290, 1029, "US side entering the coupling", 14, GREY, "start")
-    add(f'<line x1="1520" y1="1024" x2="1560" y2="1024" stroke="#2f5fa8" '
-        f'stroke-width="2" stroke-dasharray="9,5"/>')
-    text(1570, 1029, "TW side entering the gate", 14, GREY, "start")
-    text(1040, 1056, f"Correlation graphs are the real {date} snapshot; "
-                     f"coupling weights are the trained checkpoint.", 13.5,
-         GREY, "start", "400", "italic")
+    add(f'<rect x="984" y="812" width="18" height="12" fill="{AMB_F}" '
+        f'stroke="{AMB_S}" stroke-width="1.4"/>')
+    text(1010, 822, "new in this version", 12, GREY, "start")
+    text(1160, 822, f"heatmaps are real data — correlation graphs from {date}, "
+                    f"trained coupling weights", 12, GREY, "start", "400",
+         "italic")
 
     add("</svg>")
     return "\n".join(s)
@@ -439,18 +487,14 @@ def build(d: dict, date: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="產生 MAGNET 架構圖")
-    ap.add_argument("--run", default="runs/20260816_1601_tw50_T1F3bnl1_s42")
+    ap.add_argument("--run", default="runs/20260824_1740_tw50_beta_s42")
     ap.add_argument("--date", default="2025-04-10")
-    ap.add_argument("--out", default="docs/figures/magnet_flow_v5.svg")
+    ap.add_argument("--out", default="docs/figures/magnet_flow_v6.svg")
     a = ap.parse_args()
-
     d = load_real(ROOT / a.run, a.date)
     out = ROOT / a.out
     out.write_text(build(d, a.date))
-    print(f"wrote {out}")
-    print(f"  A1 {d['n_edge_1']} edges / A2 {d['n_edge_2']} edges @ {a.date}")
-    print(f"  B  |max| {np.abs(d['B']).max():.5f}, "
-          f"non-zero {(np.abs(d['B']) > 1e-8).sum()} / {d['B'].size}")
+    print(f"wrote {out}  ({W}x{H}, ratio {W/H:.2f}:1)")
 
 
 if __name__ == "__main__":
