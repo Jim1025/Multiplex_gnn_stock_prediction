@@ -1034,3 +1034,101 @@ def test_beta_layer_dispersed_init():
     m = build_model(_beta_cfg(beta_layer=True, beta_init_std=0.3))
     assert m.beta_alpha.std().item() > 0.1, "alpha 初始離散度過小"
     assert m.beta_gamma.std().item() > 0.1, "gamma 初始離散度過小"
+
+
+def test_per_target_head_degenerates_when_off():
+    """per_target=False 時參數與前向必須與原式位元相同（退化保證）。"""
+    import torch
+    from src.models import build_model
+    c1 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2.setdefault("model", {}).setdefault("prediction_head", {})["per_target"] = False
+    torch.manual_seed(0); m1 = build_model(c1)
+    torch.manual_seed(0); m2 = build_model(c2)
+    assert all(torch.equal(a, b) for a, b in
+               zip(m1.state_dict().values(), m2.state_dict().values()))
+    assert not m1.head.per_target
+
+
+def test_per_target_head_is_dispersed_and_shaped():
+    """per_target=True：每檔一條讀出向量，且初始就跨股票分散（P0 原則）。"""
+    import torch
+    from src.models import build_model
+    c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c.setdefault("model", {}).setdefault("prediction_head", {})["per_target"] = True
+    torch.manual_seed(0); m = build_model(c)
+    assert m.head.per_target
+    assert m.head.readout_w.shape[0] == m.n_l2
+    assert m.head.readout_w.std(0).mean().item() > 0.01, "讀出向量初始離散度過小"
+    d = m.proj_L1.linear.out_features if hasattr(m.proj_L1, "linear") else 32
+    y = m.head(torch.randn(2, m.n_l2, d))
+    assert tuple(y.shape) == (2, m.n_l2)
+
+
+def test_per_target_head_reduces_to_shared_when_rows_tied():
+    """所有 w_j 相同時，per_target 讀出等價於共享讀出（嚴格泛化的證明）。"""
+    import torch
+    from src.models import build_model
+    c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c.setdefault("model", {}).setdefault("prediction_head", {})["per_target"] = True
+    torch.manual_seed(0); m = build_model(c)
+    m.eval()
+    with torch.no_grad():
+        m.head.readout_w.copy_(m.head.readout_w[0].expand_as(m.head.readout_w))
+        m.head.readout_b.fill_(0.25)
+    d = m.proj_L1.linear.out_features if hasattr(m.proj_L1, "linear") else 32
+    x = torch.randn(2, m.n_l2, d)
+    with torch.no_grad():
+        y = m.head(x)
+        z = m.head.trunk(x)
+        ref = (z @ m.head.readout_w[0]) + 0.25
+    assert (y - ref).abs().max().item() < 1e-6
+
+
+def test_multi_factor_degenerates_at_k1():
+    """beta_n_factors=1 必須與缺鍵時位元相同（退化保證）。"""
+    import torch
+    from src.models import build_model
+    c1 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2["model"]["weak_links"]["beta_n_factors"] = 1
+    torch.manual_seed(0); m1 = build_model(c1)
+    torch.manual_seed(0); m2 = build_model(c2)
+    assert all(torch.equal(a, b) for a, b in
+               zip(m1.state_dict().values(), m2.state_dict().values()))
+    assert not hasattr(m1, "beta_factor_w")
+
+
+def test_multi_factor_first_factor_is_equal_weight():
+    """第 1 個因子初始化必須恰為等權平均（= 現行 h̄₁），其餘分散。"""
+    import torch
+    from src.models import build_model
+    c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c["model"]["weak_links"]["beta_n_factors"] = 3
+    torch.manual_seed(0); m = build_model(c)
+    assert tuple(m.beta_factor_w.shape) == (3, m.n_l1)
+    assert tuple(m.beta_gamma.shape) == (m.n_l2, 3)
+    assert torch.allclose(m.beta_factor_w[0],
+                          torch.full((m.n_l1,), 1.0 / m.n_l1))
+    assert m.beta_factor_w[1:].std().item() > 0, "其餘因子必須分散初始化"
+
+
+def test_multi_factor_matches_k1_when_only_first_factor_used():
+    """只留第 1 個因子（其餘 gamma 歸零）時，輸出等於 k=1 的 gamma_j·h̄₁。"""
+    import torch
+    from src.models import build_model
+    c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c["model"]["weak_links"]["beta_n_factors"] = 3
+    torch.manual_seed(0); m = build_model(c); m.eval()
+    with torch.no_grad():
+        m.beta_gamma[:, 1:] = 0.0
+        g0 = m.beta_gamma[:, 0].clone()
+        d = m.proj_L1.linear.out_features if hasattr(m.proj_L1, "linear") else 32
+        x = torch.randn(2, m.n_l1, d)
+        out = m._augment_weak(x)
+        hbar = x.mean(dim=1, keepdim=True)
+        ident = x.index_select(1, m.pair_src) * m.has_pair.view(1, -1, 1).float()
+        ref = (ident * m.beta_alpha.view(1, -1, 1)
+               + g0.view(1, -1, 1) * hbar
+               + torch.einsum("ij,bid->bjd", m.weak_beta * m.weak_mask, x - hbar))
+    assert (out - ref).abs().max().item() < 1e-5

@@ -195,6 +195,8 @@ def train(
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
+    beta_n_factors:    Optional[int]   = None,
+    per_target_head:   Optional[bool]  = None,
     architecture:      Optional[str]   = None,
     patience_override: Optional[int]   = None,
     seed_override:     Optional[int]   = None,
@@ -393,6 +395,12 @@ def train(
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
+    if beta_n_factors is not None:
+        cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_n_factors"] = beta_n_factors
+        _overrides.append(f"beta_n_factors={beta_n_factors}")
+    if per_target_head:
+        cfg.setdefault("model", {}).setdefault("prediction_head", {})["per_target"] = True
+        _overrides.append("prediction_head.per_target=True")
     if architecture is not None:
         if architecture not in VALID_ARCHITECTURES:
             raise ValueError(
@@ -877,6 +885,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--features", nargs="*", default=None,
                    help="覆寫 cfg.model.lstm.feature_subset，例如 --features log_return"
                         "（預設全取 9 欄；只影響 LSTM 的 input_size，input_dim 不變）")
+    p.add_argument("--beta-n-factors", type=int, default=None,
+                   help="覆寫 cfg.model.weak_links.beta_n_factors。"
+                        "k>1 時 ② 改為 k 個學出來的因子。")
+    p.add_argument("--per-target-head", action="store_true", default=None,
+                   help="覆寫 cfg.model.prediction_head.per_target=True。"
+                        "每檔台股一條讀出向量；缺口見 proposal §34.2 缺陷 2。")
     p.add_argument("--save-every-epoch", action="store_true",
                    help="逐 epoch 存 checkpoint（M8 Figure 1 軌跡分析用）")
     return p.parse_args()
@@ -908,6 +922,8 @@ if __name__ == "__main__":
         beta_init_std=args.beta_init_std,
         beta_ablate=args.beta_ablate,
         graph_ablate=args.graph_ablate,
+        per_target_head=args.per_target_head,
+        beta_n_factors=args.beta_n_factors,
         optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,

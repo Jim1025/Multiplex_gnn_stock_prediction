@@ -64,6 +64,8 @@ model:
                           # beta），而現行設計的 beta 只有「配對=1 / 無配對=0」兩級。
                           # 這裡升級成 50 級連續，候選邊改吃殘差，不與 γ 競爭同一個
                           # 方向。預設 false，既有 run 的數值不變。
+    beta_n_factors: 1     # 1（預設，等權市場因子）| k>1（k 個學出來的
+                          # 因子方向）。依據見 §21 的低秩分解
     beta_init_std: 0.3    # α_j / γ_j 的初始離散度。**必須 > 0**：對 50 檔台股相同的
                           # 量對橫截面 IC 的貢獻恰好為零（實測全給 h̄₁ -> IC +0.0036），
                           # 價值全在跨股票的離散度。
@@ -77,6 +79,8 @@ model:
   prediction_head:
     hidden_dim: 64
     dropout: 0.2
+    per_target: false     # false（預設，全體共用讀出）| true（每檔台股一條
+                          # 讀出向量）。缺口見 proposal §34.2 缺陷 2
 
 loss_weights:
   mse: 1.0

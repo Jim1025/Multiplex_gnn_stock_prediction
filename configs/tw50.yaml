@@ -70,6 +70,8 @@ model:
   weak_links:             # 見 base.yaml 的完整說明
     lambda_sparse: 0.0
     beta_layer: false
+    beta_n_factors: 1     # 1（預設，等權市場因子）| k>1（k 個學出來的
+                          # 因子方向）。依據見 §21 的低秩分解
     beta_init_std: 0.3
     beta_alpha_mean: 1.0
     beta_gamma_mean: 0.0
@@ -80,6 +82,8 @@ model:
   prediction_head:
     hidden_dim: 64
     dropout: 0.2
+    per_target: false     # false（預設，全體共用讀出）| true（每檔台股一條
+                          # 讀出向量）。缺口見 proposal §34.2 缺陷 2
 
 loss_weights:
   mse: 1.0

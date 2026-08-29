@@ -328,10 +328,31 @@ class MAGNET(nn.Module):
                 raise ValueError("beta 層的三項不可同時關閉")
             if std < 0 or b_std < 0:
                 raise ValueError("beta_init_std / beta_b_init_std 不可為負")
+            # 因子個數 k。k=1 時完全走原路徑（不建立 beta_factor_w），
+            # 既有 run 位元不變。k>1 時 ② 改為 Σ_f γ_{j,f}·m_f，
+            # 其中 m_f = Σᵢ w_{f,i}·h₁ᵢ 是學出來的因子方向。
+            #
+            # 動機：訊號本身的低秩分解（§21）—— rank-1 等權市場因子拿到 72%、
+            # rank-3 拿到 87%。現行 ② 用的是「等權平均」這一個固定方向；
+            # 多因子讓方向本身也可學，且第二、三個因子有機會抓到那 15%。
+            # 這一格的 headroom 量在資料上，不是量在探針上（§34 的教訓）。
+            self.beta_n_factors = int(weak_cfg.get("beta_n_factors", 1))
+            if self.beta_n_factors < 1:
+                raise ValueError("beta_n_factors 必須 >= 1")
             self.beta_alpha = nn.Parameter(
                 torch.randn(u.n_l2) * std + a_mu)
-            self.beta_gamma = nn.Parameter(
-                torch.randn(u.n_l2) * std + g_mu)
+            if self.beta_n_factors == 1:
+                self.beta_gamma = nn.Parameter(
+                    torch.randn(u.n_l2) * std + g_mu)
+            else:
+                k = self.beta_n_factors
+                self.beta_gamma = nn.Parameter(
+                    torch.randn(u.n_l2, k) * std + g_mu)
+                # 第 1 個因子固定初始化為等權平均（= 現行 h̄₁），
+                # 其餘分散初始化。同樣尺度（1/n₁）避免因子間量級失衡。
+                w = torch.randn(k, u.n_l1) * (std / u.n_l1)
+                w[0] = 1.0 / u.n_l1
+                self.beta_factor_w = nn.Parameter(w)
             if b_std > 0:
                 with torch.no_grad():
                     self.weak_beta.normal_(0.0, b_std)
@@ -393,7 +414,8 @@ class MAGNET(nn.Module):
         self.fusion = CrossLayerFusion(fuse_cfg, d_prime=d_prime)
 
         # ── Phase 3 ───────────────────────────────────────────────────
-        self.head = PredictionHead(head_cfg, d_prime=d_prime)
+        self.head = PredictionHead(head_cfg, d_prime=d_prime,
+                                   n_nodes=self.n_l2)
 
         # 損失函數（訓練時使用）
         self.criterion = CombinedLoss(
@@ -674,7 +696,12 @@ class MAGNET(nn.Module):
         if self.beta_use_identity:                                 # ①
             out = out + ident * self.beta_alpha.view(1, -1, 1)
         if self.beta_use_factor:                                   # ②
-            out = out + self.beta_gamma.view(1, -1, 1) * hbar
+            if self.beta_n_factors == 1:
+                out = out + self.beta_gamma.view(1, -1, 1) * hbar
+            else:
+                # m : [B, k, d']   每天 k 個因子；γ : [n2, k]
+                m = torch.einsum("fi,bid->bfd", self.beta_factor_w, h_L1)
+                out = out + torch.einsum("jf,bfd->bjd", self.beta_gamma, m)
         if self.beta_use_residual:                                 # ③
             out = out + torch.einsum("ij,bid->bjd", beta_eff, h_L1 - hbar)
         return out

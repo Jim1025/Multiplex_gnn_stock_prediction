@@ -38,16 +38,45 @@ class PredictionHead(nn.Module):
         forward output          : [n] 或 [B, n]
     """
 
-    def __init__(self, cfg: dict, d_prime: int) -> None:
+    def __init__(self, cfg: dict, d_prime: int, n_nodes: int | None = None) -> None:
         super().__init__()
         hidden_dim = cfg.get("hidden_dim", 64)
         dropout = cfg.get("dropout", 0.2)
-        self.mlp = nn.Sequential(
-            nn.Linear(d_prime, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim, 1),
-        )
+
+        # per_target：最後一層由「全體共用一條 Linear(hidden, 1)」改成
+        # 「每檔台股各一條讀出向量」。動機是量到的缺口——在 h_f 上做
+        # per-target ridge 探針值 +0.1091，共享 head 的輸出只有 +0.1025，
+        # 差 −0.0066（proposal_819_revision.md §34.2 缺陷 2）。探針用的正是
+        # per-target 線性讀出，所以這是那一格缺口的直接對應物。
+        #
+        # 前半段（Linear -> ReLU -> Dropout）維持共用，只有讀出逐檔獨立：
+        #     y_j = w_j · ReLU(W1 h_f,j + b1) + b_j
+        # 所有 w_j 相同時退化為原式；per_target=False 時完全不建立這些
+        # 參數，既有 run 位元不變。
+        self.per_target = bool(cfg.get("per_target", False))
+        if self.per_target and n_nodes is None:
+            raise ValueError("prediction_head.per_target 需要 n_nodes")
+
+        if self.per_target:
+            self.trunk = nn.Sequential(
+                nn.Linear(d_prime, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(p=dropout),
+            )
+            # 沿用 nn.Linear 的初始化 U(-1/sqrt(fan_in), +1/sqrt(fan_in))，
+            # 逐檔獨立抽樣 -> 天然跨股票分散，符合 §24.2 的 P0 設計原則。
+            bound = hidden_dim ** -0.5
+            self.readout_w = nn.Parameter(
+                torch.empty(n_nodes, hidden_dim).uniform_(-bound, bound))
+            self.readout_b = nn.Parameter(
+                torch.empty(n_nodes).uniform_(-bound, bound))
+        else:
+            self.mlp = nn.Sequential(
+                nn.Linear(d_prime, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_dim, 1),
+            )
 
     def forward(self, h_fused: Tensor) -> Tensor:
         """
@@ -57,7 +86,10 @@ class PredictionHead(nn.Module):
         Returns:
             y_hat : [..., n]
         """
-        return self.mlp(h_fused).squeeze(-1)
+        if not self.per_target:
+            return self.mlp(h_fused).squeeze(-1)
+        z = self.trunk(h_fused)                        # [..., n, hidden]
+        return (z * self.readout_w).sum(-1) + self.readout_b
 
 
 # ---------------------------------------------------------------------------
