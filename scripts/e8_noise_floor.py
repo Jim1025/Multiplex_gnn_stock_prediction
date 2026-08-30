@@ -75,7 +75,7 @@ def load_tw50_y() -> np.ndarray:
 
 def load_preds_wide(tag: str) -> np.ndarray | None:
     """把一個 run 的 test predictions 轉成 [n_days, n_tickers] 的 (y_hat, y) 對。"""
-    hits = sorted(glob.glob(str(ROOT / "runs" / f"*{tag}" /
+    hits = sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{tag}" /
                                 "predictions" / "test_predictions.csv")))
     if not hits:
         return None

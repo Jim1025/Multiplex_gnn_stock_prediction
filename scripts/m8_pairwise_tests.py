@@ -34,7 +34,7 @@ FAMILIES = {
 
 
 def daily_ic_series(tag: str) -> pd.Series:
-    path = sorted(glob.glob(str(ROOT / "runs" / f"*{tag}" / "predictions" / "test_predictions.csv")))[-1]
+    path = sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{tag}" / "predictions" / "test_predictions.csv"), recursive=True))[-1]
     df = pd.read_csv(path)
     out = {}
     for d, g in df.groupby("target_date"):

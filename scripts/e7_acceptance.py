@@ -59,14 +59,14 @@ def rerun_tag(tag: str) -> str:
 
 
 def config_snapshot(tag: str) -> Path:
-    hits = sorted(ROOT.glob(f"runs/*{tag}/config_snapshot.yaml"))
+    hits = sorted(ROOT.glob(f"runs/**/*{tag}/config_snapshot.yaml"))
     if not hits:
         raise FileNotFoundError(f"找不到 {tag} 的 config_snapshot.yaml")
     return hits[-1]
 
 
 def frozen_dir_count(tag: str) -> int:
-    return len(sorted(ROOT.glob(f"runs/*{tag}")))
+    return len(sorted(ROOT.glob(f"runs/**/*{tag}")))
 
 
 def run_one(tag: str) -> Path:
@@ -88,7 +88,7 @@ def run_one(tag: str) -> Path:
             f"（{before} → {after} 個目錄）。之後的 --verify 會對到重跑結果。"
         )
 
-    hits = sorted(ROOT.glob(f"runs/*{new_tag}/predictions/test_predictions.csv"))
+    hits = sorted(ROOT.glob(f"runs/**/*{new_tag}/predictions/test_predictions.csv"))
     if not hits:
         raise FileNotFoundError(f"重跑 {new_tag} 未產出 predictions CSV")
     return hits[-1]

@@ -45,7 +45,7 @@ K_RANGE = [3, 4, 5, 6, 7]
 
 
 def load_preds(tag: str) -> pd.DataFrame:
-    p = sorted(glob.glob(str(ROOT / "runs" / f"*{tag}" / "predictions" / "test_predictions.csv")))[-1]
+    p = sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{tag}" / "predictions" / "test_predictions.csv"), recursive=True))[-1]
     return pd.read_csv(p)
 
 

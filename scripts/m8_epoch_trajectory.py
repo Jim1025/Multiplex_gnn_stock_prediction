@@ -39,7 +39,7 @@ from src.train.utils import get_device
 
 
 def find_run_dir(tag: str) -> Path:
-    hits = sorted(glob.glob(str(ROOT / "runs" / f"*{tag}")))
+    hits = sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{tag}"), recursive=True))
     if not hits:
         raise SystemExit(f"找不到 run dir for tag={tag}")
     return Path(hits[-1])

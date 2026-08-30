@@ -105,7 +105,7 @@ def main() -> None:
     args = ap.parse_args()
 
     device = torch.device(args.device)
-    run_dirs = sorted(Path(p) for p in glob.glob(str(ROOT / "runs" / "*"))
+    run_dirs = sorted(Path(p) for p in glob.glob(str(ROOT / "runs" / "**" / "*"), recursive=True)
                       if Path(p).is_dir())
 
     def wanted(d: Path) -> bool:

@@ -58,7 +58,7 @@ SIGMA_RUN = 0.027
 
 
 def pred_path(tag: str) -> Path:
-    hits = sorted((ROOT / "runs").glob(f"*{tag}/predictions/test_predictions.csv"))
+    hits = sorted((ROOT / "runs").glob(f"**/*{tag}/predictions/test_predictions.csv"))
     if not hits:
         raise FileNotFoundError(f"找不到 run：{tag}")
     return hits[-1]
@@ -122,7 +122,7 @@ def build_manifest() -> dict:
             "n_test_days":      len(dates),
         },
         "counts": {
-            "runs":      len(list((ROOT / "runs").glob("*/"))),
+            "runs":      len([d for d in (ROOT / "runs").glob("**/") if (d / "meta.json").exists()]),
             "snapshots": len(list((ROOT / "data" / "graphs" / "snapshots").glob("*.pt"))),
         },
         "noise_floor": {

@@ -99,7 +99,7 @@ SIGMA_SEED = 0.0062      # 兩組 10 顆種子各自量到的 test IC 標準差
 def discover(universe: str = "tw50") -> dict[str, dict[str, str]]:
     """掃 runs/，回傳 {arm: {seed: run_dir}}，只收有預測檔的 run。"""
     arms: dict[str, dict[str, str]] = defaultdict(dict)
-    for d in sorted(glob.glob(str(ROOT / "runs" / "*"))):
+    for d in sorted(glob.glob(str(ROOT / "runs" / "**" / "*"), recursive=True)):
         cp = os.path.join(d, "config_snapshot.yaml")
         if not os.path.exists(cp):
             continue

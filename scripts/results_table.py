@@ -37,23 +37,32 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# 主結果 arm。2026-08-25 由 tw50_inbnw_noskip 換成 tw50_beta（beta 層，階段 P1）：
-#   - IC +0.0517 -> +0.1011、RankIC +0.0351 -> +0.0967，10 顆種子 10/10 勝
-#   - 這是本專案唯一同時通過逐日與跨種子 Holm 校正的架構改動
-#     （對 EF 逐日 p 0.0047、對前版 0.0021、對 RC 常數對照 0.0000）
-#   - 修好上一次換基準的代價：RC 常數對照的逐日 p 由 0.0580（不顯著）
-#     回到 0.0000；RankIC 勝過 EF 的宣稱也回來了（+0.0967 vs +0.0412）
-#   - 首次追平線性高原（R2 +0.1020，差 −0.0009）
-#   - 須揭露的退步：預測由收縮翻成過度離散（ŷ/y 橫截面 std 比 0.45 -> 1.60），
-#     MSE 0.00045 -> 0.00106、R² −1.4~−2.8。IC/RankIC 不受尺度影響，
-#     但任何報 MSE / R² 或做組合回測的地方都要註明
-#   - 前一次換基準（tw50_T1F3bnl1 -> tw50_inbnw_noskip）的理由見 git 歷史
-BEST = "tw50_beta"              # 主結果，所有比較的基準
+# 主結果 arm。2026-08-30 由 tw50_beta 換成 tw50_betaF1nA2r1
+# （= beta 層 + F1 只留 log_return + 關掉台股層圖 A₂ + rank 損失權重 1.0）：
+#   - 第一折 IC +0.1011 -> +0.1090、RankIC +0.0967 -> +0.1098，10/10 種子
+#   - **第二折（train 0-902 / 評估窗 2023-12-20 ~ 2024-12-25，與第一折不重疊）
+#     ΔIC +0.0308、ΔRankIC +0.0262，10/10 種子，且逐日檢定兩個指標都過
+#     （p 0.0004 / 0.0036）** —— 本專案第一次有架構改動在逐日層級對自家基準顯著
+#   - 換基準的依據是 proposal §36 事先登記的判準（§38 判定通過最高一檔）
+#   - **不可寫「超越線性 baseline」**：第二折對 KTW+ 的 RankIC 是 −0.0115，
+#     對 R2 ridge 恰好打平（+0.0000），IC 雖名目領先但無一顯著（§40）
+#   - 須揭露的退步：過度離散再惡化，std 比 1.69 -> 2.59、MSE 0.00106 -> 0.00204
+#   - 三個改動單獨都無效甚至有害（F1 +0.0030 ns、無A₂ IC −0.0050、
+#     rank 1.0 單獨 −0.0003），是超可加的交互作用（§35）
+BEST = "tw50_betaF1nA2r1"       # 主結果，所有比較的基準（見上）
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
 NEURAL = [
-    ("MAGNET + beta 層（本版）", "tw50_beta", "本專案",
+    ("MAGNET 本版（F1 + 無A₂ + rank 1.0）", "tw50_betaF1nA2r1", "本專案",
+     "三者缺一不可，見 §35"),
+    ("　└ 同上，但保留台股層圖與 F3", "tw50_betaR1", "本專案", "只調 rank 權重"),
+    ("　└ F1 + 無A₂（rank 0.5）", "tw50_betaF1nA2", "本專案", "未加 rank 權重"),
+    ("　└ F1（單獨）", "tw50_betaF1", "本專案", "只換特徵"),
+    ("MAGNET + beta 層（前版）", "tw50_beta", "本專案",
      "每檔一個 alpha_j / gamma_j"),
+    ("　└ 同上，B 降秩 r=3", "tw50_betaLR3", "本專案", "B 參數 1500 -> 240，null"),
+    ("　└ 同上，per-target 讀出", "tw50_betaPT", "本專案", "已證偽，−0.0093"),
+    ("　└ 同上，多因子 k=3", "tw50_betaK3", "本專案", "已證偽，null"),
     ("MAGNET + 輸入正規化 + AdamW（前版）", "tw50_inbnw_noskip", "本專案",
      "F3, T=1, L=1, 無跳接"),
     ("　└ 同上，Adam", "tw50_inbn_noskip", "本專案", "分離 AdamW 的貢獻"),
@@ -115,7 +124,7 @@ def daily_series(run_dir: str):
 
 def find_seeds(arm: str) -> dict[str, str]:
     out = {}
-    for d in sorted(glob.glob(str(ROOT / "runs" / f"*{arm}_s*"))):
+    for d in sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{arm}_s*"), recursive=True)):
         name = re.sub(r"^\d{8}_\d{4}_", "", os.path.basename(d))
         mm = re.match(rf"^{re.escape(arm)}_s(\d+)$", name)
         if mm and os.path.exists(os.path.join(d, "meta.json")):
@@ -161,7 +170,7 @@ def neural_stats(arm: str):
 
 
 def nonneural_stats(pat: str):
-    ds = sorted(glob.glob(str(ROOT / "runs" / pat)))
+    ds = sorted(glob.glob(str(ROOT / "runs" / "**" / pat), recursive=True))
     if not ds:
         return None
     ser = daily_series(ds[-1])
@@ -211,6 +220,71 @@ def fmt(v, nd=4, signed=True):
     return f"{v:+.{nd}f}" if signed else f"{v:.{nd}f}"
 
 
+
+def _fold2_rows():
+    """第二折的對照列。找不到必要的 run 時回傳 None。"""
+    import glob as _g
+    CUT = "2024-12-25"
+
+    def _load(pat):
+        ds = []
+        for f in sorted(_g.glob(pat, recursive=True)):
+            df = pd.read_csv(f)
+            o = {}
+            for d, g in df.groupby("target_date"):
+                d = str(d)[:10]
+                if d > CUT or g.y.std() == 0 or g.y_hat.std() == 0:
+                    continue
+                o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
+                        stats.spearmanr(g.y_hat, g.y).statistic)
+            if o:
+                ds.append(o)
+        if not ds:
+            return None
+        k = sorted(set.intersection(*[set(x) for x in ds]))
+        return k, np.array([[np.mean([x[d][i] for x in ds]) for d in k]
+                            for i in (0, 1)])
+
+    def _hac(d):
+        n = len(d); L = int(4 * (n / 100) ** (2 / 9)); s2 = np.var(d, ddof=1)
+        for l in range(1, L + 1):
+            s2 += 2 * (1 - l / (L + 1)) * np.cov(d[l:], d[:-l], ddof=1)[0, 1]
+        tt = d.mean() / (s2 / n) ** 0.5
+        return 2 * (1 - stats.norm.cdf(abs(tt)))
+
+    b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
+    if b is None:
+        return None
+    kb, BESTV = b
+    rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
+    for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
+                     ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
+                     ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
+                     ("[24] 二部圖 ens-avg", "runs_f2/*bipartite*t2_ens-avg/predictions/*.csv"),
+                     ("TW+（美股+台股 80 維）", "runs_f2/*fvg_TWp/predictions/*.csv"),
+                     ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
+                     ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
+        rows.append((lab, _load(str(ROOT / pat))))
+    out = []
+    for lab, r in rows:
+        if r is None and lab.startswith("**"):
+            out.append(f"| {lab} | {BESTV[0].mean():+.4f} | {BESTV[1].mean():+.4f} "
+                       f"| — | — | — | — |")
+            continue
+        if r is None:
+            continue
+        kk, V = r
+        ii = [kk.index(d) for d in kk if d in kb]
+        jj = [kb.index(d) for d in kk if d in kb]
+        cells = []
+        for i in (0, 1):
+            dd = BESTV[i][jj] - V[i][ii]
+            cells += [f"{dd.mean():+.4f}", f"{_hac(dd):.4f}"]
+        out.append(f"| {lab} | {V[0][ii].mean():+.4f} | {V[1][ii].mean():+.4f} "
+                   f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="產出跨方法總結果表")
     ap.add_argument("--no-write", action="store_true")
@@ -239,7 +313,7 @@ def main() -> None:
     out.append("# 跨方法結果表")
     out.append("")
     out.append("由 `scripts/results_table.py` 產生。universe = tw50（US 30 / TW 50，"
-               "配對 7 檔），walk-forward test 246 天，不重切。")
+               "配對 7 檔），**第一折** walk-forward test 246 天（2024-12-26 ~ 2025-12-30）。第二折的獨立驗證見下方專節——**單折排名會翻轉，兩節必須一起看**。")
     out.append("")
     out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。差為正代表基準較優。")
     out.append("")
@@ -257,6 +331,31 @@ def main() -> None:
             f"{'—' if is_base else fmt(d_ic)} | "
             f"{'—' if is_base else fmt(p_pd, signed=False)} | "
             f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
+    # ── 第二折驗證（proposal §36 事先登記、§38/§40 判定）──────────────
+    out.append("")
+    out.append("## 第二折驗證（獨立測試期）")
+    out.append("")
+    out.append("切法：train 0-902 / val 903-1149，評估窗 **2023-12-20 ~ 2024-12-25**"
+               "（246 天），與第一折的測試期完全不重疊，且模型從未在其上做過任何選擇。"
+               "所有線性 baseline 皆以第二折切法重新擬合，非沿用第一折的版本。")
+    out.append("")
+    f2 = _fold2_rows()
+    if f2 is None:
+        out.append("_（第二折的 run 或 baseline 尚未齊備）_")
+    else:
+        out.append("| 方法 | test IC | RankIC | dIC | 逐日 p | dRankIC | 逐日 p |")
+        out.append("|---|---:|---:|---:|---:|---:|---:|")
+        for r in f2:
+            out.append(r)
+    out.append("")
+    out.append("**判定（§38）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
+               "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
+               "本專案第一次有架構改動在逐日層級對自家基準顯著。")
+    out.append("")
+    out.append("**但（§40）**：對線性 baseline **不成立**。IC 名目領先每一個"
+               "（+0.0055 ~ +0.0203）卻無一顯著；RankIC 與 R2 ridge 恰好打平"
+               "（+0.0000），並輸給 KTW+（−0.0115）。"
+               "**兩折合看，相對最佳線性 baseline 是打平，不是超越。**")
     out.append("")
     out.append("## 讀表注意")
     out.append("")
@@ -269,15 +368,23 @@ def main() -> None:
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
                "這是目前最大的公平性缺口，比較結果須據此保留。")
     out.append("- **本表只報 IC / RankIC，兩者都是相關係數、對預測的尺度不敏感。**"
-               "主結果 arm（beta 層）的預測是**過度離散**的——逐日橫截面 "
-               "std(y_hat)/std(y) = 1.60，而前版是 0.45（收縮）。"
-               "因此 MSE 由 0.00045 升到 0.00106、R² 落在 −1.4 ~ −2.8。"
+               "主結果 arm 的預測是**過度離散**的——逐日橫截面 "
+               "std(y_hat)/std(y) = **2.59**（beta 層前版 1.69、更早的版本 0.47 是收縮）。"
+               "MSE 隨之由 0.00106 升到 **0.00204**，是最早版本的 4.5 倍。"
                "排序能力的提升是真的，但任何報 MSE / R² 或做組合回測的地方"
-               "都必須另外揭露這一點。")
-    out.append("- **beta 層的 IC 追平線性高原但未超越**：對 R2 差 −0.0009"
-               "（逐日 p 0.94）、對 KTW+ 差 −0.0066（0.62）。"
-               "機制是市場 beta 暴露，屬文獻已知的主導因子；"
-               "本工作的貢獻是把它正確接進架構並量化各元件的貢獻。")
+               "都必須先處理這一點。")
+    out.append("- **不可寫「超越線性 baseline」。** 第一折對 KTW+ 名目領先"
+               "（IC +0.0013 / RankIC +0.0021）但逐日檢定全部不顯著；"
+               "**第二折 RankIC 反而輸給 KTW+（−0.0115）、與 R2 ridge 恰好打平"
+               "（+0.0000）**。兩折合看是打平。可以宣稱的是"
+               "**對自家前一版的架構改善**（第二折逐日 p 0.0004 / 0.0036）。")
+    out.append("- **單折排名會翻轉。** 第一折的優勢集中在測試期前半"
+               "（dIC 前半 +0.0300、後半 −0.0141），第二折則相反（後半更好）。"
+               "任何只根據單一測試期的排名都不可靠——這是本表最重要的保留條款。")
+    out.append("- **本版的三個改動單獨都無效甚至有害**"
+               "（F1 +0.0030 ns、關 A₂ 的 IC −0.0050、rank 1.0 單獨 −0.0003），"
+               "合起來才是 +0.0079 / +0.0131（第一折）。這是超可加的交互作用，"
+               "機制未確認，列為 open observation。")
     out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。")
     out.append("- 線性/樹模型（[24]、KTW+、R2、RC）無隨機種子，sd 欄為「—」。")
     txt = "\n".join(out)
