@@ -1132,3 +1132,46 @@ def test_multi_factor_matches_k1_when_only_first_factor_used():
                + g0.view(1, -1, 1) * hbar
                + torch.einsum("ij,bid->bjd", m.weak_beta * m.weak_mask, x - hbar))
     assert (out - ref).abs().max().item() < 1e-5
+
+
+def test_beta_rank_degenerates_at_zero():
+    """beta_rank=0 必須與缺鍵時位元相同，且不建立 U/V。"""
+    import torch
+    from src.models import build_model
+    c1 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2 = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c2["model"]["weak_links"]["beta_rank"] = 0
+    torch.manual_seed(0); m1 = build_model(c1)
+    torch.manual_seed(0); m2 = build_model(c2)
+    assert all(torch.equal(a, b) for a, b in
+               zip(m1.state_dict().values(), m2.state_dict().values()))
+    assert hasattr(m1, "weak_beta") and not hasattr(m1, "weak_U")
+
+
+def test_beta_rank_shapes_and_param_count():
+    """r>0：B = U Vᵀ，秩為 r，參數量由 n1*n2 降為 (n1+n2)*r。"""
+    import torch
+    from src.models import build_model
+    for r in (1, 3):
+        c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+        c["model"]["weak_links"]["beta_rank"] = r
+        torch.manual_seed(0); m = build_model(c)
+        assert tuple(m.weak_U.shape) == (m.n_l1, r)
+        assert tuple(m.weak_V.shape) == (m.n_l2, r)
+        assert not hasattr(m, "weak_beta")
+        with torch.no_grad():
+            m.weak_V.normal_(0.0, 0.1)
+        assert torch.linalg.matrix_rank(m._weak_beta_full()).item() == r
+
+
+def test_beta_rank_starts_at_zero_but_v_gets_gradient():
+    """LoRA 式初始化：B 起點為零（與全秩版同），但 V 必須拿得到梯度。"""
+    import torch
+    from src.models import build_model
+    c = _beta_cfg(beta_layer=True, beta_init_std=0.3)
+    c["model"]["weak_links"]["beta_rank"] = 3
+    torch.manual_seed(0); m = build_model(c)
+    assert bool((m._weak_beta_full() == 0).all()), "B 起點必須為零"
+    d = m.proj_L1.linear.out_features if hasattr(m.proj_L1, "linear") else 32
+    m._augment_weak(torch.randn(2, m.n_l1, d)).sum().backward()
+    assert m.weak_V.grad.abs().mean().item() > 0, "V 必須拿得到梯度"

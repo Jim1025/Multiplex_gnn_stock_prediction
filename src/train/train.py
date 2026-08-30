@@ -195,6 +195,7 @@ def train(
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
+    beta_rank:         Optional[int]   = None,
     beta_n_factors:    Optional[int]   = None,
     per_target_head:   Optional[bool]  = None,
     architecture:      Optional[str]   = None,
@@ -395,6 +396,9 @@ def train(
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
+    if beta_rank is not None:
+        cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_rank"] = beta_rank
+        _overrides.append(f"beta_rank={beta_rank}")
     if beta_n_factors is not None:
         cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_n_factors"] = beta_n_factors
         _overrides.append(f"beta_n_factors={beta_n_factors}")
@@ -885,6 +889,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--features", nargs="*", default=None,
                    help="覆寫 cfg.model.lstm.feature_subset，例如 --features log_return"
                         "（預設全取 9 欄；只影響 LSTM 的 input_size，input_dim 不變）")
+    p.add_argument("--beta-rank", type=int, default=None,
+                   help="覆寫 cfg.model.weak_links.beta_rank。r>0 時 B = U Vᵀ，"
+                        "參數量由 n1xn2 降為 (n1+n2)xr。依據見 proposal §37。")
     p.add_argument("--beta-n-factors", type=int, default=None,
                    help="覆寫 cfg.model.weak_links.beta_n_factors。"
                         "k>1 時 ② 改為 k 個學出來的因子。")
@@ -924,6 +931,7 @@ if __name__ == "__main__":
         graph_ablate=args.graph_ablate,
         per_target_head=args.per_target_head,
         beta_n_factors=args.beta_n_factors,
+        beta_rank=args.beta_rank,
         optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,

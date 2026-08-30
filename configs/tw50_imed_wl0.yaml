@@ -82,6 +82,9 @@ model:
     mode: free            # 1,493 條候選邊（30x50 扣掉 7 條恆等邊）
     lambda_sparse: 0.0    # 見檔頭第 2 點；與 tw50chk_wl0_* 一致
     beta_layer: false     # 階段 P1，見 base.yaml 的完整說明
+    beta_rank: 0          # 0（預設，全秩 B [n1,n2]）| r>0（B = U Vᵀ，低秩）
+                          # 依據見 §37：穩定性的損失全來自這條路徑，
+                          # 而 C 在同期內拆兩半的相關只有 0.13–0.43
     beta_n_factors: 1     # 1（預設，等權市場因子）| k>1（k 個學出來的
                           # 因子方向）。依據見 §21 的低秩分解
     beta_init_std: 0.3

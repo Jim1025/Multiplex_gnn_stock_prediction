@@ -23,5 +23,6 @@ env/
 # Training outputs (M4 + runs refactor)
 mlruns/
 runs/
+runs_f2/
 backups/
 .sprint_logs/

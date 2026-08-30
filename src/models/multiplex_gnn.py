@@ -275,7 +275,28 @@ class MAGNET(nn.Module):
             self.register_buffer(
                 "weak_mask", self._build_weak_mask(self.weak_mode, u)
             )
-            self.weak_beta = nn.Parameter(torch.zeros(u.n_l1, u.n_l2))
+            # beta_rank：候選邊矩陣 B 的秩約束。
+            #   0（預設）= 全秩，B 直接是 [n1, n2]，n1xn2 = 1,500 個自由參數
+            #   r > 0    = B = U Vᵀ，U [n1, r] / V [n2, r]，(n1+n2)xr 個參數
+            #
+            # 存在理由（§37）：穩定性的損失可以完全歸因到 ③ 這條路徑——
+            # 不含 ③ 的設定前後半落差 <= 0.0012，含 ③ 的 >= 0.0231，無例外。
+            # 而在資料上直接估 C（③ 對應的殘差結構）時，**同一段期間內部
+            # 拆兩半的相關只有 0.13–0.43**，對照 beta（50 參數）的 0.53–0.65。
+            # 問題不是市場狀態改變，是 1,500 個兩兩載重在 246 天 x 50 檔的
+            # 樣本下估不出來。降秩直接對應這個診斷；訊號本身只有 1–3 維（§21）。
+            #
+            # 初始化沿用 LoRA 的作法：U 隨機、V 全零 -> B 起點仍為 0
+            # （與全秩版相同，訓練起點即「只有恆等邊」），但 V 拿得到梯度。
+            self.beta_rank = int(weak_cfg.get("beta_rank", 0))
+            if self.beta_rank < 0:
+                raise ValueError("beta_rank 不可為負")
+            if self.beta_rank > 0:
+                r = self.beta_rank
+                self.weak_U = nn.Parameter(torch.randn(u.n_l1, r) / (u.n_l1 ** 0.5))
+                self.weak_V = nn.Parameter(torch.zeros(u.n_l2, r))
+            else:
+                self.weak_beta = nn.Parameter(torch.zeros(u.n_l1, u.n_l2))
 
         # ── beta 層（階段 P1）──────────────────────────────────────
         # 存在理由（回應「43 檔無配對台股拿不到跨市場訊號」）：
@@ -355,7 +376,11 @@ class MAGNET(nn.Module):
                 self.beta_factor_w = nn.Parameter(w)
             if b_std > 0:
                 with torch.no_grad():
-                    self.weak_beta.normal_(0.0, b_std)
+                    if self.beta_rank > 0:
+                        # 低秩時對 V 施加離散度（U 已隨機），效果等價
+                        self.weak_V.normal_(0.0, b_std)
+                    else:
+                        self.weak_beta.normal_(0.0, b_std)
 
         if self.coupling_mode == "dense":
             if self.weak_mode is not None:
@@ -566,7 +591,7 @@ class MAGNET(nn.Module):
             "gate":    gate,
         }
         if self.weak_mode is not None:
-            extras["weak_beta"] = self.weak_beta * self.weak_mask  # [n1, n2] 分析用
+            extras["weak_beta"] = self._weak_beta_full() * self.weak_mask  # [n1, n2] 分析用
         if self.coupling_mode == "dense":
             extras["coupling_A"] = self.coupling_A                 # [n1, n2] 分析用
         return y_hat, extras
@@ -662,6 +687,12 @@ class MAGNET(nn.Module):
                 )
         return mask.float()
 
+    def _weak_beta_full(self) -> Tensor:
+        """回傳未遮罩的 B（全秩時即參數本身；低秩時為 U Vᵀ）。"""
+        if getattr(self, "beta_rank", 0) > 0:
+            return self.weak_U @ self.weak_V.t()          # [n1, n2]
+        return self.weak_beta
+
     def _augment_weak(self, h_L1: Tensor) -> Tensor:
         """
         把 L1 對齊到 L2 的索引空間，並併入弱連結：
@@ -685,7 +716,7 @@ class MAGNET(nn.Module):
         ident = ident * self.has_pair.view(1, -1, 1).to(ident.dtype)
         if self.weak_mode is None:
             return ident
-        beta_eff = self.weak_beta * self.weak_mask                 # [n1, n2]
+        beta_eff = self._weak_beta_full() * self.weak_mask         # [n1, n2]
         if not self.beta_layer:
             h_weak = torch.einsum("ij,bid->bjd", beta_eff, h_L1)   # [B, n2, d']
             return ident + h_weak
@@ -796,7 +827,7 @@ class MAGNET(nn.Module):
         )
         # M8: 弱連結 L1 稀疏懲罰（僅訓練圖中生效；資料不支持的邊收縮回 0）
         if self.weak_mode is not None:
-            weak_l1 = (self.weak_beta * self.weak_mask).abs().sum()
+            weak_l1 = (self._weak_beta_full() * self.weak_mask).abs().sum()
             loss = loss + self.weak_lambda * weak_l1
             comps = {**comps, "weak_l1": float(weak_l1.detach())}
         return loss, comps
