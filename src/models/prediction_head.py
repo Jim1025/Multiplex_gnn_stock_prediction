@@ -143,6 +143,23 @@ class CombinedLoss(nn.Module):
         # 的位元確定路徑必須維持不變。要用請在 config 的 loss_weights 下明示。
         self.rank_normalize = bool(loss_cfg.get("rank_normalize", False))
 
+        # rank_normalize_detach：把分母的 std 從計算圖切掉。
+        #
+        # 為什麼加：rank_normalize=True 的第一版（2026-08-30，兩折各 10 顆種子）
+        # 是決定性失敗，且失敗模式是**預測塌縮**——第一折 5/10、第二折 3/10 顆種子
+        # 的 ŷ 橫截面變成完全同值（s7 是 245/245 天），完整結果見 proposal §44。
+        #
+        # 機制：分母的 std 沒有 detach 時梯度會流過它，模型可以靠「把 std 縮小」
+        # 降低損失；而一旦 std 掉到 1e-8 以下，下面的 +1e-8 就會主導，
+        # 標準化輸出 -> 0、梯度消失，塌縮成為**吸收態**（出不來，故是全期塌縮）。
+        #
+        # detach 之後 d(loss)/d(ŷ) 正比於 1/std——std 越小梯度越大，
+        # 是把模型推離塌縮的自穩定機制，而不是吸引過去。
+        #
+        # 預設 False：True 只在 rank_normalize=True 時有意義，
+        # 且不改變任何既有 run（含 2026-08-30 那 20 個 rnorm run）的數值。
+        self.rank_normalize_detach = bool(loss_cfg.get("rank_normalize_detach", False))
+
     # ------------------------------------------------------------------
     # ℒ_rank : RankNet pairwise loss
     # ------------------------------------------------------------------
@@ -152,6 +169,7 @@ class CombinedLoss(nn.Module):
             ℒ_rank = Σ log(1 + exp(-(ŷ_i - ŷ_j)))
 
         rank_normalize=True 時先把 ŷ 逐日橫截面標準化（見 __init__ 說明）。
+        rank_normalize_detach=True 時分母的 std 不參與反向傳播（見 __init__ 說明）。
         y 不需標準化——配對遮罩用的是 diff_y > 0，本來就尺度不變。
 
         Shapes:
@@ -161,8 +179,10 @@ class CombinedLoss(nn.Module):
             scalar loss
         """
         if self.rank_normalize:
-            y_hat = ((y_hat - y_hat.mean(dim=-1, keepdim=True))
-                     / (y_hat.std(dim=-1, keepdim=True) + 1e-8))
+            sd = y_hat.std(dim=-1, keepdim=True)
+            if self.rank_normalize_detach:
+                sd = sd.detach()
+            y_hat = (y_hat - y_hat.mean(dim=-1, keepdim=True)) / (sd + 1e-8)
 
         # 統一升成 [..., n]
         # 計算所有配對差

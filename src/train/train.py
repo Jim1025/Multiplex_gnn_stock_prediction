@@ -191,10 +191,13 @@ def train(
     tag:         str = "full",
     mse_weight:        Optional[float] = None,
     rank_weight:       Optional[float] = None,
+    rank_normalize:    Optional[bool]  = None,
+    rank_normalize_detach: Optional[bool] = None,
     variance_weight:   Optional[float] = None,
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
+    disable_a12:       Optional[bool]  = None,
     beta_rank:         Optional[int]   = None,
     beta_n_factors:    Optional[int]   = None,
     per_target_head:   Optional[bool]  = None,
@@ -229,6 +232,13 @@ def train(
         tag:               MLflow run name（"sanity" | "full" | "opt_pN_..." | ...）
         mse_weight:        若提供，覆寫 cfg.loss_weights.mse
         rank_weight:       若提供，覆寫 cfg.loss_weights.rank
+        rank_normalize:    若提供，覆寫 cfg.loss_weights.rank_normalize。
+                           True = RankNet 配對比較前先把 y_hat 逐日橫截面標準化。
+                           預設 False 的理由與缺陷見 prediction_head.py 的註解：
+                           未標準化時 Δy_hat 落在 softplus 線性區，排對 / 排錯的
+                           梯度是 -0.4986 / -0.5，幾乎無差別，損失全程停在 ln(2)，
+                           而它佔總損失 99.94%。開啟後訓練目標才與尺度不變的
+                           IC / RankIC 對齊。
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
@@ -271,6 +281,14 @@ def train(
     if rank_weight is not None:
         cfg["loss_weights"]["rank"] = float(rank_weight)
         _overrides.append(f"rank={rank_weight}")
+    if rank_normalize is not None:
+        cfg["loss_weights"]["rank_normalize"] = bool(rank_normalize)
+        _overrides.append(f"rank_normalize={bool(rank_normalize)}")
+    if rank_normalize_detach is not None:
+        # detach 只在 rank_normalize=True 時有意義，故一併開啟（見 §44.4）
+        cfg["loss_weights"]["rank_normalize"] = True
+        cfg["loss_weights"]["rank_normalize_detach"] = bool(rank_normalize_detach)
+        _overrides.append(f"rank_normalize_detach={bool(rank_normalize_detach)}")
     if variance_weight is not None:
         cfg["loss_weights"]["variance"] = float(variance_weight)
         _overrides.append(f"variance={variance_weight}")
@@ -396,6 +414,9 @@ def train(
     if early_stop_metric is not None:
         cfg["training"]["early_stop_metric"] = early_stop_metric
         _overrides.append(f"early_stop_metric={early_stop_metric}")
+    if disable_a12:
+        cfg.setdefault("model", {})["disable_a12"] = True
+        _overrides.append("disable_a12=True")
     if beta_rank is not None:
         cfg.setdefault("model", {}).setdefault("weak_links", {})["beta_rank"] = beta_rank
         _overrides.append(f"beta_rank={beta_rank}")
@@ -806,6 +827,14 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.loss_weights.mse")
     p.add_argument("--rank-weight",     type=float, default=None,
                    help="覆寫 cfg.loss_weights.rank")
+    p.add_argument("--rank-normalize", action="store_true", default=None,
+                   help="覆寫 cfg.loss_weights.rank_normalize=True："
+                        "RankNet 配對比較前先把 y_hat 逐日橫截面標準化，"
+                        "讓訓練目標與尺度不變的 IC/RankIC 對齊")
+    p.add_argument("--rank-normalize-detach", action="store_true", default=None,
+                   help="覆寫 cfg.loss_weights.rank_normalize_detach=True（並自動開啟 "
+                        "rank_normalize）：標準化的分母 std 不參與反向傳播，"
+                        "避免 §44 觀察到的預測塌縮吸收態")
     p.add_argument("--variance-weight", type=float, default=None,
                    help="覆寫 cfg.loss_weights.variance")
     p.add_argument("--lr",              type=float, default=None,
@@ -889,6 +918,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--features", nargs="*", default=None,
                    help="覆寫 cfg.model.lstm.feature_subset，例如 --features log_return"
                         "（預設全取 9 欄；只影響 LSTM 的 input_size，input_dim 不變）")
+    p.add_argument("--disable-a12", action="store_true", default=None,
+                   help="覆寫 cfg.model.disable_a12=True。把 h_L1 在進 fusion 前"
+                        "零化，h_f = (1-gate)*h_L2 —— 即「單市場」消融（教授建議 1）。"
+                        "架構、參數量、計算圖全部不變，只切斷跨市場資訊。")
     p.add_argument("--beta-rank", type=int, default=None,
                    help="覆寫 cfg.model.weak_links.beta_rank。r>0 時 B = U Vᵀ，"
                         "參數量由 n1xn2 降為 (n1+n2)xr。依據見 proposal §37。")
@@ -911,6 +944,8 @@ if __name__ == "__main__":
         tag=args.tag,
         mse_weight=args.mse_weight,
         rank_weight=args.rank_weight,
+        rank_normalize=args.rank_normalize,
+        rank_normalize_detach=args.rank_normalize_detach,
         variance_weight=args.variance_weight,
         lr_override=args.lr,
         early_stop_metric=args.early_stop_metric,
@@ -932,6 +967,7 @@ if __name__ == "__main__":
         per_target_head=args.per_target_head,
         beta_n_factors=args.beta_n_factors,
         beta_rank=args.beta_rank,
+        disable_a12=args.disable_a12,
         optimizer_name=args.optimizer,
         coupling_init_other=args.coupling_init_other,
         gat_layers=args.gat_layers,

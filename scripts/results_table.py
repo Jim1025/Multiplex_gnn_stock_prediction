@@ -74,7 +74,12 @@ NEURAL = [
     ("MAGNET F3（無跳接）",            "tw50_T1F3rb",   "本專案", "F3, T=1, L=1"),
     ("MAGNET + 稠密耦合 A",            "tw50_T1F9dense","本專案", "A[30,50] 可學"),
     ("Early fusion 對照",             "tw50chk_ef",    "本專案", "拼接後單一編碼器"),
-    ("LSTM only（無圖）",              "tw50chk_lstm",  "本專案", "無跨市場"),
+    ("單市場消融（主結果 arm）", "tw50_smktA", "本專案",
+     "disable_a12，跨市場全關"),
+    ("單市場消融（前一版 arm）", "tw50_smktB", "本專案",
+     "同上，台股側 F3 + 有圖"),
+    ("LSTM only（無圖）",              "tw50chk_lstm",  "本專案",
+     "另一架構，非對等對照"),
     ("HGT [14]",                      "tw50_bl_hgt",       "文獻", "未調參"),
     ("DeltaLag [13]",                 "tw50_bl_delta_lag", "文獻", "未調參，預測退化"),
     ("MEIG [1]",                      "tw50_bl_meig",      "文獻", "未調參"),
@@ -285,6 +290,166 @@ def _fold2_rows():
     return out
 
 
+def _ens_block():
+    """§43 的種子集成與等權混合。缺 run 時回傳 None。"""
+    import glob as _g
+
+    def _pred(d, cut=None):
+        f = os.path.join(d, "predictions", "test_predictions_reeval.csv")
+        if PREDICTIONS != "reeval" or not os.path.exists(f):
+            f = os.path.join(d, "predictions", "test_predictions.csv")
+        if not os.path.exists(f):
+            return None
+        df = pd.read_csv(f)
+        df["target_date"] = df.target_date.astype(str).str[:10]
+        return df[df.target_date <= cut] if cut else df
+
+    def _metrics(df):
+        """回傳 {date: (IC, RankIC, 離散比)}。"""
+        o = {}
+        for d, g in df.groupby("target_date"):
+            if g.y.std() == 0 or g.y_hat.std() == 0:
+                continue
+            o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
+                    stats.spearmanr(g.y_hat, g.y).statistic,
+                    g.y_hat.std() / g.y.std())
+        return o
+
+    def _per_seed(pat, cut=None):
+        """(1) 先算每顆種子的逐日指標，再跨種子平均。"""
+        ds = [x for x in (_pred(d, cut)
+                          for d in sorted(_g.glob(str(ROOT / pat), recursive=True)))
+              if x is not None]
+        if not ds:
+            return None
+        ms = [_metrics(x) for x in ds]
+        k = sorted(set.intersection(*[set(m) for m in ms]))
+        return k, np.array([[np.mean([m[d][i] for m in ms]) for d in k]
+                            for i in (0, 1, 2)]), len(ds)
+
+    def _ens(pat, cut=None):
+        """(2) 先平均全部種子的預測，再算逐日指標。"""
+        ds = [x for x in (_pred(d, cut)
+                          for d in sorted(_g.glob(str(ROOT / pat), recursive=True)))
+              if x is not None]
+        if not ds:
+            return None
+        df = (pd.concat(ds).groupby(["target_date", "ticker"])
+              .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
+        m = _metrics(df)
+        k = sorted(m)
+        return k, np.array([[m[d][i] for d in k] for i in (0, 1, 2)]), df
+
+    def _hac(d):
+        n = len(d)
+        lag = int(np.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
+        x = d - d.mean()
+        var = float((x @ x) / n)
+        for j in range(1, lag + 1):
+            var += 2.0 * (1.0 - j / (lag + 1.0)) * float((x[j:] @ x[:-j]) / n)
+        return float(2 * stats.t.sf(abs(d.mean() / np.sqrt(max(var, 1e-24) / n)), n - 1))
+
+    def _cmp(mine, other):
+        km, M = mine[0], mine[1]
+        ko, O = other[0], other[1]
+        k = sorted(set(km) & set(ko))
+        ii = [km.index(d) for d in k]
+        jj = [ko.index(d) for d in k]
+        return [(M[i][ii] - O[i][jj]).mean() for i in (0, 1)], \
+               [_hac(M[i][ii] - O[i][jj]) for i in (0, 1)]
+
+    FOLDS = (("第一折", f"runs/**/*{BEST}_s*", None,
+              "runs/linear/*_fvg_KTWp/predictions/*.csv"),
+             ("第二折", "runs/**/*f2_best_s*", "2024-12-25",
+              "runs_f2/*_fvg_KTWp/predictions/*.csv"))
+
+    out, ok = [], False
+    out.append("### (A) 種子集成：先平均預測，再算 IC")
+    out.append("")
+    out.append("| 折 | n 種子 | 聚合 | IC | RankIC | 離散比 std(y_hat)/std(y) |")
+    out.append("|---|---:|---|---:|---:|---:|")
+    ens_cache = {}
+    for lab, pat, cut, _ in FOLDS:
+        ps = _per_seed(pat, cut)
+        en = _ens(pat, cut)
+        if ps is None or en is None:
+            continue
+        ok = True
+        ens_cache[lab] = (en, cut)
+        out.append(f"| {lab} | {ps[2]} | 先算 IC 再平均 | {ps[1][0].mean():+.4f} "
+                   f"| {ps[1][1].mean():+.4f} | {ps[1][2].mean():.2f} |")
+        out.append(f"| {lab} | {ps[2]} | **先平均預測再算 IC** "
+                   f"| **{en[1][0].mean():+.4f}** | **{en[1][1].mean():+.4f}** "
+                   f"| **{en[1][2].mean():.2f}** |")
+        out.append(f"| {lab} | | 增益 | {en[1][0].mean() - ps[1][0].mean():+.4f} "
+                   f"| {en[1][1].mean() - ps[1][1].mean():+.4f} "
+                   f"| {en[1][2].mean() - ps[1][2].mean():+.2f} |")
+    if not ok:
+        return None
+
+    BLS = (("KTW+（最高標）", "*_fvg_KTWp"), ("[24] 二部圖 LASSO", "*bipartite*t2_LASSO"),
+           ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
+           ("RC 常數對照", "*_ridge_RC"))
+    out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
+            "| 折 | 對照 | 其 IC | 其 RankIC | dIC | 逐日 p | dRankIC | 逐日 p |",
+            "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for lab, _, cut, _ in FOLDS:
+        if lab not in ens_cache:
+            continue
+        en, cut = ens_cache[lab]
+        root = "runs/linear" if lab == "第一折" else "runs_f2"
+        for bl, bp in BLS:
+            b = _per_seed(f"{root}/{bp}", cut)
+            if b is None:
+                continue
+            d, pv = _cmp(en, b)
+            out.append(f"| {lab} | {bl} | {b[1][0].mean():+.4f} | {b[1][1].mean():+.4f} "
+                       f"| {d[0]:+.4f} | {pv[0]:.4f} | {d[1]:+.4f} | {pv[1]:.4f} |")
+
+    out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
+            "| 折 | 方法 | IC | RankIC | dIC vs KTW+ | 逐日 p | dRankIC | 逐日 p |",
+            "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for lab, _, cut, kp in FOLDS:
+        if lab not in ens_cache:
+            continue
+        en, cut = ens_cache[lab]
+        kf = sorted(_g.glob(str(ROOT / kp)))
+        if not kf:
+            continue
+        K = pd.read_csv(kf[-1])
+        K["target_date"] = K.target_date.astype(str).str[:10]
+        if cut:
+            K = K[K.target_date <= cut]
+        j = en[2].merge(K[["target_date", "ticker", "y_hat"]],
+                        on=["target_date", "ticker"], suffixes=("_m", "_b"))
+
+        def _z(g, c):
+            v = g[c].to_numpy()
+            sd = v.std()
+            return (v - v.mean()) / sd if sd > 1e-12 else v * 0.0
+
+        for c, src in (("zm", "y_hat_m"), ("zb", "y_hat_b")):
+            j[c] = j.groupby("target_date", group_keys=False).apply(
+                lambda g: pd.Series(_z(g, src), index=g.index), include_groups=False)
+        rows = [("純 KTW+", 0.0), ("**等權混合 w=0.5**", 0.5), ("純 MAGNET（集成）", 1.0)]
+        base = None
+        for nm, w in rows:
+            jj = j.assign(y_hat=w * j.zm + (1 - w) * j.zb)
+            m = _metrics(jj)
+            k = sorted(m)
+            V = np.array([[m[d][i] for d in k] for i in (0, 1)])
+            if w == 0.0:
+                base = V
+                out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
+                           f"| — | — | — | — |")
+                continue
+            d0, d1 = V[0] - base[0], V[1] - base[1]
+            out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
+                       f"| {d0.mean():+.4f} | {_hac(d0):.4f} "
+                       f"| {d1.mean():+.4f} | {_hac(d1):.4f} |")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="產出跨方法總結果表")
     ap.add_argument("--no-write", action="store_true")
@@ -357,6 +522,18 @@ def main() -> None:
                "（+0.0000），並輸給 KTW+（−0.0115）。"
                "**兩折合看，相對最佳線性 baseline 是打平，不是超越。**")
     out.append("")
+    out.append("## 種子集成與混合（proposal §43）")
+    out.append("")
+    out.append("以下三塊**不需要重訓任何模型**，全部由既有預測檔重算。"
+               "(A) 改變聚合方式，(B) 是它對 baseline 的後果，"
+               "(C) 是與最強線性 baseline 的等權混合。")
+    out.append("")
+    eb = _ens_block()
+    if eb is None:
+        out.append("_（集成所需的預測檔尚未齊備）_")
+    else:
+        out += eb
+    out.append("")
     out.append("## 讀表注意")
     out.append("")
     out.append("- **n 是種子數。** sigma_seed = 0.0062，n=3 的最小可偵測差異為 0.0188、"
@@ -377,7 +554,10 @@ def main() -> None:
                "（IC +0.0013 / RankIC +0.0021）但逐日檢定全部不顯著；"
                "**第二折 RankIC 反而輸給 KTW+（−0.0115）、與 R2 ridge 恰好打平"
                "（+0.0000）**。兩折合看是打平。可以宣稱的是"
-               "**對自家前一版的架構改善**（第二折逐日 p 0.0004 / 0.0036）。")
+               "**對自家前一版的架構改善**（第二折逐日 p 0.0004 / 0.0036）。"
+               "**此條指的是純 MAGNET；種子集成後仍成立**（對 KTW+ 兩折兩指標皆不顯著）。"
+               "唯一在兩折上都顯著超越 KTW+ 的是 §43 (C) 的**等權混合**，"
+               "但那是混合模型的主張，不是本架構單獨的主張。")
     out.append("- **單折排名會翻轉。** 第一折的優勢集中在測試期前半"
                "（dIC 前半 +0.0300、後半 −0.0141），第二折則相反（後半更好）。"
                "任何只根據單一測試期的排名都不可靠——這是本表最重要的保留條款。")
@@ -385,6 +565,72 @@ def main() -> None:
                "（F1 +0.0030 ns、關 A₂ 的 IC −0.0050、rank 1.0 單獨 −0.0003），"
                "合起來才是 +0.0079 / +0.0131（第一折）。這是超可加的交互作用，"
                "機制未確認，列為 open observation。")
+    out.append("- **單市場消融是本表效果量最大的一格，也是「多層圖值不值得」的直接答案。**"
+               "`disable_a12` 把 h_L1 在進 fusion 前零化，**參數量 48,548 與完整版完全相同**"
+               "（美股側與耦合的 12,256 個參數梯度實測恰為 0），"
+               "所以差異可以完全歸因到跨市場資訊。"
+               "淨值：主結果 arm **ΔIC +0.1004**（10/10 種子、逐日 HAC p 3.3e-06）、"
+               "前一版 arm +0.0961（10/10、3.2e-07）——"
+               "**佔模型表現的 92%，切掉後低於常數對照。** 詳見 proposal §41。")
+    out.append("- **`LSTM only` 不能當單市場對照。** 它是另一個架構（無 GAT、無融合閘門、"
+               "無 beta 層），差異裡混了「沒有跨市場」與「少三個模組」。"
+               "要回答教授建議 1，用的是上面兩個 `disable_a12` 的消融 arm。")
+    out.append("- **兩個單市場 arm 的方向是反的**：台股側資訊較「完整」的 B"
+               "（3 特徵 + 2,200 條邊的台股圖）RankIC 反而比 A（1 特徵、圖只剩 self-loop）"
+               "低 0.0292，10 顆種子無一例外。理由見 §37——"
+               "RSI/BB 的逐日自相關 0.85–0.91（只能產生近乎不變的排序）、"
+               "台股圖對相關股票做平滑（抹掉排序唯一需要的橫截面差異）。"
+               "有跨市場訊號時這兩項的傷害被蓋過去，切掉後才顯現。")
+    out.append("- 單市場的數字**不可解讀成「台股資料沒有預測力」**：T_history=1 是在"
+               "「有跨市場資訊」的前提下選的，沒有它時只看前一天本來就極難預測。"
+               "佐證：六個文獻的單市場 baseline 也全部落在 −0.0053 ~ +0.0113。")
+    out.append("- **§43 (A) 的兩個數字是不同的估計對象，不是同一個東西的兩種算法。**"
+               "「先算 IC 再平均」= 隨機抽一個訓練好的模型的期望表現；"
+               "「先平均預測再算 IC」= 實際部署那套系統（跑 10 個模型取平均）的表現。"
+               "後者較高是因為種子雜訊互相抵消——實測種子兩兩預測相關 0.819，"
+               "即每顆種子的橫截面預測有 **18.1%** 是種子特異雜訊"
+               "（變異數分解獨立給出 17.7%）。理論 IC(S) = IC(1)·sqrt(S·SNR/(1+S·SNR))，"
+               "SNR=4.54，預測 S=1->10 增益 +0.0101，實測 +0.0088。"
+               "**論文兩個都要報。**")
+    out.append("- **集成不是挑最好的種子。** 事後每天挑最佳種子可得 RankIC +0.2161，"
+               "那是 cherry-picking、不可實現；集成用的是全部 10 顆、事先固定的規則，"
+               "得到 +0.1202。另：邊際報酬在 **k=5 就飽和**"
+               "（k=1 +0.1081、k=5 +0.1154、k=10 +0.1163、k=inf 的理論上限 +0.1204），"
+               "種子加到 30 顆不值得。")
+    out.append("- **集成必須聲明它用了 10 倍訓練算力，且不是對等的算力比較**——"
+               "線性/樹 baseline 是凸問題的確定性解，沒有種子雜訊可平均。"
+               "正當性有二：集成是隨機方法部署時的標準作法；"
+               "我們自己的 baseline 集裡 [24] 就有 ens-avg 變體。")
+    out.append("- **(B) 集成後仍然不能寫「超越所有 baseline」。** 對 KTW+ 兩折兩指標"
+               "全部不顯著；表中 p 0.032 / 0.044 / 0.046 **通不過 Holm**"
+               "（5 個對照時門檻 0.010）。集成改變的是：第二折 RankIC 對 KTW+ "
+               "由 **−0.0115（輸）變成 +0.0006（平）**，且 20 個比較"
+               "（2 折 x 5 對照 x 2 指標）**第一次全部同號為正**。")
+    out.append("- **(C) 等權混合是目前唯一在兩折上都顯著超越最高標的設定**"
+               "（四個檢定 p 0.0233 / 0.0041 / 0.0002 / 0.0177 全部 < 0.05，"
+               "且兩折 ΔIC 都在逐日 MDE +0.0156 之上）。"
+               "**w=0.5 是事先可指定的等權，沒有在測試集上調參**"
+               "（附帶事實：兩折最佳 w 落在 0.55 與 0.6，等權接近最優）。"
+               "機制：MAGNET 與 KTW+ 的逐日預測相關只有 **+0.472 / +0.490**，"
+               "一半以上的橫截面資訊不重疊——這與 §37.2「優勢集中在最安靜的 20% 日子」一致。")
+    out.append("- **(C) 的代價：主張形式改變。** 由「MAGNET 比線性準」變成"
+               "**「MAGNET 提供線性模型抓不到的增量資訊」**。"
+               "後者是可量測的科學陳述（相關 0.48），但**不是**「我們的架構單獨最好」。"
+               "純 MAGNET（集成）對 KTW+ 仍然不顯著。")
+    out.append("- **`rank_normalize`（訓練目標尺度不變化）已證偽，未列為表列 arm。**"
+               "它的 IC 在多數種子上**無定義**——第一折 5/10、第二折 3/10 顆種子的預測"
+               "塌縮成常數橫截面（83~100% 的測試日），對照 arm 是 0/10、0/10。"
+               "只計未塌縮的種子，ΔIC 仍是 **−0.0724 / −0.1099**（同號 0/5、0/7）。"
+               "機制是正規化後的 pairwise 損失在完全塌縮時恰為 ln(2)=0.6931，"
+               "而排序不夠好時攤開來的損失是 0.9344——**塌縮是更低的損失狀態**。"
+               "完整分析見 proposal §44，論文化素材見 §45。")
+    out.append("- **本表的 RankIC 無法偵測預測塌縮。** `_spearman_corr` 用 "
+               "`argsort(argsort(·))` 取名次，常數輸入會被拆成任意排列，"
+               "於是回傳「ticker 順序 vs 真實報酬」的相關而非 NaN。"
+               "掃過全部 631 個預測檔：**主結果 arm、beta 各版本、兩折的 f2_best / f2_base、"
+               "全部線性 baseline 的塌縮天數皆為 0**，本表主要數字不受影響。"
+               "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"
+               "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。")
     out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。")
     out.append("- 線性/樹模型（[24]、KTW+、R2、RC）無隨機種子，sd 欄為「—」。")
     txt = "\n".join(out)
