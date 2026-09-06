@@ -472,29 +472,41 @@ def build(d: dict, date: str) -> str:
         ["Split the US state",
          "a cross-sectional mean, and what remains of each stock"],
         AMB_F, AMB_S, 1.8, hf="#7c3f06", bf="#7c4a09")
-    # 框寬 386 而非原本的 438：左右各讓出匯流排的空間。內文同步縮短到
-    # 386px 放得下（12.5px 字約 59 字元），避免溢出框線。
-    box(1022, 390, 386, 52,
-        ["ADR partner",
-         "the 7 paired stocks copy their US twin, one weight each"])
-    box(1022, 452, 386, 52,
+    # macro / micro 兩條線。分組不只是視覺方便，結構上是精確的：
+    # ① 看起來像「個別公司」，但它裡面的大盤成分與 ② 的 γ_j 完全簡併
+    # （proposal §47.3），所以 ① 可識別的部分只有個股的部分——① 實質是 micro。
+    # 而本版的貢獻就是「把 macro 與 micro 分開」，畫成兩條線等於把主張畫出來。
+    #
+    # 框寬 362：左邊讓出主匯流排 + micro 的次匯流排，右邊讓出收集匯流排。
+    # 分組標籤：12px INK 粗體斜體——比框標題（15.5px）小一階，
+    # 讀起來是「這一組叫什麼」而不是「這是一個元件」。
+    text(1046, 388, "macro — the shared market state", 12, INK, "start",
+         "700", "italic")
+    box(1046, 396, 362, 50,
         ["US market factor",
          "the mean, with one learnable exposure per stock"],
         AMB_F, AMB_S, 1.8, hf="#7c3f06", bf="#7c4a09")
-    box(1022, 514, 386, 52,
+    text(1046, 466, "micro — which US stock it is", 12, INK, "start",
+         "700", "italic")
+    box(1046, 474, 362, 50,
+        ["ADR partner",
+         "the 7 paired stocks copy their US twin, one weight each"])
+    box(1046, 534, 362, 50,
         ["Residual structure",
          "each US stock after its market factor is removed"])
-    # 左側匯流排：三項同源、同時
-    line([(1219, 360), (1219, 372), (1004, 372), (1004, 540)])
-    for cy in (416, 478, 540):
-        arrow([(1004, cy), (1020, cy)])
-    # 右側匯流排收回 ⊕：三項相加，不是相接
-    for cy in (416, 478, 540):
+    # 主匯流排：由分流節點下來，macro 直接接、micro 再分一條次匯流排
+    line([(1219, 360), (1219, 370), (1004, 370), (1004, 499)])
+    arrow([(1004, 421), (1044, 421)])
+    line([(1004, 499), (1026, 499), (1026, 559)])
+    for cy in (499, 559):
+        arrow([(1026, cy), (1044, cy)])
+    # 右側收集匯流排 -> ⊕：兩條線三項相加，不是相接
+    for cy in (421, 499, 559):
         line([(1408, cy), (1428, cy)])
-    line([(1428, 416), (1428, 540)])
-    arrow([(1428, 540), (1428, 572)])
-    oplus(1428, 588, 14)
-    arrow([(1428, 602), (1428, 624), (1219, 624), (1219, 650)])
+    line([(1428, 421), (1428, 559)])
+    arrow([(1428, 559), (1428, 590)])
+    oplus(1428, 606, 14)
+    arrow([(1428, 620), (1428, 638), (1219, 638), (1219, 650)])
     box(1000, 652, 438, 74,
         ["Gated fusion",
          "one valve per dimension decides how much",

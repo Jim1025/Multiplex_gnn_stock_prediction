@@ -146,27 +146,30 @@
 <rect x="1000" y="306" width="438" height="54" rx="6" fill="#fbe4a8" stroke="#b45309" stroke-width="1.8"/>
 <text x="1219.0" y="329.5" font-size="15.5" fill="#7c3f06" text-anchor="middle" font-weight="700" font-style="normal">Split the US state</text>
 <text x="1219.0" y="347.0" font-size="12.5" fill="#7c4a09" text-anchor="middle" font-weight="400" font-style="normal">a cross-sectional mean, and what remains of each stock</text>
-<rect x="1022" y="390" width="386" height="52" rx="6" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/>
-<text x="1215.0" y="412.5" font-size="15.5" fill="#1f2933" text-anchor="middle" font-weight="700" font-style="normal">ADR partner</text>
-<text x="1215.0" y="430.0" font-size="12.5" fill="#5b6672" text-anchor="middle" font-weight="400" font-style="normal">the 7 paired stocks copy their US twin, one weight each</text>
-<rect x="1022" y="452" width="386" height="52" rx="6" fill="#fbe4a8" stroke="#b45309" stroke-width="1.8"/>
-<text x="1215.0" y="474.5" font-size="15.5" fill="#7c3f06" text-anchor="middle" font-weight="700" font-style="normal">US market factor</text>
-<text x="1215.0" y="492.0" font-size="12.5" fill="#7c4a09" text-anchor="middle" font-weight="400" font-style="normal">the mean, with one learnable exposure per stock</text>
-<rect x="1022" y="514" width="386" height="52" rx="6" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/>
-<text x="1215.0" y="536.5" font-size="15.5" fill="#1f2933" text-anchor="middle" font-weight="700" font-style="normal">Residual structure</text>
-<text x="1215.0" y="554.0" font-size="12.5" fill="#5b6672" text-anchor="middle" font-weight="400" font-style="normal">each US stock after its market factor is removed</text>
-<path d="M1219,360 L1219,372 L1004,372 L1004,540" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
-<path d="M1004,416 L1020,416" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
-<path d="M1004,478 L1020,478" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
-<path d="M1004,540 L1020,540" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
-<path d="M1408,416 L1428,416" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
-<path d="M1408,478 L1428,478" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
-<path d="M1408,540 L1428,540" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
-<path d="M1428,416 L1428,540" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
-<path d="M1428,540 L1428,572" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
-<circle cx="1428" cy="588" r="14" fill="#ffffff" stroke="#1f2933" stroke-width="1.8"/>
-<path d="M1420.72,588 H1435.28 M1428,580.72 V595.28" fill="none" stroke="#1f2933" stroke-width="1.8"/>
-<path d="M1428,602 L1428,624 L1219,624 L1219,650" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
+<text x="1046" y="388" font-size="12" fill="#1f2933" text-anchor="start" font-weight="700" font-style="italic">macro — the shared market state</text>
+<rect x="1046" y="396" width="362" height="50" rx="6" fill="#fbe4a8" stroke="#b45309" stroke-width="1.8"/>
+<text x="1227.0" y="417.5" font-size="15.5" fill="#7c3f06" text-anchor="middle" font-weight="700" font-style="normal">US market factor</text>
+<text x="1227.0" y="435.0" font-size="12.5" fill="#7c4a09" text-anchor="middle" font-weight="400" font-style="normal">the mean, with one learnable exposure per stock</text>
+<text x="1046" y="466" font-size="12" fill="#1f2933" text-anchor="start" font-weight="700" font-style="italic">micro — which US stock it is</text>
+<rect x="1046" y="474" width="362" height="50" rx="6" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/>
+<text x="1227.0" y="495.5" font-size="15.5" fill="#1f2933" text-anchor="middle" font-weight="700" font-style="normal">ADR partner</text>
+<text x="1227.0" y="513.0" font-size="12.5" fill="#5b6672" text-anchor="middle" font-weight="400" font-style="normal">the 7 paired stocks copy their US twin, one weight each</text>
+<rect x="1046" y="534" width="362" height="50" rx="6" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/>
+<text x="1227.0" y="555.5" font-size="15.5" fill="#1f2933" text-anchor="middle" font-weight="700" font-style="normal">Residual structure</text>
+<text x="1227.0" y="573.0" font-size="12.5" fill="#5b6672" text-anchor="middle" font-weight="400" font-style="normal">each US stock after its market factor is removed</text>
+<path d="M1219,360 L1219,370 L1004,370 L1004,499" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1004,421 L1044,421" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
+<path d="M1004,499 L1026,499 L1026,559" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1026,499 L1044,499" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
+<path d="M1026,559 L1044,559" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
+<path d="M1408,421 L1428,421" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1408,499 L1428,499" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1408,559 L1428,559" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1428,421 L1428,559" fill="none" stroke="#7d8a99" stroke-width="1.7"/>
+<path d="M1428,559 L1428,590" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
+<circle cx="1428" cy="606" r="14" fill="#ffffff" stroke="#1f2933" stroke-width="1.8"/>
+<path d="M1420.72,606 H1435.28 M1428,598.72 V613.28" fill="none" stroke="#1f2933" stroke-width="1.8"/>
+<path d="M1428,620 L1428,638 L1219,638 L1219,650" fill="none" stroke="#7d8a99" stroke-width="1.7" marker-end="url(#tri)"/>
 <rect x="1000" y="652" width="438" height="74" rx="6" fill="#d7e5f7" stroke="#5b7fa6" stroke-width="1.8"/>
 <text x="1219.0" y="676.75" font-size="15.5" fill="#173d61" text-anchor="middle" font-weight="700" font-style="normal">Gated fusion</text>
 <text x="1219.0" y="694.25" font-size="12.5" fill="#3d5f7f" text-anchor="middle" font-weight="400" font-style="normal">one valve per dimension decides how much</text>
