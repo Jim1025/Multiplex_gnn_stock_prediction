@@ -209,6 +209,28 @@ def arrow(pts, label=None, lx=None, ly=None):
         text(mx, my, label, 12, GREY, "middle", "400", "italic")
 
 
+def line(pts):
+    """無箭頭的匯流線。匯流排不是資料流箭頭，故不掛 marker，
+    「單一箭頭樣式」的規則不受影響。"""
+    d = " ".join(f"{'M' if i == 0 else 'L'}{x},{y}"
+                 for i, (x, y) in enumerate(pts))
+    add(f'<path d="{d}" fill="none" stroke="{LINE}" stroke-width="1.7"/>')
+
+
+def oplus(cx, cy, r=15):
+    """加總節點。全圖唯一破例的第五種圖形。
+
+    理由：教授指出 Phase 2 畫成三條上下相連的 Path，會被讀成順序關係。
+    三項實際上是同時從同一個輸入算出、相加。三線收斂到一個節點是
+    「合併」的通用語法，不可能被讀成「然後」——這個語意重要到值得
+    破例。替代方案（三線交會但不畫圓）視覺重量不足。"""
+    add(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="#ffffff" '
+        f'stroke="{INK}" stroke-width="1.8"/>')
+    k = r * 0.52
+    add(f'<path d="M{cx-k},{cy} H{cx+k} M{cx},{cy-k} V{cy+k}" fill="none" '
+        f'stroke="{INK}" stroke-width="1.8"/>')
+
+
 def cylinder(cx, top, w, h, label1, label2):
     rx, ry = w / 2, 11
     add(f'<path d="M{cx-rx},{top+ry} v{h-2*ry} a{rx},{ry} 0 0 0 {2*rx},0 '
@@ -402,8 +424,11 @@ def build(d: dict, date: str) -> str:
         stack(682, 268 + dy, 118, 66, ["GATv2", "1 layer, 1 head"])
         arrow([(808, 301 + dy), (828, 301 + dy)])
         box(830, 268 + dy, 116, 66, ["Type projection", "to 32 dims"])
+        # 標籤縮短為不含 "32,"：維度在左邊的 Type projection 框裡已經寫了。
+        # Phase 1 與 Phase 2 的虛線框只隔 38px，任何較長的標籤都會壓到框線；
+        # Gated fusion 下移到 y=652 之後這一點才顯出來。
         arrow([(948, 301 + dy), (982, 301 + dy)],
-              "32, to Phase 2" if dy == 0 else "32, to fusion",
+              "to Phase 2" if dy == 0 else "to fusion",
               lx=964, ly=259 + dy)
 
     # ───── Phase 1 中段：跨層接線 ─────
@@ -423,41 +448,64 @@ def build(d: dict, date: str) -> str:
     text(474, 414, "7 TW stocks have a US listing", 12, GREY, "start")
     text(474, 432, "of the same company", 12, GREY, "start")
     text(474, 464, "the other 43 have none —", 12, GREY, "start")
-    text(474, 482, "they reach the US side only", 12, GREY, "start")
-    text(474, 500, "through the two paths at right", 12, GREY, "start")
+    text(474, 482, "they reach the US side only through the", 12, GREY, "start")
+    text(474, 500, "market factor and residual at right", 12, GREY, "start")
 
     # ───── Phase 2 ─────
-    region(984, 128, 470, 672, "Phase 2 — Cross-market coupling and fusion")
-    heat(1104, 208, 216, 118, rgb_beta(d["B"], d["pair"]),
-         title="Learned coupling weights",
-         sub="every US stock may reach every TW stock",
+    # 2026-08-31 改版。教授指出舊版把三項畫成上下相連的 "Path 1/2/3"，
+    # 會被讀成順序關係。實際上三項是同時從同一個 h1 算出、相加。四個修正：
+    #   (a) 刪掉框與框之間的箭頭，改成「左側匯流排分出、右側匯流排收回、
+    #       收斂到 ⊕」——三線收歛到一點是「合併」的通用語法
+    #   (b) 拿掉 "Path N —" 字樣，只留名字（沒有詞就沒有詞會被誤讀）
+    #   (c) 新增分流節點：h1 先拆成橫截面平均與殘差，兩者互斥地餵給
+    #       市場因子與殘差結構。這是三項為什麼是三項的真正結構，
+    #       也正面回答「②+③ 為什麼不合起來」的質疑（proposal §33、§46）
+    #   (d) B 的熱圖不再掛在資料流上——B 是參數不是資料，且它只屬於
+    #       殘差項。畫在最上方但不接任何箭頭，標題直接寫明歸屬
+    region(984, 128, 470, 672, "Phase 2 — Factor-exposure coupling and fusion")
+    heat(1104, 190, 216, 84, rgb_beta(d["B"], d["pair"]),
+         title="Learned residual coupling",
+         sub="one weight per US-TW pair, used by the residual term only",
          rowlab="30 US stocks", collab="50 TW stocks")
-    box(1000, 372, 438, 62,
-        ["Path 1 — ADR partner",
-         "the 7 paired stocks copy their US twin, one learnable weight each"])
-    box(1000, 448, 438, 62,
-        ["Path 2 — US market factor",
-         "all 50 stocks, one learnable exposure per stock"],
+    # 分流節點：本版真正新增的東西是「把市場暴露與殘差分開」，故標為新增
+    box(1000, 306, 438, 54,
+        ["Split the US state",
+         "a cross-sectional mean, and what remains of each stock"],
         AMB_F, AMB_S, 1.8, hf="#7c3f06", bf="#7c4a09")
-    box(1000, 524, 438, 62,
-        ["Path 3 — residual structure",
-         "what is left of each US stock after the market factor is removed"])
-    for yy in (434, 510):
-        arrow([(1219, yy), (1219, yy + 12)])
-    arrow([(1219, 586), (1219, 612)])
-    box(1000, 614, 438, 74,
+    # 框寬 386 而非原本的 438：左右各讓出匯流排的空間。內文同步縮短到
+    # 386px 放得下（12.5px 字約 59 字元），避免溢出框線。
+    box(1022, 390, 386, 52,
+        ["ADR partner",
+         "the 7 paired stocks copy their US twin, one weight each"])
+    box(1022, 452, 386, 52,
+        ["US market factor",
+         "the mean, with one learnable exposure per stock"],
+        AMB_F, AMB_S, 1.8, hf="#7c3f06", bf="#7c4a09")
+    box(1022, 514, 386, 52,
+        ["Residual structure",
+         "each US stock after its market factor is removed"])
+    # 左側匯流排：三項同源、同時
+    line([(1219, 360), (1219, 372), (1004, 372), (1004, 540)])
+    for cy in (416, 478, 540):
+        arrow([(1004, cy), (1020, cy)])
+    # 右側匯流排收回 ⊕：三項相加，不是相接
+    for cy in (416, 478, 540):
+        line([(1408, cy), (1428, cy)])
+    line([(1428, 416), (1428, 540)])
+    arrow([(1428, 540), (1428, 572)])
+    oplus(1428, 588, 14)
+    arrow([(1428, 602), (1428, 624), (1219, 624), (1219, 650)])
+    box(1000, 652, 438, 74,
         ["Gated fusion",
          "one valve per dimension decides how much",
          "US state to mix into each TW stock"],
         BLUE_F, "#5b7fa6", 1.8, hf="#173d61", bf="#3d5f7f")
-    text(1219, 718, "the three paths are summed, then fused with the TW side",
-         12, GREY, "middle", "400", "italic")
-    arrow([(982, 301), (992, 301), (992, 332), (1104, 332)])
-    arrow([(982, 301 + DY), (992, 301 + DY), (992, 651), (998, 651)])
+    arrow([(982, 301), (992, 301), (992, 333), (998, 333)])
+    arrow([(982, 301 + DY), (992, 301 + DY), (992, 689), (998, 689)])
 
     # ───── Phase 3 ─────
     region(1486, 128, 300, 672, "Phase 3 — Rank-oriented prediction")
-    arrow([(1438, 651), (1462, 651), (1462, 288), (1520, 288)])
+    arrow([(1438, 689), (1462, 689), (1462, 288), (1520, 288)])
     stack(1522, 254, 226, 68, ["Prediction head", "32 to 64 to 1, one ReLU"])
     arrow([(1636, 322), (1636, 362)])
     box(1500, 364, 268, 96,
@@ -466,7 +514,7 @@ def build(d: dict, date: str) -> str:
     arrow([(1636, 460), (1636, 500)])
     box(1500, 502, 268, 96,
         ["Training objective", "squared error, ranking loss,",
-         "variance floor  (weights 1 / 0.5 / 0.1)"],
+         "variance floor"],
         BLUE_F, "#5b7fa6", 1.8, hf="#173d61", bf="#3d5f7f")
     text(1636, 640, "AdamW, walk-forward split, never shuffled",
          12, GREY, "middle", "400", "italic")
@@ -487,7 +535,8 @@ def build(d: dict, date: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="產生 MAGNET 架構圖")
-    ap.add_argument("--run", default="runs/20260824_1740_tw50_beta_s42")
+    # runs/ 於 2026-08-30 改成樹狀結構（commit 6c23b78），預設路徑同步更新
+    ap.add_argument("--run", default="runs/tw50/beta/20260824_1740_tw50_beta_s42")
     ap.add_argument("--date", default="2025-04-10")
     ap.add_argument("--out", default="docs/figures/magnet_flow_v6.svg")
     a = ap.parse_args()
