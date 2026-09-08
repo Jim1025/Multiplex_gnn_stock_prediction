@@ -632,6 +632,16 @@ def train(
                 f"({train_stats['epoch_time_sec']:.1f}s)"
             )
 
+            # 塌縮可見化：val 有多少天算不出 IC（橫截面預測變成常數）。
+            # aggregate_ic 已經在有效天數不足時回 NaN，early stopping 的
+            # `not isnan(monitor_val)` 會自動不選它；這裡只是讓它在 log 上看得見，
+            # 否則一個逐漸塌縮的 run 會安靜地跑完（proposal §44.7）。
+            _nv, _nd = (val_stats.get("n_valid_IC"), val_stats.get("n_days"))
+            if _nv is not None and _nd and _nv < _nd:
+                print(f"    [warn] val 有 {_nd - _nv}/{_nd} 天算不出 IC"
+                      f"（橫截面預測為常數）"
+                      + ("　-> 已低於門檻，本 epoch 不列入 best" if np.isnan(val_ic) else ""))
+
             # M8 路線 A 實驗 3（Figure 1）：逐 epoch 存權重供事後 test 軌跡評估
             if save_every_epoch:
                 save_checkpoint(run_dir / "checkpoints" / f"epoch_{epoch:03d}.pt",

@@ -156,8 +156,19 @@ def neural_stats(arm: str):
             tm = {**tm, **json.load(open(rv))["reevaluated"]}
         if tm.get("IC") is None:
             continue
-        per_ic.append(tm["IC"]); per_ric.append(tm["RankIC"])
         ser = daily_series(d)
+        # RankIC 改由預測檔重算，不讀 meta.json。
+        #
+        # 2026-09-01：meta.json 的 RankIC 是用舊的 `argsort(argsort())` 取名次算的，
+        # 對平手值給相異名次。實測 y（次日報酬）有 208/246 天存在平手——多半是
+        # 恰好 0% 的股票——所以那個欄位一直帶著系統性偏差（proposal §44.7、D1）。
+        # `daily_series` 用的是 scipy 的 spearmanr，平手取平均名次，是正確的。
+        #
+        # 影響：IC 逐位元不變（實測差 0.000000），RankIC 上移約 +0.0013 ~ +0.0017，
+        # 各 arm 同向，差值幾乎不動（第二折對 KTW+ −0.0114 -> −0.0115），
+        # 沒有任何結論翻轉。改完之後本表與 proposal 內文的 RankIC 才一致。
+        per_ic.append(tm["IC"])
+        per_ric.append(float(np.nanmean(ser[2])) if ser is not None else tm["RankIC"])
         if ser is not None:
             ics.append(ser[1]); rics.append(ser[2]); dates = ser[0]
         if params is None:
@@ -624,9 +635,15 @@ def main() -> None:
                "機制是正規化後的 pairwise 損失在完全塌縮時恰為 ln(2)=0.6931，"
                "而排序不夠好時攤開來的損失是 0.9344——**塌縮是更低的損失狀態**。"
                "完整分析見 proposal §44，論文化素材見 §45。")
-    out.append("- **本表的 RankIC 無法偵測預測塌縮。** `_spearman_corr` 用 "
-               "`argsort(argsort(·))` 取名次，常數輸入會被拆成任意排列，"
-               "於是回傳「ticker 順序 vs 真實報酬」的相關而非 NaN。"
+    out.append("- **RankIC 的平手處理已於 2026-09-01 修正（D1）。** 舊的 "
+               "`_spearman_corr` 用 `argsort(argsort(·))` 取名次，對平手值給相異名次；"
+               "實測 y 有 **208/246 天存在平手**（多半是恰好 0% 的股票），"
+               "所以 `meta.json` 的 RankIC 一直帶系統性偏差，常數輸入更會回傳"
+               "「ticker 順序 vs 真實報酬」的相關而非 NaN。"
+               "現已改用平均名次，且本表的 RankIC 一律由預測檔重算。"
+               "**影響：IC 逐位元不變，RankIC 上移約 +0.0013 ~ +0.0017、各 arm 同向，"
+               "差值與所有 p 值幾乎不動（第二折對 KTW+ −0.0114 -> −0.0115），"
+               "沒有結論翻轉。** 詳見 proposal §44.7 與 §54。"
                "掃過全部 631 個預測檔：**主結果 arm、beta 各版本、兩折的 f2_best / f2_base、"
                "全部線性 baseline 的塌縮天數皆為 0**，本表主要數字不受影響。"
                "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"

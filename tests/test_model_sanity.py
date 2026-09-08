@@ -1175,3 +1175,63 @@ def test_beta_rank_starts_at_zero_but_v_gets_gradient():
     d = m.proj_L1.linear.out_features if hasattr(m.proj_L1, "linear") else 32
     m._augment_weak(torch.randn(2, m.n_l1, d)).sum().backward()
     assert m.weak_V.grad.abs().mean().item() > 0, "V 必須拿得到梯度"
+
+
+# ---------------------------------------------------------------------------
+# D1：指標層的三個修正（proposal §44.7）
+# ---------------------------------------------------------------------------
+
+def test_avg_rank_matches_argsort_when_no_ties():
+    """無平手時新的平均名次必須與舊的 argsort(argsort()) 逐位元相同，
+    否則所有既有健康 run 的 RankIC 都會被改動。"""
+    import numpy as np
+    from src.train.metrics import _avg_rank
+    rng = np.random.default_rng(0)
+    for _ in range(100):
+        a = rng.normal(size=50)
+        assert np.array_equal(_avg_rank(a),
+                              np.argsort(np.argsort(a)).astype(np.float64))
+
+
+def test_avg_rank_averages_ties():
+    import numpy as np
+    from src.train.metrics import _avg_rank
+    assert np.array_equal(_avg_rank(np.array([1., 2., 2., 3.])),
+                          np.array([0., 1.5, 1.5, 3.]))
+
+
+def test_rank_ic_is_nan_on_constant_prediction():
+    """常數預測時 RankIC 必須是 NaN。舊寫法會回傳
+    「ticker 順序 vs 目標」的相關，於是偵測不到預測塌縮。"""
+    import numpy as np
+    from src.train.metrics import cross_sectional_ic
+    rng = np.random.default_rng(0)
+    const = np.full(50, 0.0244672764092683)
+    y = rng.normal(size=50)
+    assert np.isnan(cross_sectional_ic(const, y, method="spearman"))
+    assert np.isnan(cross_sectional_ic(const, y, method="pearson"))
+
+
+def test_aggregate_ic_returns_nan_when_too_few_valid_days():
+    """有效天數不足時不得拿少數幾天的平均當成整段成績。
+    實測案例：tw50_rnorm_s7 的 val 247 天只有 1 天有效，
+    舊版把那一天的 +0.171 報成 best_val_IC，高於任何健康 arm。"""
+    import numpy as np
+    from src.train.metrics import aggregate_ic
+    rng = np.random.default_rng(0)
+    ys = [rng.normal(size=50) for _ in range(100)]
+    collapsed = [np.full(50, 0.0244) for _ in range(99)] + [rng.normal(size=50)]
+    out = aggregate_ic(collapsed, ys)
+    assert np.isnan(out["IC"]) and np.isnan(out["RankIC"])
+    assert out["n_valid_IC"] == 1 and out["n_days"] == 100
+
+
+def test_aggregate_ic_unchanged_for_healthy_run():
+    import numpy as np
+    from src.train.metrics import aggregate_ic
+    rng = np.random.default_rng(1)
+    yh = [rng.normal(size=50) for _ in range(60)]
+    ys = [rng.normal(size=50) for _ in range(60)]
+    out = aggregate_ic(yh, ys)
+    assert out["n_valid_IC"] == out["n_days"] == 60
+    assert not np.isnan(out["IC"]) and not np.isnan(out["RankIC"])

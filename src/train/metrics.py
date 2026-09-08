@@ -42,14 +42,40 @@ def _pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
     return float((a * b).sum() / denom)
 
 
+def _avg_rank(a: np.ndarray) -> np.ndarray:
+    """平手值取平均名次的 0-based 名次（純 numpy，等同 scipy rankdata "average"）。
+
+    2026-09-01 取代 `np.argsort(np.argsort(a))`。舊寫法對平手值給的是
+    **任意但相異**的名次，兩個後果：
+
+      1. 常數輸入會被拆成一個任意排列（實測 [0, 26, 27, 28, ...]），
+         於是 Spearman 回傳「ticker 順序 vs 目標」的相關而**不是 NaN**——
+         `RankIC` 因此偵測不到預測塌縮，甚至捏造出數字（proposal §44.7）。
+      2. 一般平手值也拿到相異名次，嚴格說已經不是 Spearman。
+
+    無平手時本函式回傳 0, 1, ..., n-1，**與舊寫法逐位元相同**，
+    所以既有健康 run 的數值不變。常數輸入則全部得到 (n-1)/2，
+    變異為 0，由 `_pearson_corr` 的 denom 保護回傳 NaN——正確行為。
+    """
+    n = a.size
+    order = np.argsort(a, kind="mergesort")
+    srt = a[order]
+    ranks = np.empty(n, dtype=np.float64)
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and srt[j + 1] == srt[i]:
+            j += 1
+        ranks[order[i:j + 1]] = 0.5 * (i + j)
+        i = j + 1
+    return ranks
+
+
 def _spearman_corr(a: np.ndarray, b: np.ndarray) -> float:
-    """Spearman 相關係數 = 排名後的 Pearson。"""
+    """Spearman 相關係數 = 平均名次後的 Pearson。"""
     if a.size < 2 or b.size < 2:
         return float("nan")
-    # argsort 兩次得到 rank
-    ra = np.argsort(np.argsort(a)).astype(np.float64)
-    rb = np.argsort(np.argsort(b)).astype(np.float64)
-    return _pearson_corr(ra, rb)
+    return _pearson_corr(_avg_rank(a), _avg_rank(b))
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +124,25 @@ def cross_sectional_ic(
 # 聚合 IC
 # ---------------------------------------------------------------------------
 
+# 有效天數門檻：可算出 IC 的日數低於總日數的這個比例時，聚合值回 NaN。
+#
+# 為什麼需要：`aggregate_ic` 原本把 NaN 日濾掉之後直接平均，沒有下限。
+# 實測後果——`tw50_rnorm_s7` 的 val 有 247 天，其中 **246 天預測塌縮成常數**
+# （IC 無定義），`best_val_IC = 0.171085` 是**剩下那一天**的值，
+# 而它高於本專案任何健康 arm 的 val IC（約 0.158）。也就是說：
+# 一個完全塌縮的模型，在模型選擇的指標上看起來是史上最好的一個。
+# detach 版更誇張，val IC 0.2542 / 0.2809（proposal §44.7、§44.8.4）。
+#
+# 回 NaN 之後，train.py 的 `improved = (not isnan(monitor_val)) and ...`
+# 會直接讓該 epoch 不被選為 best checkpoint——三個修正裡的第三個因此免費取得。
+# 健康 run 的有效天數是 100%，數值完全不受影響。
+MIN_VALID_FRAC = 0.5
+
+
 def aggregate_ic(
     daily_y_hats: list[Tensor] | list[np.ndarray],
     daily_ys:     list[Tensor] | list[np.ndarray],
+    min_valid_frac: float = MIN_VALID_FRAC,
 ) -> dict:
     """
     跨多個時間點聚合 IC 與 ICIR。
@@ -111,8 +153,11 @@ def aggregate_ic(
 
     Returns:
         {
-            "IC":      float,   每日 Pearson IC 的平均
+            "IC":      float,   每日 Pearson IC 的平均；有效天數 < min_valid_frac
+                                時為 NaN（見 MIN_VALID_FRAC 的說明）
             "ICIR":    float,   mean(IC) / std(IC)；std=0 時為 NaN
+            "n_days":  int,     總天數
+            "n_valid_IC" / "n_valid_RankIC": int，可算出該指標的天數
             "RankIC":  float,   Spearman 版本平均
             "RankICIR":float,
             "daily_IC":     list[float],
@@ -136,11 +181,23 @@ def aggregate_ic(
             return float("nan")
         return float(arr.mean() / std)
 
+    n_days = len(daily_ic)
+    floor  = min_valid_frac * n_days
+
+    def _mean(arr: np.ndarray) -> float:
+        # 有效天數不足時回 NaN，而不是拿少數幾天的平均當成整段的成績
+        if arr.size == 0 or arr.size < floor:
+            return float("nan")
+        return float(arr.mean())
+
     return {
-        "IC":         float(arr_ic.mean())   if arr_ic.size   > 0 else float("nan"),
-        "ICIR":       _icir(arr_ic),
-        "RankIC":     float(arr_rank.mean()) if arr_rank.size > 0 else float("nan"),
-        "RankICIR":   _icir(arr_rank),
+        "IC":         _mean(arr_ic),
+        "ICIR":       _icir(arr_ic) if arr_ic.size   >= floor else float("nan"),
+        "RankIC":     _mean(arr_rank),
+        "RankICIR":   _icir(arr_rank) if arr_rank.size >= floor else float("nan"),
+        "n_days":       n_days,
+        "n_valid_IC":   int(arr_ic.size),
+        "n_valid_RankIC": int(arr_rank.size),
         "daily_IC":     daily_ic,
         "daily_RankIC": daily_rank,
     }
