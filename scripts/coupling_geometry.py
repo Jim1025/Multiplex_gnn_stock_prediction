@@ -37,6 +37,10 @@ coupling_geometry.py — 耦合層的最佳化幾何（proposal §59）
        - 前 k 強鄰居的質量佔比：若前 5 強已佔九成，top-k 過濾等於沒做事
      本區塊複製 GATEncoder.forward 以取出 attention，因此內建對拍。
 
+  J. 塌縮能不能解、解了有沒有用
+     兩個架構修法的前向反事實（projection bias 歸零、GAT 加殘差），
+     以及跨種子的「塌縮程度 vs 表現」相關——後者是唯一沒有分布偏移的證據。
+
   I. 塌縮的歸因：是訓練必然，還是架構造成的
      同一組權重只切換「有沒有鄰居」，把塌縮拆成「鄰居平均」與
      「projection 自己」。結論是兩者冗餘——只要有一個就足以塌到 0.95 以上，
@@ -63,6 +67,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import glob
 import os
 import re
@@ -726,9 +731,82 @@ def block_I(split: str) -> None:
     print("\n    -> 整個訓練都沒有鄰居，h₁ 仍到 0.90 以上。稀疏化修不掉塌縮。")
 
 
+# ── J. 塌縮能不能解、解了有沒有用 ────────────────────────────────────
+
+def _h1_cos_ratio(model, cfg, p, split) -> tuple[float, float]:
+    H = grab_h1(model, make_loader(cfg, p, split))
+    nb, nd = mean_dev(H)
+    return pairwise_cos(H), nb / max(nd, 1e-12)
+
+
+def block_J(split: str) -> None:
+    print("\n" + "=" * 78)
+    print("J. 塌縮能不能解、解了有沒有用")
+    print("=" * 78)
+
+    print("\n  (1) 前向反事實：權重不變，只改架構")
+    print("      注意：權重是在**沒有這些修改**下訓練的，所以 IC 欄是分布外的，")
+    print("      只能看方向、不能當成重訓後的預期值。幾何欄（餘弦／比值）不受此限。")
+    print(f"\n    {'情境':34s} {'h₁ 餘弦':>9s} {'比值':>8s} {'test IC':>9s}")
+    for arm, rd in (("舊 arm", OLD_RUN), ("新 arm", NEW_RUN)):
+        for zero_bias, residual, lab in ((False, False, "baseline"),
+                                         (True, False, "(1) projection bias 歸零"),
+                                         (False, True, "(2) GAT 加殘差 h + GAT(h)"),
+                                         (True, True, "(3) 兩者都做")):
+            model, cfg, p = make_model(ROOT / rd)
+            if zero_bias:
+                with torch.no_grad():
+                    model.proj_L1.linear.bias.zero_()
+            if residual:
+                orig = model._apply_gat_batched
+                def res_hook(g, h, ei, ea, _o=orig, _m=model):
+                    out = _o(g, h, ei, ea)
+                    # LSTM hidden 與 GAT hidden 同為 64，維度剛好對上；
+                    # 對不上時（設定改過）就不加，避免靜默地量錯東西
+                    return out + h if (h.size(1) == _m.n_l1 and out.shape == h.shape) else out
+                model._apply_gat_batched = res_hook
+            c, r = _h1_cos_ratio(model, cfg, p, split)
+            st = evaluate(model, make_loader(cfg, p, split), torch.device("cpu"),
+                          eval_cfg=cfg.get("evaluation"))
+            print(f"    {arm + ' / ' + lab:34s} {c:+9.4f} {r:7.2f}x {float(st['IC']):+9.4f}")
+
+    print("\n  (2) 跨種子：塌得少的種子，表現是不是比較好")
+    print("      同一個 arm、同樣的流程，只有隨機種子不同——沒有分布偏移。")
+    for arm in (OLD_ARM, NEW_ARM):
+        rows = []
+        for seed, d in sorted(find_seeds(arm).items(), key=lambda kv: int(kv[0])):
+            meta_p = Path(d) / "meta.json"
+            if not meta_p.exists():
+                continue
+            meta = json.loads(meta_p.read_text())
+            model, cfg, p = make_model(Path(d))
+            H = grab_h1(model, make_loader(cfg, p, split))
+            nb, nd = mean_dev(H)
+            rows.append((seed, pairwise_cos(H), nd, nb,
+                         meta["test_metrics"]["IC"], meta["test_metrics"]["RankIC"]))
+        if len(rows) < 4:
+            continue
+        a = np.array([r[1:] for r in rows], dtype=np.float64)
+        print(f"\n    [{arm}]  n={len(rows)}")
+        print(f"      {'seed':>6s} {'h₁ 餘弦':>9s} {'‖dev‖':>8s} {'‖h̄₁‖':>8s}"
+              f" {'test IC':>9s} {'RankIC':>9s}")
+        for r in rows:
+            print(f"      {r[0]:>6s} {r[1]:+9.4f} {r[2]:8.4f} {r[3]:8.4f}"
+                  f" {r[4]:+9.4f} {r[5]:+9.4f}")
+        for nm, col in (("h₁ 餘弦", 0), ("‖dev‖", 1)):
+            for mnm, mi in (("IC", 3), ("RankIC", 4)):
+                pr = stats.pearsonr(a[:, col], a[:, mi])
+                sr = stats.spearmanr(a[:, col], a[:, mi])
+                print(f"      corr({nm:>7s}, {mnm:>6s})  Pearson {pr.statistic:+.3f}"
+                      f" (p {pr.pvalue:.3f})   Spearman {sr.statistic:+.3f} (p {sr.pvalue:.3f})")
+        print("      註：每個 arm 這裡有 8 個檢定，但有效獨立的約 2 個")
+        print("          （餘弦與 ‖dev‖ 是同一件事的鏡像；Pearson/Spearman 是同一檢定的兩個視角）。")
+        print("          Holm 校正請以 m=2 計。n=10，且這是相關不是介入。")
+
+
 BLOCKS = {"A": block_A, "B": block_B, "C": block_C,
           "D": block_D, "E": block_E, "F": block_F, "G": block_G,
-          "H": block_H, "I": block_I}
+          "H": block_H, "I": block_I, "J": block_J}
 
 
 def main() -> None:
@@ -737,11 +815,11 @@ def main() -> None:
     ap.add_argument("--blocks", nargs="*", default=list(BLOCKS),
                     choices=list(BLOCKS), help="要跑哪幾個區塊（預設全部）")
     ap.add_argument("--split", default="test", choices=["train", "val", "test"],
-                    help="A/B/C/D/G/H/I 用哪一個 split（E 固定用 train，因為那是訓練時的梯度）")
+                    help="A/B/C/D/G/H/I/J 用哪一個 split（E 固定用 train，因為那是訓練時的梯度）")
     args = ap.parse_args()
     for key in args.blocks:
         fn = BLOCKS[key]
-        fn(args.split) if key in ("A", "B", "C", "D", "G", "H", "I") else fn()
+        fn(args.split) if key in ("A", "B", "C", "D", "G", "H", "I", "J") else fn()
     print()
 
 
