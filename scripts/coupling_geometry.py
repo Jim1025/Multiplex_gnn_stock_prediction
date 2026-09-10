@@ -37,6 +37,11 @@ coupling_geometry.py — 耦合層的最佳化幾何（proposal §59）
        - 前 k 強鄰居的質量佔比：若前 5 強已佔九成，top-k 過濾等於沒做事
      本區塊複製 GATEncoder.forward 以取出 attention，因此內建對拍。
 
+  I. 塌縮的歸因：是訓練必然，還是架構造成的
+     同一組權重只切換「有沒有鄰居」，把塌縮拆成「鄰居平均」與
+     「projection 自己」。結論是兩者冗餘——只要有一個就足以塌到 0.95 以上，
+     所以稀疏化修不掉塌縮。
+
   H. GAT 注意力的集中度
      塌縮發生在 GAT（區塊 B）。這一塊回答「是圖太密，還是注意力壓不出
      差距」——量有效鄰居數 exp(H(α))、正規化熵、自環權重，以及注意力
@@ -57,6 +62,7 @@ coupling_geometry.py — 耦合層的最佳化幾何（proposal §59）
 from __future__ import annotations
 
 import argparse
+import copy
 import glob
 import os
 import re
@@ -95,15 +101,29 @@ def load_cfg(run_dir: Path) -> tuple[dict, str]:
     return yaml.safe_load(open(p)), p
 
 
-def make_model(run_dir: Path, trained: bool = True):
+def make_model(run_dir: Path, trained: bool = True, graph_ablate: str | None = None):
+    """未訓練時一律用 train 模式跑前向——這是一個容易踩的坑。
+
+    所有 arm 都是 input_norm: batchnorm。BatchNorm 在 eval 模式下用
+    running stats，而未訓練的 running stats 還是初值（mean 0 / var 1），
+    等於**完全沒有正規化**。用 eval 模式量「初始化時的表示」，量到的是
+    「沒有輸入正規化的架構」，不是這個架構本身：實測 LSTM 輸出的兩兩
+    餘弦 0.9947（eval）vs 0.6447（train），h₁ 的 λ1/λ2 差 5.5 倍
+    （1499 vs 271.7）。已訓練的模型沒有這個問題，用 eval。
+    """
     cfg, p = load_cfg(run_dir)
+    if graph_ablate is not None:
+        cfg = copy.deepcopy(cfg)
+        cfg["model"]["gat"]["graph_ablate"] = graph_ablate
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     model = build_model(cfg)
     if trained:
         load_checkpoint(run_dir / "checkpoints" / "best.pt", model,
                         optimizer=None, map_location=torch.device("cpu"))
-    model.eval()
+        model.eval()
+    else:
+        model.train()          # 見 docstring：BN 必須用當批統計量
     return model, cfg, p
 
 
@@ -251,7 +271,7 @@ def block_B(split: str) -> None:
             print(f"    {name:26s} {A.shape[2]:4d} {nb:10.4f} {nd:9.4f}"
                   f" {nb / max(nd, 1e-12):8.2f}x {pairwise_cos(A):+10.4f}")
 
-    trace(OLD_RUN, "舊 arm @ 初始化（完全未訓練）", trained=False)
+    trace(OLD_RUN, "舊 arm @ 初始化（未訓練；BN 用當批統計量）", trained=False)
     trace(OLD_RUN, "舊 arm @ 訓練後", trained=True)
     trace(NEW_RUN, "新 arm @ 訓練後", trained=True)
 
@@ -305,7 +325,7 @@ def block_D(split: str) -> None:
     print("=" * 78)
     print("\n  舊式 out_j = Σᵢ B[i,j]·h₁ᵢ  -> 對 B[:,j] 的 Jacobian 是 H = [h₁₁ … h₁ₙ]")
     print("  新式 ③ 只乘 h₁ᵢ − h̄₁       -> Jacobian 是去均值後的 H，共同模態已移交給 γ")
-    for lab, rd, trained in (("舊 arm @ 初始化", OLD_RUN, False),
+    for lab, rd, trained in (("舊 arm @ 初始化（BN 用當批統計量）", OLD_RUN, False),
                              ("舊 arm @ 訓練後", OLD_RUN, True),
                              ("新 arm @ 訓練後", NEW_RUN, True)):
         model, cfg, p = make_model(ROOT / rd, trained=trained)
@@ -591,9 +611,124 @@ def block_H(split: str) -> None:
     print("  瓶頸是動態範圍而不是哪些邊存在。")
 
 
+# ── I. 塌縮的歸因 ────────────────────────────────────────────────────
+
+def _h1_trace(model, cfg, p, split) -> dict:
+    """回傳 LSTM / GAT / h₁ 三站的（餘弦, 比值），外加 projection 三步。"""
+    cap: dict[str, torch.Tensor] = {}
+    buf: dict[str, list] = {k: [] for k in ("lstm", "gat", "lin", "act", "proj")}
+    pr = model.proj_L1
+    orig_lstm = model.lstm.forward
+    def lstm_hook(x_seq, layer: int = 0):
+        out = orig_lstm(x_seq, layer=layer)
+        if layer == 0 and x_seq.size(2) == model.n_l1:
+            cap["lstm"] = out.detach()
+        return out
+    model.lstm.forward = lstm_hook
+    orig_gat = model._apply_gat_batched
+    def gat_hook(g, h, ei, ea):
+        out = orig_gat(g, h, ei, ea)
+        if h.size(1) == model.n_l1:
+            cap["gat"] = out.detach()
+            z = pr.linear(out); cap["lin"] = z.detach()
+            a = pr.act(z);      cap["act"] = a.detach()
+        return out
+    model._apply_gat_batched = gat_hook
+    orig_aug = model._augment_weak
+    def aug_hook(h):
+        cap["proj"] = h.detach()
+        return orig_aug(h)
+    model._augment_weak = aug_hook
+    with torch.no_grad():
+        for b in make_loader(cfg, p, split):
+            model(b)
+            for k in buf:
+                buf[k].append(cap[k].numpy())
+    out = {}
+    for k, v in buf.items():
+        A = np.concatenate(v, 0)
+        nb, nd = mean_dev(A)
+        out[k] = (pairwise_cos(A), nb / max(nd, 1e-12))
+    return out
+
+
+def block_I(split: str) -> None:
+    print("\n" + "=" * 78)
+    print("I. 塌縮的歸因：訓練必然，還是架構造成的")
+    print("=" * 78)
+
+    print("\n  (1) 同一組權重，只切換『有沒有鄰居』（兩兩餘弦）")
+    print(f"    {'情境':40s} {'LSTM':>9s} {'GAT':>9s} {'h₁':>9s} {'h₁ 比值':>9s}")
+    for lab, rd, trained in (("初始化（未訓練）", OLD_RUN, False),
+                             ("舊 arm 訓練後", OLD_RUN, True),
+                             ("新 arm 訓練後", NEW_RUN, True)):
+        for ab, an in ((None, "完整圖"), ("empty_l1", "無鄰居")):
+            model, cfg, p = make_model(ROOT / rd, trained=trained, graph_ablate=ab)
+            t = _h1_trace(model, cfg, p, split)
+            print(f"    {lab + ' / ' + an:40s} {t['lstm'][0]:+9.4f} {t['gat'][0]:+9.4f}"
+                  f" {t['proj'][0]:+9.4f} {t['proj'][1]:8.2f}x")
+    print("\n    -> 拿掉全部鄰居，h₁ 仍然塌。圖不是唯一原因。")
+
+    print("\n  (2) projection 的三步（無鄰居，隔離出這一段自己的效果）")
+    for lab, rd, trained in (("初始化", OLD_RUN, False), ("舊 arm 訓練後", OLD_RUN, True),
+                             ("新 arm 訓練後", NEW_RUN, True)):
+        model, cfg, p = make_model(ROOT / rd, trained=trained, graph_ablate="empty_l1")
+        t = _h1_trace(model, cfg, p, split)
+        print(f"\n    [{lab}]")
+        prev = None
+        for k, nm in (("gat", "GAT 輸出"), ("lin", "+ Linear"),
+                      ("act", "+ GELU"), ("proj", "+ LayerNorm = h₁")):
+            c, r = t[k]
+            d = f"({c - prev:+.4f})" if prev is not None else ""
+            print(f"      {nm:20s} 餘弦 {c:+.4f} {d:>10s}   比值 {r:7.2f}x")
+            prev = c
+
+    print("\n  (3) projection 的 Linear 為什麼會塌：b 每個節點都加同一個")
+    print(f"    {'情境':18s} {'||Wx 橫截面偏差||':>18s} {'||b||':>9s} {'b / 偏差':>10s}")
+    for lab, rd, trained in (("初始化", OLD_RUN, False), ("舊 arm 訓練後", OLD_RUN, True),
+                             ("新 arm 訓練後", NEW_RUN, True)):
+        model, cfg, p = make_model(ROOT / rd, trained=trained, graph_ablate="empty_l1")
+        pr = model.proj_L1
+        buf: list[np.ndarray] = []
+        orig = model._apply_gat_batched
+        def hook(g, h, ei, ea, _pr=pr, _buf=buf, _m=model):
+            out = orig(g, h, ei, ea)
+            if h.size(1) == _m.n_l1:
+                # 只乘 W、不加 b，才能看出 b 相對於訊號離散度有多大
+                _buf.append(torch.nn.functional.linear(
+                    out, _pr.linear.weight).detach().numpy())
+            return out
+        model._apply_gat_batched = hook
+        with torch.no_grad():
+            for b in make_loader(cfg, p, split):
+                model(b)
+        Wx = np.concatenate(buf, 0).astype(np.float64)
+        dev = float(np.linalg.norm(Wx - Wx.mean(1)[:, None, :], axis=2).mean())
+        bn = float(pr.linear.bias.detach().norm())
+        print(f"    {lab:18s} {dev:18.4f} {bn:9.4f} {bn / max(dev, 1e-12):9.2f}x")
+    print("\n    -> ||b|| 三者幾乎相同，差別全在分母。舊 arm 訓練 32 個 epoch，")
+    print("       橫截面偏差從 0.1021 動到 0.0991，等於沒動。")
+
+    print("\n  (4) 已訓練的 g_empty_l1（整個訓練過程都沒有 L1 鄰居）")
+    for lab, arm in (("完整圖", NEW_ARM), ("L1 無鄰居", NEW_ARM + "_g_empty_l1")):
+        rows = []
+        for seed, d in sorted(find_seeds(arm).items(), key=lambda kv: int(kv[0])):
+            model, cfg, p = make_model(Path(d))
+            t = _h1_trace(model, cfg, p, split)
+            rows.append((t["lstm"][0], t["gat"][0], t["proj"][0], t["proj"][1]))
+        if not rows:
+            continue
+        a = np.array(rows)
+        print(f"    [{lab} {arm}]  n={len(rows)}")
+        print(f"      LSTM 餘弦 {a[:, 0].mean():+.4f}   GAT 餘弦 {a[:, 1].mean():+.4f}"
+              f"   h₁ 餘弦 {a[:, 2].mean():+.4f} (sd {a[:, 2].std(ddof=1):.4f})"
+              f"   h₁ 比值 {a[:, 3].mean():.2f}x")
+    print("\n    -> 整個訓練都沒有鄰居，h₁ 仍到 0.90 以上。稀疏化修不掉塌縮。")
+
+
 BLOCKS = {"A": block_A, "B": block_B, "C": block_C,
           "D": block_D, "E": block_E, "F": block_F, "G": block_G,
-          "H": block_H}
+          "H": block_H, "I": block_I}
 
 
 def main() -> None:
@@ -602,11 +737,11 @@ def main() -> None:
     ap.add_argument("--blocks", nargs="*", default=list(BLOCKS),
                     choices=list(BLOCKS), help="要跑哪幾個區塊（預設全部）")
     ap.add_argument("--split", default="test", choices=["train", "val", "test"],
-                    help="A/B/C/D/G/H 用哪一個 split（E 固定用 train，因為那是訓練時的梯度）")
+                    help="A/B/C/D/G/H/I 用哪一個 split（E 固定用 train，因為那是訓練時的梯度）")
     args = ap.parse_args()
     for key in args.blocks:
         fn = BLOCKS[key]
-        fn(args.split) if key in ("A", "B", "C", "D", "G", "H") else fn()
+        fn(args.split) if key in ("A", "B", "C", "D", "G", "H", "I") else fn()
     print()
 
 
