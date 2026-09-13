@@ -127,6 +127,27 @@ def daily_series(run_dir: str):
     return H.index.to_numpy(), ic, ric
 
 
+def icir(arr) -> float:
+    """ICIR = mean(逐日 IC) / sd(逐日 IC)。
+
+    與 `src/train/metrics.py:176` 同一個定義（ddof=1），只是多了 nan-aware，
+    因為 `daily_series` 會把 std(y)=0 的日子標成 NaN（第一折有 1 天，
+    50 檔報酬完全相同）。
+
+    為什麼要報這個：§57.8 的恆等式是 r_t = IC_t x sigma_t，所以
+    **IC 只決定組合報酬的分子**。若 sigma_t 為常數，
+    Sharpe = ICIR x sqrt(252)——與 Sharpe 對應的是 ICIR，不是 IC。
+    實測（proposal §60）：本專案最佳 arm 的 IC 高於 KTW+，ICIR 卻較低
+    （0.4368 vs 0.4810），Top-10 多空的 Sharpe 也較低（5.86 vs 6.53）。
+    """
+    a = np.asarray(arr, dtype=float)
+    a = a[~np.isnan(a)]
+    if a.size < 2:
+        return float("nan")
+    sd = a.std(ddof=1)
+    return float("nan") if sd < 1e-12 else float(a.mean() / sd)
+
+
 def find_seeds(arm: str) -> dict[str, str]:
     out = {}
     for d in sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{arm}_s*"), recursive=True)):
@@ -148,7 +169,7 @@ def neural_stats(arm: str):
     runs = find_seeds(arm)
     if not runs:
         return None
-    ics, rics, per_ic, per_ric, params = [], [], [], [], None
+    ics, rics, per_ic, per_ric, per_icir, params = [], [], [], [], [], None
     for s, d in sorted(runs.items(), key=lambda kv: int(kv[0])):
         tm = (json.load(open(os.path.join(d, "meta.json"))).get("test_metrics") or {})
         rv = os.path.join(d, "meta_reeval.json")
@@ -169,6 +190,10 @@ def neural_stats(arm: str):
         # 沒有任何結論翻轉。改完之後本表與 proposal 內文的 RankIC 才一致。
         per_ic.append(tm["IC"])
         per_ric.append(float(np.nanmean(ser[2])) if ser is not None else tm["RankIC"])
+        # ICIR 逐 seed 算完再平均，不是拿跨 seed 平均後的日序列去算——
+        # 後者是「集成」的 ICIR，系統性偏高（§43 的 A 區塊在講同一件事）。
+        per_icir.append(icir(ser[1]) if ser is not None
+                        else (tm.get("ICIR") if tm.get("ICIR") is not None else np.nan))
         if ser is not None:
             ics.append(ser[1]); rics.append(ser[2]); dates = ser[0]
         if params is None:
@@ -178,6 +203,9 @@ def neural_stats(arm: str):
     return dict(seeds=sorted(runs, key=int), n=len(per_ic),
                 ic=float(np.mean(per_ic)), ic_sd=float(np.std(per_ic, ddof=1)) if len(per_ic) > 1 else np.nan,
                 ric=float(np.mean(per_ric)), ric_sd=float(np.std(per_ric, ddof=1)) if len(per_ric) > 1 else np.nan,
+                icir=float(np.nanmean(per_icir)) if per_icir else np.nan,
+                icir_sd=(float(np.nanstd(per_icir, ddof=1))
+                         if sum(~np.isnan(per_icir)) > 1 else np.nan),
                 per_ic=dict(zip(sorted(runs, key=int), per_ic)),
                 per_ric=dict(zip(sorted(runs, key=int), per_ric)),
                 daily_ic=colmean(np.vstack(ics)) if ics else None,
@@ -195,6 +223,7 @@ def nonneural_stats(pat: str):
     dates, ic, ric = ser
     return dict(n=1, ic=float(np.nanmean(ic)), ic_sd=np.nan,
                 ric=float(np.nanmean(ric)), ric_sd=np.nan,
+                icir=icir(ic), icir_sd=np.nan,
                 daily_ic=ic, daily_ric=ric, dates=dates, seeds=None)
 
 
@@ -258,8 +287,11 @@ def _fold2_rows():
         if not ds:
             return None
         k = sorted(set.intersection(*[set(x) for x in ds]))
-        return k, np.array([[np.mean([x[d][i] for x in ds]) for d in k]
-                            for i in (0, 1)])
+        V = np.array([[np.mean([x[d][i] for x in ds]) for d in k] for i in (0, 1)])
+        # ICIR 逐 run 算完再平均。用 V[0]（跨 run 平均後的日序列）算會得到
+        # 「集成」的 ICIR，系統性偏高，與主表的慣例不一致。
+        ir = float(np.nanmean([icir(np.array([x[d][0] for d in k])) for x in ds]))
+        return k, V, ir
 
     def _hac(d):
         n = len(d); L = int(4 * (n / 100) ** (2 / 9)); s2 = np.var(d, ddof=1)
@@ -271,7 +303,7 @@ def _fold2_rows():
     b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
-    kb, BESTV = b
+    kb, BESTV, BESTIR = b
     rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
@@ -284,19 +316,19 @@ def _fold2_rows():
     out = []
     for lab, r in rows:
         if r is None and lab.startswith("**"):
-            out.append(f"| {lab} | {BESTV[0].mean():+.4f} | {BESTV[1].mean():+.4f} "
-                       f"| — | — | — | — |")
+            out.append(f"| {lab} | {BESTV[0].mean():+.4f} | {BESTIR:.4f} "
+                       f"| {BESTV[1].mean():+.4f} | — | — | — | — |")
             continue
         if r is None:
             continue
-        kk, V = r
+        kk, V, IR = r
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
         for i in (0, 1):
             dd = BESTV[i][jj] - V[i][ii]
             cells += [f"{dd.mean():+.4f}", f"{_hac(dd):.4f}"]
-        out.append(f"| {lab} | {V[0][ii].mean():+.4f} | {V[1][ii].mean():+.4f} "
+        out.append(f"| {lab} | {V[0][ii].mean():+.4f} | {IR:.4f} | {V[1][ii].mean():+.4f} "
                    f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |")
     return out
 
@@ -493,8 +525,9 @@ def main() -> None:
     out.append("")
     out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。差為正代表基準較優。")
     out.append("")
-    out.append("| 方法 | 類別 | 設定 | n | test IC | sd | RankIC | sd | dIC | 逐日 p | 跨種子 Welch p | MW p |")
-    out.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    out.append("| 方法 | 類別 | 設定 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
+               "| dIC | 逐日 p | 跨種子 Welch p | MW p |")
+    out.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for label, cat, note, st, arm in sorted(rows, key=lambda r: -r[3]["ic"]):
         d_ic, p_pd = paired_daily(base, st, "ic")
         pw, pu, _ = across_seed(base, st, "ic")
@@ -503,6 +536,8 @@ def main() -> None:
         out.append(
             f"|{star}{label}{star.strip()} | {cat} | {note} | {st['n']} | "
             f"{fmt(st['ic'])} | {fmt(st['ic_sd'], signed=False)} | "
+            f"{fmt(st.get('icir'), signed=False)} | "
+            f"{fmt(st.get('icir_sd'), signed=False)} | "
             f"{fmt(st['ric'])} | {fmt(st['ric_sd'], signed=False)} | "
             f"{'—' if is_base else fmt(d_ic)} | "
             f"{'—' if is_base else fmt(p_pd, signed=False)} | "
@@ -519,8 +554,8 @@ def main() -> None:
     if f2 is None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
-        out.append("| 方法 | test IC | RankIC | dIC | 逐日 p | dRankIC | 逐日 p |")
-        out.append("|---|---:|---:|---:|---:|---:|---:|")
+        out.append("| 方法 | test IC | **ICIR** | RankIC | dIC | 逐日 p | dRankIC | 逐日 p |")
+        out.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for r in f2:
             out.append(r)
     out.append("")
@@ -555,7 +590,17 @@ def main() -> None:
                "敏感但不外推到新種子。兩欄應一起看。")
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
                "這是目前最大的公平性缺口，比較結果須據此保留。")
-    out.append("- **本表只報 IC / RankIC，兩者都是相關係數、對預測的尺度不敏感。**"
+    out.append("- **ICIR = mean(逐日 IC) / sd(逐日 IC)**，逐 seed 算完再跨 seed 平均"
+               "（不是拿跨 seed 平均後的日序列去算——那是集成的 ICIR，系統性偏高）。"
+               "**為什麼要看它**：§57.8 的恆等式是 `r_t = IC_t x sigma_t`，"
+               "所以 IC 只決定組合報酬的**分子**；若 sigma_t 為常數，"
+               "`Sharpe = ICIR x sqrt(252)`。**與回測 Sharpe 對應的是 ICIR，不是 IC。**"
+               "實測（§60）本專案最佳 arm 的 IC 高於 KTW+（+0.1090 vs +0.1077）"
+               "但 ICIR 較低（0.4368 vs 0.4810），Top-10 多空的 Sharpe 也較低"
+               "（5.86 vs 6.53）——**IC 的排名不保證回測的排名**。")
+    out.append("- **沒有報 RankICIR**：組合報酬的恆等式建立在 Pearson IC 上，"
+               "名次相關沒有對應的組合讀法，報了會被誤用。")
+    out.append("- **本表只報 IC / RankIC / ICIR，三者都是相關係數的函數、對預測的尺度不敏感。**"
                "主結果 arm 的預測是**過度離散**的——逐日橫截面 "
                "std(y_hat)/std(y) = **2.59**（beta 層前版 1.69、更早的版本 0.47 是收縮）。"
                "MSE 隨之由 0.00106 升到 **0.00204**，是最早版本的 4.5 倍。"
