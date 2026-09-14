@@ -8287,11 +8287,70 @@ prediction -> ranking），**損失函數**已滑向**第 5 類**（learning to 
 > ŷ 出自一個線性讀出層，所以相對間距是模型算出來的、不是隨手指定的（§57.1）。
 > 換句話說：**訓練用第 5 類的目標，輸出仍宣告成第 4 類的分數。**
 
-這類目標在金融上是主流。我們自己比較的 baseline 就在這個譜系
-（Adv-ALSTM IJCAI 2019、HATS NeurIPS 2019 WS、MAN-SF EMNLP 2020），
-而 `scripts/m10_portfolio_metrics.py` 的 docstring 早就記下這個缺口：
+這類目標在金融上是主流——但要講精確一點：
+**它有兩個不同的評估傳統，而我們同時踩在兩邊。**
+
+| | 傳統 1：Qlib / 因子投資 | 傳統 2：關係型 GNN 漲跌預測 |
+|---|---|---|
+| 訊號層指標 | **IC / ICIR / RankIC / RankICIR** | 無 |
+| 組合層指標 | **年化報酬 / IR / 最大回撤**（或 Sharpe / MDD） | 無 |
+| 分類層指標 | 無 | **Accuracy + MCC** |
+| 市場 | 幾乎都是 CSI300 / 500 / 1000（InvariantStock 另加美國） | ACL18 / KDD17 |
+| 代表 | Stockformer（ESWA）、InvariantStock、R&D-Agent-Quant | **Adv-ALSTM、HATS、MAN-SF** |
+
+「標準區塊」的源頭是 **Qlib 的 benchmark 表**，表頭逐字是：
+
+```
+Model Name | Dataset | IC | ICIR | Rank IC | Rank ICIR | Annualized Return | Information Ratio | Max Drawdown
+```
+
+左半 signal-based、右半 portfolio-based，20 顆種子報 mean ± sd。
+
+**所以「可見的不對稱」其實是兩個，不是一個：**
+
+1. **對傳統 1**：我們報了左半（IC / RankIC，§60.2 之後加了 ICIR），**缺右半**。
+2. **對傳統 2**：我們報的指標與 **baseline 原論文報的不是同一組**——
+   Adv-ALSTM（IJCAI 2019）報的是 **Accuracy 與 MCC，不報 IC**（原文已核對）。
+
+**第 2 點以前沒寫下來，而它會被問**（「你和 Adv-ALSTM 比的是同一件事嗎」）。
+好消息是加 ICIR 是**往傳統 1 的標準靠**，方向對了。
+
+另外兩件與 §60.4 / §60.6 直接相關：
+
+- **沒有一篇已核對的論文用 §60.4 的方式報「週轉率 + 打平成本」。**
+  QuantBench 把 turnover 列為 key metric，但實際報表的少。
+  所以那張成本敏感度表**比回測區塊還少見**——是差異點，
+  但審查者不會預期它，**必要性要自己講出來**。
+- **台灣市場在這個文獻裡幾乎不存在**，已核對的例子全是 CN 或 US。
+  比較基準難找，但「台灣成本結構下高週轉不可實現」也因此**沒被別人寫過**。
+
+而 `scripts/m10_portfolio_metrics.py` 的 docstring 早就記下同一個缺口：
 「跨市場文獻皆報 Sharpe，**只報統計指標的是我們**」。
-所以缺這一層**是可見的不對稱**，不是中性的選擇。
+所以缺這一層**不是中性的選擇**。
+
+#### 文獻出處與核對狀態（2026-09-14）
+
+**ScienceDirect 與 MDPI 在本次查證中一律回 403，期刊頁未讀到。**
+下表標明哪些逐字讀過原文、哪些只有檢索層級資訊。
+**引用進論文前請自行核一次卷期與 DOI。**
+
+| 出處 | 報什麼 | 核對狀態 |
+|---|---|---|
+| **Qlib benchmarks**（模板本身，不是論文）<br>`github.com/microsoft/qlib` -> `examples/benchmarks` | 上面那個表頭 | **表頭逐字核對** |
+| **Stockformer** — Ma, Xue, Lu & Chen，*Expert Systems with Applications*（檢索顯示 Vol. 273, art. 126803） | IC / ICIR / RankIC / RankICIR + 年化 / 最大回撤 / 年化波動 / Sharpe；**Qlib TopK-Dropout 回測**，14 個子資料集，分上漲 / 下跌 / 盤整 | **arXiv 2401.06139v2 全文已讀**；<br>卷號與文章號**僅檢索層級** |
+| **Alzaman (2025)** — *ESWA*（檢索顯示 Vol. 269, art. 126430），"Optimizing portfolio selection through stock ranking and matching: A reinforcement learning approach"，LSTM + XGBoost + Deep RankNet | **就是 §60.5 要延伸的那條 pipeline**（ranking -> matching -> portfolio） | **指標表未讀到**（403），<br>僅標題與摘要層級 |
+| **R&D-Agent-Quant** — Li 等（CMU / MSRA / HKUST / Oxford），arXiv 2505.15155 | 定義段逐字：IC、ICIR、rank IC、rank ICIR + ARR、IR、MDD、CR | **全文已讀** |
+| **InvariantStock** — Cao 等（Adelaide），arXiv 2409.00671 | Table 2（中國）、Table 3（美國）皆報 IC / ICIR / RankIC / RankICIR + ARR / MDD / SR | **全文已讀** |
+| **QuantBench** — Wang 等，arXiv 2504.18600 | 明確把 signal-level（IC、ICIR）與 portfolio-level（年化、Sharpe、MDD、**turnover**）分開。**最適合當「這是慣例」的引用** | **全文已讀** |
+| **LambdaRankIC** — arXiv 2605.00501 | 「The standard metric ... is the Rank Information Coefficient」；報 IC-bar / Std(IC) / ICIR / NDCG@100 + 月報酬 / 波動 / Sharpe / MDD | **全文已讀** |
+| **Adv-ALSTM** — Feng 等，IJCAI 2019 | **Accuracy + MCC，不報 IC** | **全文已讀** |
+
+檢索層級另見 QuantaAlpha、FactorEngine、RankGLU、MIGA 用同一區塊，未逐一讀原文。
+
+**與 §60.2 / §60.3 相關的一筆**：LambdaRankIC 主張訓練目標與評估指標之間的
+misalignment 要修——但**它的方向與我們相反**：它是「訓練用 MSE、評估用 RankIC」，
+我們是「訓練用 rank、評估用 Pearson IC」。§60.3 說損失沒有任何一項獎勵
+IC 的跨日一致性，是同一類問題的另一個面向。
 
 ### 60.2 主表加了 ICIR，而它揭露了一個兩折一致的模式
 
