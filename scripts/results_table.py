@@ -107,8 +107,8 @@ TOPK = 10       # 與 scripts/portfolio_readout.py 的 TOPK_DEFAULT 同值。
                 # 這是「讀法」的選擇不是模型超參，故不從 base.yaml 讀。
 ANN = float(np.sqrt(252.0))
 
-PF_HEAD = ("| 日均報酬 | 日 sd | 年化(簡單) | 年化(幾何) | 年化波動 "
-           "| Sharpe | MDD(複利) | MDD(加總) ")
+PF_HEAD = ("| 日均報酬 ↑ | 日 sd ↓ | 年化(簡單) ↑ | 年化(幾何) ↑ | 年化波動 ↓ "
+           "| Sharpe ↑ | MDD(複利) ↓ | MDD(加總) ↓ ")
 PF_SEP = "|---:|---:|---:|---:|---:|---:|---:|---:"
 PF_BLANK = "| — | — | — | — | — | — | — | — "
 
@@ -517,7 +517,7 @@ def _ens_block():
     out, ok = [], False
     out.append("### (A) 種子集成：先平均預測，再算 IC")
     out.append("")
-    out.append("| 折 | n 種子 | 聚合 | IC | RankIC | 離散比 std(y_hat)/std(y) "
+    out.append("| 折 | n 種子 | 聚合 | IC ↑ | RankIC ↑ | 離散比 std(y_hat)/std(y) "
                + PF_HEAD + "|")
     out.append("|---|---:|---|---:|---:|---:" + PF_SEP + "|")
     ens_cache = {}
@@ -547,7 +547,7 @@ def _ens_block():
            ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
-            "| 折 | 對照 | 其 IC | 其 RankIC | 逐日 p | dRankIC | 逐日 p "
+            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 逐日 p | dRankIC | 逐日 p "
             + PF_HEAD + "|",
             "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, _ in FOLDS:
@@ -565,7 +565,7 @@ def _ens_block():
                        + pf_cells(portfolio_stats(b[3])) + "|")
 
     out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
-            "| 折 | 方法 | IC | RankIC | 逐日 p | dRankIC | 逐日 p "
+            "| 折 | 方法 | IC ↑ | RankIC ↑ | 逐日 p | dRankIC | 逐日 p "
             + PF_HEAD + "|",
             "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, kp in FOLDS:
@@ -645,7 +645,7 @@ def main() -> None:
                "（類別看得出來：`[n]` 是文獻、`KTW+`/`R2`/`[24]` 是線性、"
                "`RC` 是空模型；`dIC` 自己減得出來），改放組合讀法的八欄。")
     out.append("")
-    out.append("| 方法 | 設定 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
+    out.append("| 方法 | 設定 | n | test IC ↑ | sd | **ICIR ↑** | sd | RankIC ↑ | sd "
                "| 逐日 p | 跨種子 Welch p | MW p "
                + PF_HEAD + "|")
     out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
@@ -676,7 +676,7 @@ def main() -> None:
     if f2 is None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
-        out.append("| 方法 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
+        out.append("| 方法 | n | test IC ↑ | sd | **ICIR ↑** | sd | RankIC ↑ | sd "
                    "| 逐日 p | dRankIC | 逐日 p " + PF_HEAD + "|")
         out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
                    + PF_SEP + "|")
@@ -706,6 +706,19 @@ def main() -> None:
     out.append("")
     out.append("## 讀表注意")
     out.append("")
+    out.append("- **欄名的 ↑ / ↓ 是「其他條件相同下哪個方向較好」**，"
+               "**不是說該欄可以單獨拿來排名**。有三類欄位**刻意沒有箭頭**：<br>"
+               "(1) **`sd` 各欄**（跨 seed 離散度）——離散度小只代表結果比較不挑種子，"
+               "一個爛模型的 sd 小並不好，它不是績效；<br>"
+               "(2) **`逐日 p` / `Welch p` / `MW p` / `dRankIC`**——這些是"
+               "**「統計基準對該列」**的檢定與差值，不是該列自己的績效。"
+               "p 小代表基準顯著贏過該列，站在該列的立場方向是相反的；<br>"
+               "(3) **`離散比 std(y_hat)/std(y)`**（§43 A 表）——在 ŷ 宣告為"
+               "「基數分數、尺度未校正」之下，IC 與 RankIC 對仿射變換不變、"
+               "**兩者都看不到這個比值**，所以它是規範選擇不是缺陷"
+               "（proposal §57.11、§60.7）。")
+    out.append("- **`MDD ↓` 的箭頭尤其不等於可以拿來排名**（見下方 MDD 那條）："
+               "它兩折的名次會翻轉。箭頭只說明方向，不背書該欄的可靠度。")
     out.append("- **n 是種子數。** sigma_seed = 0.0062，n=3 的最小可偵測差異為 0.0188、"
                "n=10 為 0.0082。n=3 的比較若差異小於 0.019，「不顯著」不構成證據。")
     out.append("- **Mann-Whitney 在 n=3 的雙尾 p 下限是 0.10**（= 2/C(6,3)，"
