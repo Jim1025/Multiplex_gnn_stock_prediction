@@ -103,6 +103,81 @@ NONNEURAL = [
 PREDICTIONS = "reeval"
 
 
+TOPK = 10       # 與 scripts/portfolio_readout.py 的 TOPK_DEFAULT 同值。
+                # 這是「讀法」的選擇不是模型超參，故不從 base.yaml 讀。
+ANN = float(np.sqrt(252.0))
+
+PF_HEAD = ("| 日均報酬 | 日 sd | 年化(簡單) | 年化(幾何) | 年化波動 "
+           "| Sharpe | MDD(複利) | MDD(加總) ")
+PF_SEP = "|---:|---:|---:|---:|---:|---:|---:|---:"
+PF_BLANK = "| — | — | — | — | — | — | — | — "
+
+
+def topk_ret(p_hat, y, k: int = TOPK) -> float:
+    """Top-k 多空、等權、金額中性的當日報酬。
+
+    權重是 ±1/(2k)，所以 sum|w| = 1（總曝險 1、淨曝險 0）；
+    因此 (多腿均值 − 空腿均值) 要再除以 2 才是「單位本金」的報酬。
+    不除等於偷偷假設 2 倍槓桿。
+    """
+    a = np.asarray(p_hat, float)
+    b = np.asarray(y, float)
+    o = np.argsort(-a)
+    return float((b[o[:k]].mean() - b[o[-k:]].mean()) / 2.0)
+
+
+def _mdd(curve) -> float:
+    peak = np.maximum.accumulate(curve)
+    return float(((peak - curve) / peak).max())
+
+
+def portfolio_stats(series):
+    """一批（逐 seed 的）Top-K 日報酬序列 -> 八個組合指標。
+
+    逐 seed 算完再平均，與 ICIR 同一個慣例。
+
+    **y 是 log return**（`src/dataset/pipeline.py:659` 的
+    `log(Close/Close.shift(1))`），所以複利不能用 (1+r) 連乘：
+
+        年化(幾何) = exp(mean(r) x 252) − 1
+        MDD(複利)  的權益曲線 = exp(cumsum(r))
+
+    MDD(加總) 用 1 + cumsum(r)，即獲利不滾入的固定名目本金——
+    金額中性多空每天重設回同樣的名目曝險，這個讀法才對應實際操作。
+
+    已知近似：對 log return 取橫截面平均**不等於**等權組合的報酬
+    （後者是簡單報酬的算術平均）。實測差 +0.14 bp/日 = +0.36 pp/年，
+    不影響 Sharpe，也不影響 §60.4 的打平成本（兩種算法都是 33 bp）。
+
+    **這不是回測。** 無成本、無衝擊、無流動性限制、每日全額換手、
+    可完全放空。用途是把 IC 翻譯成組合單位，見 proposal §60.6。
+    """
+    rows = []
+    for r in series:
+        r = np.asarray(r, float)
+        r = r[~np.isnan(r)]
+        if r.size < 2:
+            continue
+        mu, sd = float(r.mean()), float(r.std(ddof=1))
+        rows.append((mu, sd, mu * 252.0, float(np.exp(mu * 252.0) - 1.0),
+                     sd * ANN, (mu / sd * ANN) if sd > 1e-15 else np.nan,
+                     _mdd(np.exp(np.cumsum(r))), _mdd(1.0 + np.cumsum(r))))
+    if not rows:
+        return None
+    m = np.array(rows, float).mean(axis=0)
+    return dict(zip(("r_mu", "r_sd", "ann_s", "ann_g", "vol",
+                     "sharpe", "mdd_c", "mdd_a"), m.tolist()))
+
+
+def pf_cells(pf) -> str:
+    if pf is None:
+        return PF_BLANK
+    return (f"| {pf['r_mu'] * 100:+.4f}% | {pf['r_sd'] * 100:.4f}% "
+            f"| {pf['ann_s'] * 100:+.1f}% | {pf['ann_g'] * 100:+.1f}% "
+            f"| {pf['vol'] * 100:.1f}% | {pf['sharpe']:.2f} "
+            f"| {pf['mdd_c'] * 100:.2f}% | {pf['mdd_a'] * 100:.2f}% ")
+
+
 def daily_series(run_dir: str):
     f = os.path.join(run_dir, "predictions", "test_predictions_reeval.csv")
     if PREDICTIONS != "reeval" or not os.path.exists(f):
@@ -115,6 +190,7 @@ def daily_series(run_dir: str):
     Hn, Yn = H.to_numpy(), Y.to_numpy()
     ic = np.full(len(Yn), np.nan)
     ric = np.full(len(Yn), np.nan)
+    rk = np.full(len(Yn), np.nan)          # Top-K 多空的日報酬（組合欄用）
     for t in range(len(Yn)):
         a, b = Hn[t], Yn[t]
         if np.std(a) == 0 or np.std(b) == 0:
@@ -124,7 +200,8 @@ def daily_series(run_dir: str):
             warnings.simplefilter("ignore")
             v = stats.spearmanr(a, b).statistic
         ric[t] = np.nan if np.isnan(v) else v
-    return H.index.to_numpy(), ic, ric
+        rk[t] = topk_ret(a, b)
+    return H.index.to_numpy(), ic, ric, rk
 
 
 def icir(arr) -> float:
@@ -169,7 +246,8 @@ def neural_stats(arm: str):
     runs = find_seeds(arm)
     if not runs:
         return None
-    ics, rics, per_ic, per_ric, per_icir, params = [], [], [], [], [], None
+    ics, rics, rks = [], [], []
+    per_ic, per_ric, per_icir, params = [], [], [], None
     for s, d in sorted(runs.items(), key=lambda kv: int(kv[0])):
         tm = (json.load(open(os.path.join(d, "meta.json"))).get("test_metrics") or {})
         rv = os.path.join(d, "meta_reeval.json")
@@ -195,7 +273,8 @@ def neural_stats(arm: str):
         per_icir.append(icir(ser[1]) if ser is not None
                         else (tm.get("ICIR") if tm.get("ICIR") is not None else np.nan))
         if ser is not None:
-            ics.append(ser[1]); rics.append(ser[2]); dates = ser[0]
+            ics.append(ser[1]); rics.append(ser[2]); rks.append(ser[3])
+            dates = ser[0]
         if params is None:
             params = tm.get("n_params")
     if not per_ic:
@@ -210,6 +289,7 @@ def neural_stats(arm: str):
                 per_ric=dict(zip(sorted(runs, key=int), per_ric)),
                 daily_ic=colmean(np.vstack(ics)) if ics else None,
                 daily_ric=colmean(np.vstack(rics)) if rics else None,
+                pf=portfolio_stats(rks) if rks else None,
                 dates=dates if ics else None)
 
 
@@ -220,11 +300,12 @@ def nonneural_stats(pat: str):
     ser = daily_series(ds[-1])
     if ser is None:
         return None
-    dates, ic, ric = ser
+    dates, ic, ric, rk = ser
     return dict(n=1, ic=float(np.nanmean(ic)), ic_sd=np.nan,
                 ric=float(np.nanmean(ric)), ric_sd=np.nan,
                 icir=icir(ic), icir_sd=np.nan,
-                daily_ic=ic, daily_ric=ric, dates=dates, seeds=None)
+                daily_ic=ic, daily_ric=ric, pf=portfolio_stats([rk]),
+                dates=dates, seeds=None)
 
 
 def paired_daily(base: dict, other: dict, key: str):
@@ -281,21 +362,23 @@ def _fold2_rows():
                 if d > CUT or g.y.std() == 0 or g.y_hat.std() == 0:
                     continue
                 o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
-                        stats.spearmanr(g.y_hat, g.y).statistic)
+                        stats.spearmanr(g.y_hat, g.y).statistic,
+                        topk_ret(g.y_hat.to_numpy(), g.y.to_numpy()))
             if o:
                 ds.append(o)
         if not ds:
             return None
         k = sorted(set.intersection(*[set(x) for x in ds]))
-        # P[run, 指標(0=IC, 1=RankIC), 日]——保留逐 run 的日序列才算得出跨 run 的
-        # sd。V 是它對 run 取平均，與加 sd 欄之前逐位元相同。
-        P = np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in ds])
+        # P[run, 指標(0=IC, 1=RankIC, 2=Top-K 日報酬), 日]——保留逐 run 的
+        # 日序列才算得出跨 run 的 sd。V 是它對 run 取平均，與加 sd 欄之前
+        # 逐位元相同（第 2 個指標只給組合欄用，不進 V 的既有欄位）。
+        P = np.array([[[x[d][i] for d in k] for i in (0, 1, 2)] for x in ds])
         V = P.mean(axis=0)
         # ICIR 逐 run 算完再平均。用 V[0]（跨 run 平均後的日序列）算會得到
         # 「集成」的 ICIR，系統性偏高，與主表的慣例不一致。
         per_ir = np.array([icir(P[r, 0]) for r in range(P.shape[0])])
         ir = float(np.nanmean(per_ir))
-        return k, V, ir, P, per_ir
+        return k, V, ir, P, per_ir, portfolio_stats(list(P[:, 2, :]))
 
     def _sd(a):
         """跨 run 的樣本 sd（ddof=1）。n<2 時回 NaN，`fmt` 會印成「—」。"""
@@ -313,7 +396,7 @@ def _fold2_rows():
     b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
-    kb, BESTV, BESTIR, BESTP, BESTIRS = b
+    kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF = b
     rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
@@ -330,11 +413,12 @@ def _fold2_rows():
                 f"| {lab} | {BESTP.shape[0]} | {BESTV[0].mean():+.4f} "
                 f"| {fmt(_sd(BESTP[:, 0].mean(axis=1)), 4, False)} | {BESTIR:.4f} "
                 f"| {fmt(_sd(BESTIRS), 4, False)} | {BESTV[1].mean():+.4f} "
-                f"| {fmt(_sd(BESTP[:, 1].mean(axis=1)), 4, False)} | — | — | — | — |")
+                f"| {fmt(_sd(BESTP[:, 1].mean(axis=1)), 4, False)} | — | — | — "
+                + pf_cells(BESTPF) + "|")
             continue
         if r is None:
             continue
-        kk, V, IR, P, IRS = r
+        kk, V, IR, P, IRS, PF = r
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
@@ -348,7 +432,8 @@ def _fold2_rows():
             f"| {fmt(_sd(P[:, 0][:, ii].mean(axis=1)), 4, False)} | {IR:.4f} "
             f"| {fmt(_sd(IRS), 4, False)} | {V[1][ii].mean():+.4f} "
             f"| {fmt(_sd(P[:, 1][:, ii].mean(axis=1)), 4, False)} "
-            f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |")
+            f"| {cells[1]} | {cells[2]} | {cells[3]} "
+            + pf_cells(PF) + "|")
     return out
 
 
@@ -367,14 +452,15 @@ def _ens_block():
         return df[df.target_date <= cut] if cut else df
 
     def _metrics(df):
-        """回傳 {date: (IC, RankIC, 離散比)}。"""
+        """回傳 {date: (IC, RankIC, 離散比, Top-K 日報酬)}。"""
         o = {}
         for d, g in df.groupby("target_date"):
             if g.y.std() == 0 or g.y_hat.std() == 0:
                 continue
             o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
                     stats.spearmanr(g.y_hat, g.y).statistic,
-                    g.y_hat.std() / g.y.std())
+                    g.y_hat.std() / g.y.std(),
+                    topk_ret(g.y_hat.to_numpy(), g.y.to_numpy()))
         return o
 
     def _per_seed(pat, cut=None):
@@ -386,8 +472,11 @@ def _ens_block():
             return None
         ms = [_metrics(x) for x in ds]
         k = sorted(set.intersection(*[set(m) for m in ms]))
-        return k, np.array([[np.mean([m[d][i] for m in ms]) for d in k]
-                            for i in (0, 1, 2)]), len(ds)
+        # 第 4 個回傳值是**逐 seed**的 Top-K 日報酬矩陣 [n_seed, T]；
+        # 組合指標要逐 seed 算完再平均，不能拿跨 seed 平均後的序列去算。
+        return (k, np.array([[np.mean([m[d][i] for m in ms]) for d in k]
+                             for i in (0, 1, 2, 3)]), len(ds),
+                [np.array([m[d][3] for d in k]) for m in ms])
 
     def _ens(pat, cut=None):
         """(2) 先平均全部種子的預測，再算逐日指標。"""
@@ -400,7 +489,7 @@ def _ens_block():
               .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
         m = _metrics(df)
         k = sorted(m)
-        return k, np.array([[m[d][i] for d in k] for i in (0, 1, 2)]), df
+        return k, np.array([[m[d][i] for d in k] for i in (0, 1, 2, 3)]), df
 
     def _hac(d):
         n = len(d)
@@ -428,8 +517,9 @@ def _ens_block():
     out, ok = [], False
     out.append("### (A) 種子集成：先平均預測，再算 IC")
     out.append("")
-    out.append("| 折 | n 種子 | 聚合 | IC | RankIC | 離散比 std(y_hat)/std(y) |")
-    out.append("|---|---:|---|---:|---:|---:|")
+    out.append("| 折 | n 種子 | 聚合 | IC | RankIC | 離散比 std(y_hat)/std(y) "
+               + PF_HEAD + "|")
+    out.append("|---|---:|---|---:|---:|---:" + PF_SEP + "|")
     ens_cache = {}
     for lab, pat, cut, _ in FOLDS:
         ps = _per_seed(pat, cut)
@@ -439,13 +529,17 @@ def _ens_block():
         ok = True
         ens_cache[lab] = (en, cut)
         out.append(f"| {lab} | {ps[2]} | 先算 IC 再平均 | {ps[1][0].mean():+.4f} "
-                   f"| {ps[1][1].mean():+.4f} | {ps[1][2].mean():.2f} |")
+                   f"| {ps[1][1].mean():+.4f} | {ps[1][2].mean():.2f} "
+                   + pf_cells(portfolio_stats(ps[3])) + "|")
         out.append(f"| {lab} | {ps[2]} | **先平均預測再算 IC** "
                    f"| **{en[1][0].mean():+.4f}** | **{en[1][1].mean():+.4f}** "
-                   f"| **{en[1][2].mean():.2f}** |")
+                   f"| **{en[1][2].mean():.2f}** "
+                   + pf_cells(portfolio_stats([en[1][3]])) + "|")
+        # 「增益」是兩列相減，沒有對應的日報酬序列，組合欄留空
         out.append(f"| {lab} | | 增益 | {en[1][0].mean() - ps[1][0].mean():+.4f} "
                    f"| {en[1][1].mean() - ps[1][1].mean():+.4f} "
-                   f"| {en[1][2].mean() - ps[1][2].mean():+.2f} |")
+                   f"| {en[1][2].mean() - ps[1][2].mean():+.2f} "
+                   + PF_BLANK + "|")
     if not ok:
         return None
 
@@ -453,8 +547,9 @@ def _ens_block():
            ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
-            "| 折 | 對照 | 其 IC | 其 RankIC | dIC | 逐日 p | dRankIC | 逐日 p |",
-            "|---|---|---:|---:|---:|---:|---:|---:|"]
+            "| 折 | 對照 | 其 IC | 其 RankIC | 逐日 p | dRankIC | 逐日 p "
+            + PF_HEAD + "|",
+            "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, _ in FOLDS:
         if lab not in ens_cache:
             continue
@@ -466,11 +561,13 @@ def _ens_block():
                 continue
             d, pv = _cmp(en, b)
             out.append(f"| {lab} | {bl} | {b[1][0].mean():+.4f} | {b[1][1].mean():+.4f} "
-                       f"| {d[0]:+.4f} | {pv[0]:.4f} | {d[1]:+.4f} | {pv[1]:.4f} |")
+                       f"| {pv[0]:.4f} | {d[1]:+.4f} | {pv[1]:.4f} "
+                       + pf_cells(portfolio_stats(b[3])) + "|")
 
     out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
-            "| 折 | 方法 | IC | RankIC | dIC vs KTW+ | 逐日 p | dRankIC | 逐日 p |",
-            "|---|---|---:|---:|---:|---:|---:|---:|"]
+            "| 折 | 方法 | IC | RankIC | 逐日 p | dRankIC | 逐日 p "
+            + PF_HEAD + "|",
+            "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, kp in FOLDS:
         if lab not in ens_cache:
             continue
@@ -499,16 +596,17 @@ def _ens_block():
             jj = j.assign(y_hat=w * j.zm + (1 - w) * j.zb)
             m = _metrics(jj)
             k = sorted(m)
-            V = np.array([[m[d][i] for d in k] for i in (0, 1)])
+            V = np.array([[m[d][i] for d in k] for i in (0, 1, 3)])
+            pf = pf_cells(portfolio_stats([V[2]]))
             if w == 0.0:
                 base = V
                 out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                           f"| — | — | — | — |")
+                           f"| — | — | — " + pf + "|")
                 continue
             d0, d1 = V[0] - base[0], V[1] - base[1]
             out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                       f"| {d0.mean():+.4f} | {_hac(d0):.4f} "
-                       f"| {d1.mean():+.4f} | {_hac(d1):.4f} |")
+                       f"| {_hac(d0):.4f} "
+                       f"| {d1.mean():+.4f} | {_hac(d1):.4f} " + pf + "|")
     return out
 
 
@@ -542,25 +640,30 @@ def main() -> None:
     out.append("由 `scripts/results_table.py` 產生。universe = tw50（US 30 / TW 50，"
                "配對 7 檔），**第一折** walk-forward test 246 天（2024-12-26 ~ 2025-12-30）。第二折的獨立驗證見下方專節——**單折排名會翻轉，兩節必須一起看**。")
     out.append("")
-    out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。差為正代表基準較優。")
+    out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。"
+               "`dRankIC` 為正代表基準較優。**2026-09-14 移除了「類別」與 `dIC` 兩欄**"
+               "（類別看得出來：`[n]` 是文獻、`KTW+`/`R2`/`[24]` 是線性、"
+               "`RC` 是空模型；`dIC` 自己減得出來），改放組合讀法的八欄。")
     out.append("")
-    out.append("| 方法 | 類別 | 設定 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
-               "| dIC | 逐日 p | 跨種子 Welch p | MW p |")
-    out.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    out.append("| 方法 | 設定 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
+               "| 逐日 p | 跨種子 Welch p | MW p "
+               + PF_HEAD + "|")
+    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
+               + PF_SEP + "|")
     for label, cat, note, st, arm in sorted(rows, key=lambda r: -r[3]["ic"]):
-        d_ic, p_pd = paired_daily(base, st, "ic")
+        _, p_pd = paired_daily(base, st, "ic")
         pw, pu, _ = across_seed(base, st, "ic")
         is_base = (arm == BEST)
         star = " **" if is_base else " "
         out.append(
-            f"|{star}{label}{star.strip()} | {cat} | {note} | {st['n']} | "
+            f"|{star}{label}{star.strip()} | {note} | {st['n']} | "
             f"{fmt(st['ic'])} | {fmt(st['ic_sd'], signed=False)} | "
             f"{fmt(st.get('icir'), signed=False)} | "
             f"{fmt(st.get('icir_sd'), signed=False)} | "
             f"{fmt(st['ric'])} | {fmt(st['ric_sd'], signed=False)} | "
-            f"{'—' if is_base else fmt(d_ic)} | "
             f"{'—' if is_base else fmt(p_pd, signed=False)} | "
-            f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
+            f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} "
+            + pf_cells(st.get("pf")) + "|")
     # ── 第二折驗證（proposal §36 事先登記、§38/§40 判定）──────────────
     out.append("")
     out.append("## 第二折驗證（獨立測試期）")
@@ -574,8 +677,9 @@ def main() -> None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
         out.append("| 方法 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
-                   "| dIC | 逐日 p | dRankIC | 逐日 p |")
-        out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+                   "| 逐日 p | dRankIC | 逐日 p " + PF_HEAD + "|")
+        out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
+                   + PF_SEP + "|")
         for r in f2:
             out.append(r)
     out.append("")
@@ -616,6 +720,27 @@ def main() -> None:
                "不存在逐日序列，所以它只有跨種子這一個檢定，"
                "而跨種子檢定**不包含日層級的不確定性**（那才是主要來源）。"
                "因此 ICIR 的差只能說「兩折同向」，不可升級成「顯著落後」。")
+    out.append(f"- **右邊八欄是組合讀法，不是回測。** 建構：每天按 `y_hat` 取"
+               f"**Top-{TOPK} 做多 / Bottom-{TOPK} 做空、等權、金額中性**"
+               f"（權重 ±1/(2K)，`sum|w|=1`，所以多空腿的報酬差要除以 2），"
+               "逐日再平衡。**無交易成本、無市場衝擊、無流動性限制、可完全放空**——"
+               "所以 `Sharpe` 5.86 / `年化` 60% 這種數字**不可以寫成策略績效**"
+               "（proposal §60.8）。打平成本與成本敏感度見 §60.4 與 "
+               "`scripts/portfolio_readout.py`：本專案最佳 arm 的打平來回成本是 "
+               "**33 bp**，而台灣證交稅單項就 30 bp。")
+    out.append("- **組合欄的複利用 `exp`，因為 `y` 是 log return**"
+               "（`src/dataset/pipeline.py:659`）。`年化(幾何)` = "
+               "`exp(mean(r) x 252) − 1`，`MDD(複利)` 的權益曲線 = `exp(cumsum(r))`；"
+               "`MDD(加總)` 用 `1 + cumsum(r)`，即獲利不滾入的固定名目本金"
+               "（金額中性多空每天重設回同樣曝險，這個讀法才對應實際操作）。"
+               "`年化(簡單)` = `mean(r) x 252`。八欄一律**逐 seed 算完再平均**，與 ICIR 同慣例。"
+               "**已知近似**：對 log return 取橫截面平均不等於等權組合的報酬"
+               "（後者是簡單報酬的算術平均），實測差 **+0.14 bp/日 = +0.36 pp/年**，"
+               "不影響 Sharpe，也不影響打平成本（兩種算法都是 33 bp）。")
+    out.append("- **`MDD` 是單路徑極值，一折只有一個觀測值，是八欄裡最不可靠的，"
+               "而且它兩折的名次是反的**：第一折 MAGNET 4.51% 勝過 KTW+ 5.05%，"
+               "第二折 1.70% 卻輸給 1.32%。**不要拿 MDD 做任何排名主張。**"
+               "會翻轉正是它不可靠的直接證據——與 `ICIR` 兩折同向落後恰成對比。")
     out.append("- **逐日 p 用 Newey-West HAC 修正自相關**，以「日」為重複單位、種子視為固定，"
                "敏感但不外推到新種子。兩欄應一起看。")
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
@@ -645,7 +770,7 @@ def main() -> None:
                "唯一在兩折上都顯著超越 KTW+ 的是 §43 (C) 的**等權混合**，"
                "但那是混合模型的主張，不是本架構單獨的主張。")
     out.append("- **單折排名會翻轉。** 第一折的優勢集中在測試期前半"
-               "（dIC 前半 +0.0300、後半 −0.0141），第二折則相反（後半更好）。"
+               "（IC 差前半 +0.0300、後半 −0.0141），第二折則相反（後半更好）。"
                "任何只根據單一測試期的排名都不可靠——這是本表最重要的保留條款。")
     out.append("- **本版的三個改動單獨都無效甚至有害**"
                "（F1 +0.0011 ns、關 A₂ 的 IC −0.0050、rank 1.0 單獨 −0.0003），"
