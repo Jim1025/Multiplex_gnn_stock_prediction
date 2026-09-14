@@ -287,11 +287,21 @@ def _fold2_rows():
         if not ds:
             return None
         k = sorted(set.intersection(*[set(x) for x in ds]))
-        V = np.array([[np.mean([x[d][i] for x in ds]) for d in k] for i in (0, 1)])
+        # P[run, 指標(0=IC, 1=RankIC), 日]——保留逐 run 的日序列才算得出跨 run 的
+        # sd。V 是它對 run 取平均，與加 sd 欄之前逐位元相同。
+        P = np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in ds])
+        V = P.mean(axis=0)
         # ICIR 逐 run 算完再平均。用 V[0]（跨 run 平均後的日序列）算會得到
         # 「集成」的 ICIR，系統性偏高，與主表的慣例不一致。
-        ir = float(np.nanmean([icir(np.array([x[d][0] for d in k])) for x in ds]))
-        return k, V, ir
+        per_ir = np.array([icir(P[r, 0]) for r in range(P.shape[0])])
+        ir = float(np.nanmean(per_ir))
+        return k, V, ir, P, per_ir
+
+    def _sd(a):
+        """跨 run 的樣本 sd（ddof=1）。n<2 時回 NaN，`fmt` 會印成「—」。"""
+        a = np.asarray(a, float)
+        a = a[np.isfinite(a)]
+        return float(a.std(ddof=1)) if a.size >= 2 else float("nan")
 
     def _hac(d):
         n = len(d); L = int(4 * (n / 100) ** (2 / 9)); s2 = np.var(d, ddof=1)
@@ -303,7 +313,7 @@ def _fold2_rows():
     b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
-    kb, BESTV, BESTIR = b
+    kb, BESTV, BESTIR, BESTP, BESTIRS = b
     rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
@@ -316,20 +326,29 @@ def _fold2_rows():
     out = []
     for lab, r in rows:
         if r is None and lab.startswith("**"):
-            out.append(f"| {lab} | {BESTV[0].mean():+.4f} | {BESTIR:.4f} "
-                       f"| {BESTV[1].mean():+.4f} | — | — | — | — |")
+            out.append(
+                f"| {lab} | {BESTP.shape[0]} | {BESTV[0].mean():+.4f} "
+                f"| {fmt(_sd(BESTP[:, 0].mean(axis=1)), 4, False)} | {BESTIR:.4f} "
+                f"| {fmt(_sd(BESTIRS), 4, False)} | {BESTV[1].mean():+.4f} "
+                f"| {fmt(_sd(BESTP[:, 1].mean(axis=1)), 4, False)} | — | — | — | — |")
             continue
         if r is None:
             continue
-        kk, V, IR = r
+        kk, V, IR, P, IRS = r
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
         for i in (0, 1):
             dd = BESTV[i][jj] - V[i][ii]
             cells += [f"{dd.mean():+.4f}", f"{_hac(dd):.4f}"]
-        out.append(f"| {lab} | {V[0][ii].mean():+.4f} | {IR:.4f} | {V[1][ii].mean():+.4f} "
-                   f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |")
+        # IC / RankIC 的 sd 與其點估計取同一組日子（ii）。ICIR 的點估計 IR 是在
+        # 完整 kk 上算的，其 sd 因此也用完整 kk，兩者口徑一致。
+        out.append(
+            f"| {lab} | {P.shape[0]} | {V[0][ii].mean():+.4f} "
+            f"| {fmt(_sd(P[:, 0][:, ii].mean(axis=1)), 4, False)} | {IR:.4f} "
+            f"| {fmt(_sd(IRS), 4, False)} | {V[1][ii].mean():+.4f} "
+            f"| {fmt(_sd(P[:, 1][:, ii].mean(axis=1)), 4, False)} "
+            f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |")
     return out
 
 
@@ -554,8 +573,9 @@ def main() -> None:
     if f2 is None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
-        out.append("| 方法 | test IC | **ICIR** | RankIC | dIC | 逐日 p | dRankIC | 逐日 p |")
-        out.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        out.append("| 方法 | n | test IC | sd | **ICIR** | sd | RankIC | sd "
+                   "| dIC | 逐日 p | dRankIC | 逐日 p |")
+        out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for r in f2:
             out.append(r)
     out.append("")
@@ -584,8 +604,18 @@ def main() -> None:
     out.append("")
     out.append("- **n 是種子數。** sigma_seed = 0.0062，n=3 的最小可偵測差異為 0.0188、"
                "n=10 為 0.0082。n=3 的比較若差異小於 0.019，「不顯著」不構成證據。")
-    out.append("- **Mann-Whitney 在 n=3 的雙尾 p 下限是 0.10**，永遠無法達到 0.05；"
-               "n=1（非神經方法）則無法計算。跨種子欄為「—」代表該方法只有單一預測序列。")
+    out.append("- **Mann-Whitney 在 n=3 的雙尾 p 下限是 0.10**（= 2/C(6,3)，"
+               "`across_seed` 取共同種子集合，故 n=3 的列是 3 對 3），永遠無法達到 0.05。"
+               "**本表九列 n=3 的 MW p 全部恰為 0.1000——那是下界，不是量測值**，"
+               "不可讀成「接近顯著」；同樣九列的 Welch p 是 0.0000 ~ 0.0016，"
+               "IC 差距約 0.10 而 sd 約 0.01。"
+               "n=1（非神經方法）則無法計算，跨種子欄為「—」。")
+    out.append("- **第二折表也有 n 與 sd 欄了**（2026-09-14 補）。"
+               "點估計逐位元未變，只是原本沒把離散度印出來。"
+               "**但 ICIR 沒有逐日檢定可做**——它是整段期間兩個動差的比值，"
+               "不存在逐日序列，所以它只有跨種子這一個檢定，"
+               "而跨種子檢定**不包含日層級的不確定性**（那才是主要來源）。"
+               "因此 ICIR 的差只能說「兩折同向」，不可升級成「顯著落後」。")
     out.append("- **逐日 p 用 Newey-West HAC 修正自相關**，以「日」為重複單位、種子視為固定，"
                "敏感但不外推到新種子。兩欄應一起看。")
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
