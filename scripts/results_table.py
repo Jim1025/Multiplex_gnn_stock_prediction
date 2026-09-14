@@ -107,10 +107,13 @@ TOPK = 10       # 與 scripts/portfolio_readout.py 的 TOPK_DEFAULT 同值。
                 # 這是「讀法」的選擇不是模型超參，故不從 base.yaml 讀。
 ANN = float(np.sqrt(252.0))
 
-PF_HEAD = ("| 日均報酬 ↑ | 日 sd ↓ | 年化(簡單) ↑ | 年化(幾何) ↑ | 年化波動 ↓ "
+# 砍掉的兩欄是純換算，留著只是同一個數字換單位：
+#   年化(簡單) = 日均報酬 x 252      年化波動 = 日 sd x sqrt(252)
+# 兩者都能從留下的欄位還原，Sharpe 則是新資訊（兩者之比）。
+PF_HEAD = ("| 日均報酬 ↑ | 日 sd ↓ | 年化(幾何) ↑ "
            "| Sharpe ↑ | MDD(複利) ↓ | MDD(加總) ↓ ")
-PF_SEP = "|---:|---:|---:|---:|---:|---:|---:|---:"
-PF_BLANK = "| — | — | — | — | — | — | — | — "
+PF_SEP = "|---:|---:|---:|---:|---:|---:"
+PF_BLANK = "| — | — | — | — | — | — "
 
 
 def topk_ret(p_hat, y, k: int = TOPK) -> float:
@@ -173,8 +176,7 @@ def pf_cells(pf) -> str:
     if pf is None:
         return PF_BLANK
     return (f"| {pf['r_mu'] * 100:+.4f}% | {pf['r_sd'] * 100:.4f}% "
-            f"| {pf['ann_s'] * 100:+.1f}% | {pf['ann_g'] * 100:+.1f}% "
-            f"| {pf['vol'] * 100:.1f}% | {pf['sharpe']:.2f} "
+            f"| {pf['ann_g'] * 100:+.1f}% | {pf['sharpe']:.2f} "
             f"| {pf['mdd_c'] * 100:.2f}% | {pf['mdd_a'] * 100:.2f}% ")
 
 
@@ -340,6 +342,19 @@ def across_seed(base: dict, other: dict, key: str):
     return float(pw), float(pu), len(common)
 
 
+def pm(v, sd, nd=4, signed=True) -> str:
+    """把「值」與「跨 seed sd」併成一格 `+0.1090 ± 0.0051`。
+
+    n=1 的確定性 baseline（Ridge/LASSO 等）沒有 seed 變異，sd 為 NaN，
+    這時只印值——注意那**不代表它沒有不確定性**，只代表它的不確定性
+    來自資料而不是種子，那一側由逐日 HAC 檢定負責（見「讀表注意」）。
+    """
+    a = fmt(v, nd, signed)
+    if sd is None or (isinstance(sd, float) and np.isnan(sd)):
+        return a
+    return f"{a} ± {fmt(sd, nd, False)}"
+
+
 def fmt(v, nd=4, signed=True):
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return "—"
@@ -406,15 +421,15 @@ def _fold2_rows():
                      ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
                      ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
         rows.append((lab, _load(str(ROOT / pat))))
-    out = []
+    sig, pf_rows = [], []                 # 拆成訊號層與組合讀法兩張表
     for lab, r in rows:
         if r is None and lab.startswith("**"):
-            out.append(
-                f"| {lab} | {BESTP.shape[0]} | {BESTV[0].mean():+.4f} "
-                f"| {fmt(_sd(BESTP[:, 0].mean(axis=1)), 4, False)} | {BESTIR:.4f} "
-                f"| {fmt(_sd(BESTIRS), 4, False)} | {BESTV[1].mean():+.4f} "
-                f"| {fmt(_sd(BESTP[:, 1].mean(axis=1)), 4, False)} | — | — | — "
-                + pf_cells(BESTPF) + "|")
+            sig.append(
+                f"| {lab} | {BESTP.shape[0]} "
+                f"| {pm(BESTV[0].mean(), _sd(BESTP[:, 0].mean(axis=1)))} "
+                f"| {pm(BESTIR, _sd(BESTIRS), signed=False)} "
+                f"| {pm(BESTV[1].mean(), _sd(BESTP[:, 1].mean(axis=1)))} | — | — |")
+            pf_rows.append(f"| {lab} | {BESTP.shape[0]} " + pf_cells(BESTPF) + "|")
             continue
         if r is None:
             continue
@@ -427,14 +442,14 @@ def _fold2_rows():
             cells += [f"{dd.mean():+.4f}", f"{_hac(dd):.4f}"]
         # IC / RankIC 的 sd 與其點估計取同一組日子（ii）。ICIR 的點估計 IR 是在
         # 完整 kk 上算的，其 sd 因此也用完整 kk，兩者口徑一致。
-        out.append(
-            f"| {lab} | {P.shape[0]} | {V[0][ii].mean():+.4f} "
-            f"| {fmt(_sd(P[:, 0][:, ii].mean(axis=1)), 4, False)} | {IR:.4f} "
-            f"| {fmt(_sd(IRS), 4, False)} | {V[1][ii].mean():+.4f} "
-            f"| {fmt(_sd(P[:, 1][:, ii].mean(axis=1)), 4, False)} "
-            f"| {cells[1]} | {cells[2]} | {cells[3]} "
-            + pf_cells(PF) + "|")
-    return out
+        sig.append(
+            f"| {lab} | {P.shape[0]} "
+            f"| {pm(V[0][ii].mean(), _sd(P[:, 0][:, ii].mean(axis=1)))} "
+            f"| {pm(IR, _sd(IRS), signed=False)} "
+            f"| {pm(V[1][ii].mean(), _sd(P[:, 1][:, ii].mean(axis=1)))} "
+            f"| {cells[1]} | {cells[3]} |")
+        pf_rows.append(f"| {lab} | {P.shape[0]} " + pf_cells(PF) + "|")
+    return sig, pf_rows
 
 
 def _ens_block():
@@ -547,9 +562,9 @@ def _ens_block():
            ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
-            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 逐日 p | dRankIC | 逐日 p "
+            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 逐日 p (IC) | 逐日 p (RankIC) "
             + PF_HEAD + "|",
-            "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
+            "|---|---|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, _ in FOLDS:
         if lab not in ens_cache:
             continue
@@ -561,13 +576,13 @@ def _ens_block():
                 continue
             d, pv = _cmp(en, b)
             out.append(f"| {lab} | {bl} | {b[1][0].mean():+.4f} | {b[1][1].mean():+.4f} "
-                       f"| {pv[0]:.4f} | {d[1]:+.4f} | {pv[1]:.4f} "
+                       f"| {pv[0]:.4f} | {pv[1]:.4f} "
                        + pf_cells(portfolio_stats(b[3])) + "|")
 
     out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
-            "| 折 | 方法 | IC ↑ | RankIC ↑ | 逐日 p | dRankIC | 逐日 p "
+            "| 折 | 方法 | IC ↑ | RankIC ↑ | 逐日 p (IC) | 逐日 p (RankIC) "
             + PF_HEAD + "|",
-            "|---|---|---:|---:|---:|---:|---:" + PF_SEP + "|"]
+            "|---|---|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, kp in FOLDS:
         if lab not in ens_cache:
             continue
@@ -601,12 +616,11 @@ def _ens_block():
             if w == 0.0:
                 base = V
                 out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                           f"| — | — | — " + pf + "|")
+                           f"| — | — " + pf + "|")
                 continue
             d0, d1 = V[0] - base[0], V[1] - base[1]
             out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                       f"| {_hac(d0):.4f} "
-                       f"| {d1.mean():+.4f} | {_hac(d1):.4f} " + pf + "|")
+                       f"| {_hac(d0):.4f} | {_hac(d1):.4f} " + pf + "|")
     return out
 
 
@@ -641,29 +655,48 @@ def main() -> None:
                "配對 7 檔），**第一折** walk-forward test 246 天（2024-12-26 ~ 2025-12-30）。第二折的獨立驗證見下方專節——**單折排名會翻轉，兩節必須一起看**。")
     out.append("")
     out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。"
-               "`dRankIC` 為正代表基準較優。**2026-09-14 移除了「類別」與 `dIC` 兩欄**"
+               "**已移除「類別」、`dIC`、`dRankIC` 三種欄位**"
                "（類別看得出來：`[n]` 是文獻、`KTW+`/`R2`/`[24]` 是線性、"
-               "`RC` 是空模型；`dIC` 自己減得出來），改放組合讀法的八欄。")
+               "`RC` 是空模型；兩個差值欄自己減得出來），改放組合讀法的八欄。"
+               "差值的**顯著性**仍在——就是 `逐日 p (IC)` 與 `逐日 p (RankIC)` 兩欄。")
     out.append("")
-    out.append("| 方法 | 設定 | n | test IC ↑ | sd | **ICIR ↑** | sd | RankIC ↑ | sd "
-               "| 逐日 p | 跨種子 Welch p | MW p "
-               + PF_HEAD + "|")
-    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
-               + PF_SEP + "|")
-    for label, cat, note, st, arm in sorted(rows, key=lambda r: -r[3]["ic"]):
+    ordered = sorted(rows, key=lambda r: -r[3]["ic"])
+
+    out.append("## 第一折（主結果）")
+    out.append("")
+    out.append("### 訊號層")
+    out.append("")
+    out.append("| 方法 | 設定 | n | test IC ↑ | **ICIR ↑** | RankIC ↑ "
+               "| 逐日 p | 跨種子 Welch p | MW p |")
+    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    for label, cat, note, st, arm in ordered:
         _, p_pd = paired_daily(base, st, "ic")
         pw, pu, _ = across_seed(base, st, "ic")
         is_base = (arm == BEST)
         star = " **" if is_base else " "
         out.append(
             f"|{star}{label}{star.strip()} | {note} | {st['n']} | "
-            f"{fmt(st['ic'])} | {fmt(st['ic_sd'], signed=False)} | "
-            f"{fmt(st.get('icir'), signed=False)} | "
-            f"{fmt(st.get('icir_sd'), signed=False)} | "
-            f"{fmt(st['ric'])} | {fmt(st['ric_sd'], signed=False)} | "
+            f"{pm(st['ic'], st['ic_sd'])} | "
+            f"{pm(st.get('icir'), st.get('icir_sd'), signed=False)} | "
+            f"{pm(st['ric'], st['ric_sd'])} | "
             f"{'—' if is_base else fmt(p_pd, signed=False)} | "
-            f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} "
-            + pf_cells(st.get("pf")) + "|")
+            f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
+
+    out.append("")
+    out.append("### 組合讀法")
+    out.append("")
+    out.append(f"**這不是回測。** Top-{TOPK} 多空、等權、金額中性、逐日再平衡，"
+               "**無交易成本、無市場衝擊、無流動性限制、可完全放空**。"
+               "用途是把 IC 翻譯成組合單位，不是策略績效（proposal §60.6 / §60.8）。"
+               "本專案最佳 arm 的**打平來回成本是 33 bp，而台灣證交稅單項就 30 bp**"
+               "（§60.4、`scripts/portfolio_readout.py`）。列序與上表相同。")
+    out.append("")
+    out.append("| 方法 | n " + PF_HEAD + "|")
+    out.append("|---|---:" + PF_SEP + "|")
+    for label, cat, note, st, arm in ordered:
+        star = " **" if arm == BEST else " "
+        out.append(f"|{star}{label}{star.strip()} | {st['n']} "
+                   + pf_cells(st.get("pf")) + "|")
     # ── 第二折驗證（proposal §36 事先登記、§38/§40 判定）──────────────
     out.append("")
     out.append("## 第二折驗證（獨立測試期）")
@@ -676,12 +709,21 @@ def main() -> None:
     if f2 is None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
-        out.append("| 方法 | n | test IC ↑ | sd | **ICIR ↑** | sd | RankIC ↑ | sd "
-                   "| 逐日 p | dRankIC | 逐日 p " + PF_HEAD + "|")
-        out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:"
-                   + PF_SEP + "|")
-        for r in f2:
-            out.append(r)
+        f2_sig, f2_pf = f2
+        out.append("### 訊號層（第二折）")
+        out.append("")
+        out.append("| 方法 | n | test IC ↑ | **ICIR ↑** | RankIC ↑ "
+                   "| 逐日 p (IC) | 逐日 p (RankIC) |")
+        out.append("|---|---:|---:|---:|---:|---:|---:|")
+        out += f2_sig
+        out.append("")
+        out.append("### 組合讀法（第二折）")
+        out.append("")
+        out.append("建構與警語同第一折的組合讀法表。列序與上表相同。")
+        out.append("")
+        out.append("| 方法 | n " + PF_HEAD + "|")
+        out.append("|---|---:" + PF_SEP + "|")
+        out += f2_pf
     out.append("")
     out.append("**判定（§38）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
                "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
@@ -704,13 +746,100 @@ def main() -> None:
     else:
         out += eb
     out.append("")
+    out.append("## 每一欄怎麼算")
+    out.append("")
+    out.append("記號：某一天的橫截面有 `n` 檔台股，`y_hat` 是預測、`y` 是**實際次日 "
+               "log return**（`log(Close_t / Close_{t-1})`，"
+               "`src/dataset/pipeline.py:659`，由 `graph_builder.py` 的 "
+               "`_extract_target_returns` 取出）。`T` 是**有效交易日數**——"
+               "`std(y)=0` 或 `std(y_hat)=0` 的日子一律跳過，"
+               "第一折 246 天扣掉 1 天（該日 50 檔報酬完全相同）得 **T=245**。")
+    out.append("")
+    out.append("### 訊號層的欄")
+    out.append("")
+    out.append("| 欄 | 算式 | 出處 |")
+    out.append("|---|---|---|")
+    out.append("| `n` | 種子數。線性／樹模型是確定性擬合（固定設計矩陣上的 "
+               "`Ridge.fit`），**沒有 seed 可補**，一律 n=1 | `find_seeds` |")
+    out.append("| `test IC` | 逐日 `corr(y_hat_t, y_t)`（Pearson）對 T 天取平均，"
+               "再跨 seed 取平均。**逐 seed 的值讀自 `meta.json`**"
+               "（`--predictions reeval` 時改讀 `meta_reeval.json`） | `neural_stats` |")
+    out.append("| `ICIR` | `mean_t(IC_t) / sd_t(IC_t)`，`ddof=1`。"
+               "**逐 seed 算完再跨 seed 平均**——拿跨 seed 平均後的日序列去算"
+               "會得到「集成」的 ICIR，系統性偏高 | `icir()` |")
+    out.append("| `RankIC` | 同 `IC` 但用 Spearman（平手取**平均名次**，`scipy.spearmanr`）。"
+               "**一律由預測檔重算，不讀 `meta.json`** | `daily_series` |")
+    out.append("| `± sd` | 跨 seed 的樣本標準差，`ddof=1`。n=1 時不印——"
+               "**那不代表沒有不確定性**，只代表它來自資料而非種子 | `pm()` |")
+    out.append("| `逐日 p` | 取「統計基準與該列」的**逐日 IC 差值序列** `d_t`，"
+               "做 Newey-West HAC 修正的雙尾 t 檢定；"
+               "`lag = floor(4 x (T/100)^(2/9))`，T=245 時 **lag=4**，`df = T−1` "
+               "| `paired_daily` |")
+    out.append("| `跨種子 Welch p` | 在**共同種子集合**上，對兩組逐 seed 的 IC 做 "
+               "Welch t 檢定（不假設等變異） | `across_seed` |")
+    out.append("| `MW p` | 同上，改用 Mann-Whitney U，雙尾。"
+               "**n=3 時下限是 `2/C(6,3) = 0.1000`**，達不到 0.05 | `across_seed` |")
+    out.append("")
+    out.append("### 組合讀法的欄")
+    out.append("")
+    out.append(f"**建構**：每天把當日 `y_hat` 由高到低排序，"
+               f"**前 {TOPK} 檔做多、後 {TOPK} 檔做空、等權**。"
+               f"權重是 `±1/(2K)`，所以 `sum|w| = 1`（總曝險 1、淨曝險 0），"
+               "因此當日報酬是")
+    out.append("")
+    out.append("```")
+    out.append(f"r_t = ( mean(y[多腿 {TOPK} 檔]) − mean(y[空腿 {TOPK} 檔]) ) / 2")
+    out.append("```")
+    out.append("")
+    out.append("那個 `/2` 不可省——不除等於偷偷假設 2 倍槓桿。"
+               "八個指標**一律逐 seed 算完再平均**，與 `ICIR` 同慣例。")
+    out.append("")
+    out.append("| 欄 | 算式 | 為什麼是這個形式 |")
+    out.append("|---|---|---|")
+    out.append("| `日均報酬` | `mean(r)` | — |")
+    out.append("| `日 sd` | `sd(r, ddof=1)` | — |")
+    out.append("| `年化(幾何)` | `exp(mean(r) x 252) − 1` | **`y` 是 log return，"
+               "所以複利用 `exp` 不是 `(1+r)` 連乘。** 用錯公式在本專案的量級上"
+               "差約 1.1 個百分點（82.0% vs 83.1%） |")
+    out.append("| `Sharpe` | `mean(r) / sd(r) x sqrt(252)`，`rf = 0` | "
+               "金額中性多空是**自融資**的，多空相抵不佔用本金，"
+               "所以無風險利率為 0。淨多頭策略就必須扣 |")
+    out.append("| `MDD(複利)` | 權益曲線 `exp(cumsum(r))`，"
+               "`max_t (peak_t − v_t)/peak_t` | 獲利滾入的讀法 |")
+    out.append("| `MDD(加總)` | 權益曲線 `1 + cumsum(r)`，同上取最大回撤 | "
+               "**獲利不滾入的固定名目本金**。金額中性多空每天重設回同樣曝險，"
+               "這個讀法才對應實際操作 |")
+    out.append("")
+    out.append("**已移除的兩欄可以自己還原**，它們是純換算、沒有新資訊：")
+    out.append("")
+    out.append("```")
+    out.append("年化(簡單) = 日均報酬 x 252          年化波動 = 日 sd x sqrt(252)")
+    out.append("Sharpe     = 年化(簡單) / 年化波動    （所以 Sharpe 才是新資訊）")
+    out.append("```")
+    out.append("")
+    out.append("**已知近似**：對 log return 取橫截面平均**不等於**等權組合的報酬"
+               "（後者是簡單報酬的算術平均）。實測差 **+0.14 bp/日 = +0.36 pp/年**，"
+               "不影響 `Sharpe`，也不影響 §60.4 的打平成本（兩種算法都是 33 bp）。")
+    out.append("")
+    out.append("### §43 專屬的欄")
+    out.append("")
+    out.append("| 欄 | 算式 |")
+    out.append("|---|---|")
+    out.append("| `離散比 std(y_hat)/std(y)` | 逐日的橫截面標準差之比，對 T 天取平均。"
+               "**在 ŷ 宣告為「基數分數、尺度未校正」下這是規範選擇不是缺陷**"
+               "（IC 與 RankIC 都看不到它，proposal §57.11 / §60.7） |")
+    out.append("| `其 IC` / `其 RankIC`（B 表） | 該 baseline 自己的值，"
+               "算法同訊號層 |")
+    out.append("| `增益`（A 表） | 「先平均預測再算 IC」減「先算 IC 再平均」。"
+               "它是兩列相減，**沒有對應的日報酬序列**，故組合欄留空 |")
+    out.append("")
     out.append("## 讀表注意")
     out.append("")
     out.append("- **欄名的 ↑ / ↓ 是「其他條件相同下哪個方向較好」**，"
                "**不是說該欄可以單獨拿來排名**。有三類欄位**刻意沒有箭頭**：<br>"
                "(1) **`sd` 各欄**（跨 seed 離散度）——離散度小只代表結果比較不挑種子，"
                "一個爛模型的 sd 小並不好，它不是績效；<br>"
-               "(2) **`逐日 p` / `Welch p` / `MW p` / `dRankIC`**——這些是"
+               "(2) **`逐日 p (IC)` / `逐日 p (RankIC)` / `Welch p` / `MW p`**——這些是"
                "**「統計基準對該列」**的檢定與差值，不是該列自己的績效。"
                "p 小代表基準顯著贏過該列，站在該列的立場方向是相反的；<br>"
                "(3) **`離散比 std(y_hat)/std(y)`**（§43 A 表）——在 ŷ 宣告為"
