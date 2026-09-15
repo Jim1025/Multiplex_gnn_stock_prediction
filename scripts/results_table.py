@@ -258,7 +258,7 @@ def neural_stats(arm: str):
     if not runs:
         return None
     ics, rics, rks = [], [], []
-    per_ic, per_ric, per_icir, params = [], [], [], None
+    per_ic, per_ric, per_icir, per_ricir, params = [], [], [], [], None
     for s, d in sorted(runs.items(), key=lambda kv: int(kv[0])):
         tm = (json.load(open(os.path.join(d, "meta.json"))).get("test_metrics") or {})
         rv = os.path.join(d, "meta_reeval.json")
@@ -283,6 +283,9 @@ def neural_stats(arm: str):
         # 後者是「集成」的 ICIR，系統性偏高（§43 的 A 區塊在講同一件事）。
         per_icir.append(icir(ser[1]) if ser is not None
                         else (tm.get("ICIR") if tm.get("ICIR") is not None else np.nan))
+        # RankICIR 同慣例：逐 seed 用**重算的**逐日 RankIC 序列算，再跨 seed 平均。
+        # 不讀 meta.json——那裡的 RankIC 是 pre-D1 的名次算法（§44.7）。
+        per_ricir.append(icir(ser[2]) if ser is not None else np.nan)
         if ser is not None:
             ics.append(ser[1]); rics.append(ser[2]); rks.append(ser[3])
             dates = ser[0]
@@ -296,6 +299,9 @@ def neural_stats(arm: str):
                 icir=float(np.nanmean(per_icir)) if per_icir else np.nan,
                 icir_sd=(float(np.nanstd(per_icir, ddof=1))
                          if sum(~np.isnan(per_icir)) > 1 else np.nan),
+                ricir=float(np.nanmean(per_ricir)) if per_ricir else np.nan,
+                ricir_sd=(float(np.nanstd(per_ricir, ddof=1))
+                          if sum(~np.isnan(per_ricir)) > 1 else np.nan),
                 per_ic=dict(zip(sorted(runs, key=int), per_ic)),
                 per_ric=dict(zip(sorted(runs, key=int), per_ric)),
                 daily_ic=colmean(np.vstack(ics)) if ics else None,
@@ -315,6 +321,7 @@ def nonneural_stats(pat: str):
     return dict(n=1, ic=float(np.nanmean(ic)), ic_sd=np.nan,
                 ric=float(np.nanmean(ric)), ric_sd=np.nan,
                 icir=icir(ic), icir_sd=np.nan,
+                ricir=icir(ric), ricir_sd=np.nan,
                 daily_ic=ic, daily_ric=ric, pf=portfolio_stats([rk]),
                 dates=dates, seeds=None)
 
@@ -401,8 +408,11 @@ def _fold2_rows():
         # ICIR 逐 run 算完再平均。用 V[0]（跨 run 平均後的日序列）算會得到
         # 「集成」的 ICIR，系統性偏高，與主表的慣例不一致。
         per_ir = np.array([icir(P[r, 0]) for r in range(P.shape[0])])
+        per_rir = np.array([icir(P[r, 1]) for r in range(P.shape[0])])
         ir = float(np.nanmean(per_ir))
-        return k, V, ir, P, per_ir, portfolio_stats(list(P[:, 2, :]))
+        rir = float(np.nanmean(per_rir))
+        return (k, V, ir, P, per_ir, portfolio_stats(list(P[:, 2, :])),
+                rir, per_rir)
 
     def _sd(a):
         """跨 run 的樣本 sd（ddof=1）。n<2 時回 NaN，`fmt` 會印成「—」。"""
@@ -420,7 +430,7 @@ def _fold2_rows():
     b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
-    kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF = b
+    kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF, BESTRIR, BESTRIRS = b
     rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
@@ -436,13 +446,14 @@ def _fold2_rows():
             sig.append(
                 f"| {lab} | {BESTP.shape[0]} "
                 f"| {pm(BESTV[0].mean(), _sd(BESTP[:, 0].mean(axis=1)))} "
+                f"| {pm(BESTV[1].mean(), _sd(BESTP[:, 1].mean(axis=1)))} "
                 f"| {pm(BESTIR, _sd(BESTIRS), signed=False)} "
-                f"| {pm(BESTV[1].mean(), _sd(BESTP[:, 1].mean(axis=1)))} | — | — |")
+                f"| {pm(BESTRIR, _sd(BESTRIRS), signed=False)} | — | — |")
             pf_rows.append(f"| {lab} | {BESTP.shape[0]} " + pf_cells(BESTPF) + "|")
             continue
         if r is None:
             continue
-        kk, V, IR, P, IRS, PF = r
+        kk, V, IR, P, IRS, PF, RIR, RIRS = r
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
@@ -454,8 +465,9 @@ def _fold2_rows():
         sig.append(
             f"| {lab} | {P.shape[0]} "
             f"| {pm(V[0][ii].mean(), _sd(P[:, 0][:, ii].mean(axis=1)))} "
-            f"| {pm(IR, _sd(IRS), signed=False)} "
             f"| {pm(V[1][ii].mean(), _sd(P[:, 1][:, ii].mean(axis=1)))} "
+            f"| {pm(IR, _sd(IRS), signed=False)} "
+            f"| {pm(RIR, _sd(RIRS), signed=False)} "
             f"| {cells[1]} | {cells[3]} |")
         pf_rows.append(f"| {lab} | {P.shape[0]} " + pf_cells(PF) + "|")
     return sig, pf_rows
@@ -675,9 +687,9 @@ def main() -> None:
     out.append("")
     out.append("### 訊號層")
     out.append("")
-    out.append("| 方法 | 設定 | n | test IC ↑ | **ICIR ↑** | RankIC ↑ "
+    out.append("| 方法 | 設定 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
                "| 逐日 p | 跨種子 Welch p | MW p |")
-    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|")
+    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for label, cat, note, st, arm in ordered:
         _, p_pd = paired_daily(base, st, "ic")
         pw, pu, _ = across_seed(base, st, "ic")
@@ -686,8 +698,9 @@ def main() -> None:
         out.append(
             f"|{star}{label}{star.strip()} | {note} | {st['n']} | "
             f"{pm(st['ic'], st['ic_sd'])} | "
-            f"{pm(st.get('icir'), st.get('icir_sd'), signed=False)} | "
             f"{pm(st['ric'], st['ric_sd'])} | "
+            f"{pm(st.get('icir'), st.get('icir_sd'), signed=False)} | "
+            f"{pm(st.get('ricir'), st.get('ricir_sd'), signed=False)} | "
             f"{'—' if is_base else fmt(p_pd, signed=False)} | "
             f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
 
@@ -721,9 +734,9 @@ def main() -> None:
         f2_sig, f2_pf = f2
         out.append("### 訊號層（第二折）")
         out.append("")
-        out.append("| 方法 | n | test IC ↑ | **ICIR ↑** | RankIC ↑ "
+        out.append("| 方法 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
                    "| 逐日 p (IC) | 逐日 p (RankIC) |")
-        out.append("|---|---:|---:|---:|---:|---:|---:|")
+        out.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         out += f2_sig
         out.append("")
         out.append("### 組合讀法（第二折）")
@@ -778,6 +791,10 @@ def main() -> None:
                "會得到「集成」的 ICIR，系統性偏高 | `icir()` |")
     out.append("| `RankIC` | 同 `IC` 但用 Spearman（平手取**平均名次**，`scipy.spearmanr`）。"
                "**一律由預測檔重算，不讀 `meta.json`** | `daily_series` |")
+    out.append("| `Rank ICIR` | `mean_t(RankIC_t) / sd_t(RankIC_t)`，`ddof=1`，"
+               "逐 seed 算完再平均。**它沒有組合讀法**——`ICIR` 對應 Sharpe 是因為"
+               "§57.8 的恆等式建立在 Pearson IC 上，`RankIC` 沒有對應的恆等式（§57.3）。"
+               "它只回答「名次相關本身穩不穩」 | `icir(daily RankIC)` |")
     out.append("| `± sd` | 跨 seed 的樣本標準差，`ddof=1`。n=1 時不印——"
                "**那不代表沒有不確定性**，只代表它來自資料而非種子 | `pm()` |")
     out.append("| `逐日 p` | 取「統計基準與該列」的**逐日 IC 差值序列** `d_t`，"
@@ -904,9 +921,18 @@ def main() -> None:
                "實測（§60）本專案最佳 arm 的 IC 高於 KTW+（+0.1090 vs +0.1077）"
                "但 ICIR 較低（0.4368 vs 0.4810），Top-10 多空的 Sharpe 也較低"
                "（5.86 vs 6.53）——**IC 的排名不保證回測的排名**。")
-    out.append("- **沒有報 RankICIR**：組合報酬的恆等式建立在 Pearson IC 上，"
-               "名次相關沒有對應的組合讀法，報了會被誤用。")
-    out.append("- **本表只報 IC / RankIC / ICIR，三者都是相關係數的函數、對預測的尺度不敏感。**"
+    out.append("- **`Rank ICIR` 有報，但它沒有組合讀法**（2026-09-15 補；"
+               "本表原本刻意不報它）。`ICIR` 之所以重要是因為 §57.8 的恆等式 "
+               "`r_t = IC_t x sigma_t` 建立在 **Pearson** IC 上，所以 "
+               "`Sharpe = ICIR x sqrt(252)`。**`RankIC` 沒有對應的恆等式**"
+               "（§57.3：名次加權組合對應的是 `corr(rank(y_hat), r)`，不是 RankIC），"
+               "因此 **`Rank ICIR` 不可以拿來推論任何組合績效**，"
+               "它只回答「名次相關本身穩不穩」。"
+               "補報的理由有二：Qlib / Stockformer 那一系的標準區塊是四個一起報（§60.1），"
+               "以及 §35.3 發現 `無A₂` 對 RankIC（+0.0077）與 ICIR（−0.0258）方向相反，"
+               "**需要它才答得出「那個 RankIC 增益本身穩不穩」**。")
+    out.append("- **本表只報 IC / RankIC / ICIR / Rank ICIR，四者都是相關係數的函數、"
+               "對預測的尺度不敏感。**"
                "主結果 arm 的預測是**過度離散**的——逐日橫截面 "
                "std(y_hat)/std(y) = **2.59**（beta 層前版 1.69、更早的版本 0.47 是收縮）。"
                "MSE 隨之由 0.00106 升到 **0.00204**，是最早版本的 4.5 倍。"

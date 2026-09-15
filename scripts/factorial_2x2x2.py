@@ -78,11 +78,12 @@ def per_seed(tag: str, metric: str) -> dict[str, float]:
                 continue
             ic.append(np.corrcoef(p, y)[0, 1])
             ric.append(stats.spearmanr(p, y).statistic)
-        a = np.asarray(ic if metric != "RankIC" else ric, float)
         if metric == "ICIR":
             out[m.group(1)] = float(np.mean(ic) / np.std(ic, ddof=1))
+        elif metric == "RankICIR":
+            out[m.group(1)] = float(np.mean(ric) / np.std(ric, ddof=1))
         else:
-            out[m.group(1)] = float(a.mean())
+            out[m.group(1)] = float(np.mean(ric if metric == "RankIC" else ic))
     return out
 
 
@@ -131,7 +132,8 @@ def _self_check() -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="2^3 效應分解（§35.3）")
-    ap.add_argument("--metric", choices=["IC", "RankIC", "ICIR"], default="IC")
+    ap.add_argument("--metric",
+                    choices=["IC", "RankIC", "ICIR", "RankICIR"], default="IC")
     args = ap.parse_args()
     _self_check()
 
