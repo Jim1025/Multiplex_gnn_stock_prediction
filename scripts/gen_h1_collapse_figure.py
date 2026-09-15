@@ -24,15 +24,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "figures" / "h1_collapse.svg"
 
-# (標題, 副標, 實測兩兩餘弦)  區塊 B：raw 0.2945 / LSTM 0.6533 / GAT 0.9815 / h1 0.9956
+# (標題, 副標, 維度, 實測兩兩餘弦)  區塊 B / C
+#
+# 四站的**維度不同**（9 / 64 / 64 / 32），但餘弦是每個空間**內部**的正規化
+# 內積，量的是「這 30 個向量彼此多對齊」，所以跨站比較合法。
+# 原始特徵那站資料層是 9 欄，模型（F3 arm）實際只吃 3 欄，但餘弦幾乎一樣
+# （9 欄 0.2945 / 3 欄 0.2954 / 1 欄 0.3112），結論不受影響。
 STAGES = [
-    ("原始特徵", "逐特徵標準化後", 0.2945),
-    ("LSTM 之後", "時序編碼", 0.6533),
-    ("GAT 之後", "圖密度 65%，每檔對 18.8 檔取加權平均", 0.9815),
-    ("投影層 + bias 之後", "bias 比橫截面差異大 4.3 倍", 0.9956),
+    ("原始特徵", "逐特徵標準化後", 9, 0.2945),
+    ("LSTM 之後", "時序編碼", 64, 0.6533),
+    ("GAT 之後", "圖密度 65%，每檔對 18.8 檔取加權平均", 64, 0.9815),
+    ("投影層 + bias 之後（= h₁ᵢ）", "bias 比橫截面差異大 4.3 倍", 32, 0.9956),
 ]
 BAR_MAX = 94.0         # 柱高上限，碰撞檢查靠它
-N_ARROWS = 12          # 畫 12 根代表 30 檔，避免糊成一團
+N_ARROWS = 30          # 30 檔美股，一檔一根（後兩站糊成一片——那正是重點）
 W, H = 1760, 720
 INK, MUTE, HL, BG = "#1a1a1a", "#8a8a8a", "#b45309", "#ffffff"
 
@@ -42,7 +47,7 @@ def half_angle(rho: float) -> float:
     return math.degrees(math.acos(min(1.0, math.sqrt((1.0 + rho) / 2.0))))
 
 
-def fan(cx: float, cy: float, rho: float, r: float = 96.0) -> str:
+def fan(cx: float, cy: float, rho: float, r: float = 100.0) -> str:
     """從 (cx, cy) 往上畫一束箭頭，張角由 rho 決定。"""
     ha = half_angle(rho)
     out = []
@@ -51,7 +56,7 @@ def fan(cx: float, cy: float, rho: float, r: float = 96.0) -> str:
         a = math.radians(-90.0 + f * ha)
         x, y = cx + r * math.cos(a), cy + r * math.sin(a)
         out.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
-                   f'stroke="{INK}" stroke-width="1.6" marker-end="url(#a)"/>')
+                   f'stroke="{INK}" stroke-width="1.0" marker-end="url(#a)"/>')
     return "\n".join(out)
 
 
@@ -79,20 +84,24 @@ def main() -> None:
     p.append(f'<text x="56" y="56" font-size="27" font-weight="600" fill="{INK}">'
              '30 檔美股的表示 h₁ᵢ 如何一路被壓成同一個向量，以及它的後果</text>')
     p.append(f'<text x="56" y="88" font-size="16" fill="{MUTE}">'
-             '扇形張角按實測兩兩餘弦換算，非示意。數字為已訓練的舊寫法 arm。</text>')
+             '一根箭頭 = 一檔美股，共 30 根。扇形張角按實測兩兩餘弦換算，非示意。'
+             '四站維度不同（9 / 64 / 64 / 32），但餘弦量的是「這 30 個向量彼此多對齊」，'
+             '跨站可比。數字為已訓練的舊寫法 arm。</text>')
 
     base_y, x0, dx = 330, 170, 268
-    for i, (title, sub, rho) in enumerate(STAGES):
+    for i, (title, sub, dim, rho) in enumerate(STAGES):
         cx = x0 + i * dx
         p.append(fan(cx, base_y, rho))
         p.append(f'<text x="{cx}" y="{base_y + 34}" font-size="18" font-weight="600" '
                  f'text-anchor="middle" fill="{INK}">{title}</text>')
-        p.append(f'<text x="{cx}" y="{base_y + 58}" font-size="13.5" '
+        p.append(f'<text x="{cx}" y="{base_y + 60}" font-size="15" font-weight="600" '
+                 f'text-anchor="middle" fill="{INK}">30 檔 x {dim} 維</text>')
+        p.append(f'<text x="{cx}" y="{base_y + 84}" font-size="13" '
                  f'text-anchor="middle" fill="{MUTE}">{sub}</text>')
         col = HL if i >= 2 else INK
-        p.append(f'<text x="{cx}" y="{base_y + 92}" font-size="21" font-weight="700" '
+        p.append(f'<text x="{cx}" y="{base_y + 118}" font-size="21" font-weight="700" '
                  f'text-anchor="middle" fill="{col}">兩兩餘弦 {rho:.4f}</text>')
-        p.append(f'<text x="{cx}" y="{base_y + 116}" font-size="13" '
+        p.append(f'<text x="{cx}" y="{base_y + 142}" font-size="13" '
                  f'text-anchor="middle" fill="{MUTE}">'
                  f'（張角 ±{half_angle(rho):.0f}°）</text>')
         if i:
@@ -136,7 +145,7 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(p), encoding="utf-8")
     print(f"-> {OUT}")
-    for _, _, r in STAGES:
+    for _, _, _, r in STAGES:
         print(f"   rho {r:.4f} -> 半角 {half_angle(r):5.1f}°")
 
 
