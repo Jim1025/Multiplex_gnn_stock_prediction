@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="720" viewBox="0 0 1760 720" font-family="Helvetica Neue, Arial, sans-serif">
+<rect width="1760" height="720" fill="#ffffff"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker></defs>
+<text x="56" y="56" font-size="27" font-weight="600" fill="#1a1a1a">30 檔美股的表示 h₁ᵢ 如何一路被壓成同一個向量，以及它的後果</text>
+<text x="56" y="88" font-size="16" fill="#8a8a8a">扇形張角按實測兩兩餘弦換算，非示意。數字為已訓練的舊寫法 arm。</text>
+<line x1="170.0" y1="330.0" x2="113.0" y2="252.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="122.3" y2="246.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="132.2" y2="241.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="142.6" y2="238.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="153.4" y2="235.4" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="164.5" y2="234.2" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="175.5" y2="234.2" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="186.6" y2="235.4" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="197.4" y2="238.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="207.8" y2="241.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="217.7" y2="246.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="170.0" y1="330.0" x2="227.0" y2="252.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="170" y="364" font-size="18" font-weight="600" text-anchor="middle" fill="#1a1a1a">原始特徵</text>
+<text x="170" y="388" font-size="13.5" text-anchor="middle" fill="#8a8a8a">逐特徵標準化後</text>
+<text x="170" y="422" font-size="21" font-weight="700" text-anchor="middle" fill="#1a1a1a">兩兩餘弦 0.2945</text>
+<text x="170" y="446" font-size="13" text-anchor="middle" fill="#8a8a8a">（張角 ±36°）</text>
+<line x1="438.0" y1="330.0" x2="398.0" y2="242.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="405.0" y2="239.9" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="412.1" y2="237.6" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="419.4" y2="235.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="426.8" y2="234.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="434.3" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="441.7" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="449.2" y2="234.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="456.6" y2="235.8" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="463.9" y2="237.6" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="471.0" y2="239.9" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="438.0" y1="330.0" x2="478.0" y2="242.7" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="438" y="364" font-size="18" font-weight="600" text-anchor="middle" fill="#1a1a1a">LSTM 之後</text>
+<text x="438" y="388" font-size="13.5" text-anchor="middle" fill="#8a8a8a">時序編碼</text>
+<text x="438" y="422" font-size="21" font-weight="700" text-anchor="middle" fill="#1a1a1a">兩兩餘弦 0.6533</text>
+<text x="438" y="446" font-size="13" text-anchor="middle" fill="#8a8a8a">（張角 ±25°）</text>
+<line x1="288" y1="284" x2="320" y2="284" stroke="#8a8a8a" stroke-width="1.4" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="696.8" y2="234.4" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="698.4" y2="234.3" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="700.1" y2="234.2" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="701.8" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="703.5" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="705.2" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="706.8" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="708.5" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="710.2" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="711.9" y2="234.2" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="713.6" y2="234.3" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="706.0" y1="330.0" x2="715.2" y2="234.4" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="706" y="364" font-size="18" font-weight="600" text-anchor="middle" fill="#1a1a1a">GAT 之後</text>
+<text x="706" y="388" font-size="13.5" text-anchor="middle" fill="#8a8a8a">圖密度 65%，每檔對 18.8 檔取加權平均</text>
+<text x="706" y="422" font-size="21" font-weight="700" text-anchor="middle" fill="#b45309">兩兩餘弦 0.9815</text>
+<text x="706" y="446" font-size="13" text-anchor="middle" fill="#8a8a8a">（張角 ±6°）</text>
+<line x1="556" y1="284" x2="588" y2="284" stroke="#8a8a8a" stroke-width="1.4" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="969.5" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="970.3" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="971.1" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="972.0" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="972.8" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="973.6" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="974.4" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="975.2" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="976.0" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="976.9" y2="234.0" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="977.7" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="974.0" y1="330.0" x2="978.5" y2="234.1" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="974" y="364" font-size="18" font-weight="600" text-anchor="middle" fill="#1a1a1a">投影層 + bias 之後</text>
+<text x="974" y="388" font-size="13.5" text-anchor="middle" fill="#8a8a8a">bias 比橫截面差異大 4.3 倍</text>
+<text x="974" y="422" font-size="21" font-weight="700" text-anchor="middle" fill="#b45309">兩兩餘弦 0.9956</text>
+<text x="974" y="446" font-size="13" text-anchor="middle" fill="#8a8a8a">（張角 ±3°）</text>
+<line x1="824" y1="284" x2="856" y2="284" stroke="#8a8a8a" stroke-width="1.4" marker-end="url(#a)"/>
+<line x1="1104" y1="100" x2="1104" y2="630" stroke="#e0e0e0" stroke-width="1.4"/>
+<text x="1188" y="168" font-size="19" font-weight="600" fill="#1a1a1a">後果：B 的 30 個偏導數</text>
+<text x="1188" y="196" font-size="14" fill="#8a8a8a">∂L/∂B[i,j] = ⟨g_j , h₁ᵢ⟩</text>
+<text x="1188" y="250" font-size="14" fill="#8a8a8a">假如 h₁ᵢ 彼此不同 -&gt; 偏導數不同：</text>
+<rect x="1188.0" y="274.6" width="7.0" height="81.4" fill="#8a8a8a"/>
+<rect x="1198.0" y="280.5" width="7.0" height="75.5" fill="#8a8a8a"/>
+<rect x="1208.0" y="303.4" width="7.0" height="52.6" fill="#8a8a8a"/>
+<rect x="1218.0" y="314.4" width="7.0" height="41.6" fill="#8a8a8a"/>
+<rect x="1228.0" y="297.2" width="7.0" height="58.8" fill="#8a8a8a"/>
+<rect x="1238.0" y="304.5" width="7.0" height="51.5" fill="#8a8a8a"/>
+<rect x="1248.0" y="278.7" width="7.0" height="77.3" fill="#8a8a8a"/>
+<rect x="1258.0" y="311.4" width="7.0" height="44.6" fill="#8a8a8a"/>
+<rect x="1268.0" y="299.6" width="7.0" height="56.4" fill="#8a8a8a"/>
+<rect x="1278.0" y="292.3" width="7.0" height="63.7" fill="#8a8a8a"/>
+<rect x="1288.0" y="270.2" width="7.0" height="85.8" fill="#8a8a8a"/>
+<rect x="1298.0" y="297.7" width="7.0" height="58.3" fill="#8a8a8a"/>
+<rect x="1308.0" y="312.8" width="7.0" height="43.2" fill="#8a8a8a"/>
+<rect x="1318.0" y="280.6" width="7.0" height="75.4" fill="#8a8a8a"/>
+<rect x="1328.0" y="290.0" width="7.0" height="66.0" fill="#8a8a8a"/>
+<rect x="1338.0" y="315.0" width="7.0" height="41.0" fill="#8a8a8a"/>
+<rect x="1348.0" y="270.1" width="7.0" height="85.9" fill="#8a8a8a"/>
+<rect x="1358.0" y="265.2" width="7.0" height="90.8" fill="#8a8a8a"/>
+<rect x="1368.0" y="276.9" width="7.0" height="79.1" fill="#8a8a8a"/>
+<rect x="1378.0" y="270.7" width="7.0" height="85.3" fill="#8a8a8a"/>
+<text x="1188" y="380" font-size="13.5" fill="#8a8a8a">可以造出個股結構</text>
+<text x="1188" y="440" font-size="14" fill="#1a1a1a">實際上 h₁ᵢ 幾乎相同 -&gt; 偏導數幾乎相同：</text>
+<rect x="1188.0" y="487.2" width="7.0" height="58.8" fill="#b45309"/>
+<rect x="1198.0" y="487.4" width="7.0" height="58.6" fill="#b45309"/>
+<rect x="1208.0" y="488.2" width="7.0" height="57.8" fill="#b45309"/>
+<rect x="1218.0" y="488.6" width="7.0" height="57.4" fill="#b45309"/>
+<rect x="1228.0" y="488.0" width="7.0" height="58.0" fill="#b45309"/>
+<rect x="1238.0" y="488.2" width="7.0" height="57.8" fill="#b45309"/>
+<rect x="1248.0" y="487.3" width="7.0" height="58.7" fill="#b45309"/>
+<rect x="1258.0" y="488.5" width="7.0" height="57.5" fill="#b45309"/>
+<rect x="1268.0" y="488.1" width="7.0" height="57.9" fill="#b45309"/>
+<rect x="1278.0" y="487.8" width="7.0" height="58.2" fill="#b45309"/>
+<rect x="1288.0" y="487.0" width="7.0" height="59.0" fill="#b45309"/>
+<rect x="1298.0" y="488.0" width="7.0" height="58.0" fill="#b45309"/>
+<rect x="1308.0" y="488.5" width="7.0" height="57.5" fill="#b45309"/>
+<rect x="1318.0" y="487.4" width="7.0" height="58.6" fill="#b45309"/>
+<rect x="1328.0" y="487.7" width="7.0" height="58.3" fill="#b45309"/>
+<rect x="1338.0" y="488.6" width="7.0" height="57.4" fill="#b45309"/>
+<rect x="1348.0" y="487.0" width="7.0" height="59.0" fill="#b45309"/>
+<rect x="1358.0" y="486.8" width="7.0" height="59.2" fill="#b45309"/>
+<rect x="1368.0" y="487.3" width="7.0" height="58.7" fill="#b45309"/>
+<rect x="1378.0" y="487.0" width="7.0" height="59.0" fill="#b45309"/>
+<text x="1188" y="572" font-size="14" font-weight="600" fill="#b45309">整欄只能一起推 = 只改變總和</text>
+<text x="1188" y="596" font-size="13.5" fill="#8a8a8a">梯度 99.99% 在推市場曝險，0.01% 能造個股結構</text>
+<line x1="56" y1="624" x2="1704" y2="624" stroke="#e0e0e0" stroke-width="1.4"/>
+<text x="56" y="666" font-size="17" fill="#1a1a1a">結果：舊寫法的 |B|max 中位數停在 <tspan font-weight="700">0.0005</tspan>（幾乎沒離開 0 初始值），新寫法 <tspan font-weight="700">0.41</tspan>；同樣 1,493 條邊全部拿掉，舊寫法 ΔIC <tspan font-weight="700">+0.0000</tspan>，新寫法 <tspan font-weight="700">−0.0269</tspan>。</text>
+</svg>
