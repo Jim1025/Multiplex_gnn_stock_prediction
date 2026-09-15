@@ -508,11 +508,12 @@ def _ens_block():
             return None
         ms = [_metrics(x) for x in ds]
         k = sorted(set.intersection(*[set(m) for m in ms]))
-        # 第 4 個回傳值是**逐 seed**的 Top-K 日報酬矩陣 [n_seed, T]；
-        # 組合指標要逐 seed 算完再平均，不能拿跨 seed 平均後的序列去算。
-        return (k, np.array([[np.mean([m[d][i] for m in ms]) for d in k]
-                             for i in (0, 1, 2, 3)]), len(ds),
-                [np.array([m[d][3] for d in k]) for m in ms])
+        # Q[seed, 指標(0=IC 1=RankIC 2=離散比 3=Top-K 日報酬), 日]。
+        # ICIR / Rank ICIR / 組合指標都要**逐 seed 算完再平均**，
+        # 不能拿跨 seed 平均後的序列去算——那是「集成」的值，系統性偏高，
+        # 而這正是本區塊 (A) 在量的東西。
+        Q = np.array([[[m[d][i] for d in k] for i in (0, 1, 2, 3)] for m in ms])
+        return k, Q.mean(axis=0), len(ds), Q
 
     def _ens(pat, cut=None):
         """(2) 先平均全部種子的預測，再算逐日指標。"""
@@ -553,9 +554,9 @@ def _ens_block():
     out, ok = [], False
     out.append("### (A) 種子集成：先平均預測，再算 IC")
     out.append("")
-    out.append("| 折 | n 種子 | 聚合 | IC ↑ | RankIC ↑ | 離散比 std(y_hat)/std(y) "
-               + PF_HEAD + "|")
-    out.append("|---|---:|---|---:|---:|---:" + PF_SEP + "|")
+    out.append("| 折 | n 種子 | 聚合 | IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
+               "| 離散比 std(y_hat)/std(y) " + PF_HEAD + "|")
+    out.append("|---|---:|---|---:|---:|---:|---:|---:" + PF_SEP + "|")
     ens_cache = {}
     for lab, pat, cut, _ in FOLDS:
         ps = _per_seed(pat, cut)
@@ -564,16 +565,23 @@ def _ens_block():
             continue
         ok = True
         ens_cache[lab] = (en, cut)
+        Q = ps[3]
+        s_ir = float(np.nanmean([icir(Q[j, 0]) for j in range(Q.shape[0])]))
+        s_rir = float(np.nanmean([icir(Q[j, 1]) for j in range(Q.shape[0])]))
+        e_ir, e_rir = icir(en[1][0]), icir(en[1][1])
         out.append(f"| {lab} | {ps[2]} | 先算 IC 再平均 | {ps[1][0].mean():+.4f} "
-                   f"| {ps[1][1].mean():+.4f} | {ps[1][2].mean():.2f} "
-                   + pf_cells(portfolio_stats(ps[3])) + "|")
+                   f"| {ps[1][1].mean():+.4f} | {s_ir:.4f} | {s_rir:.4f} "
+                   f"| {ps[1][2].mean():.2f} "
+                   + pf_cells(portfolio_stats(list(Q[:, 3, :]))) + "|")
         out.append(f"| {lab} | {ps[2]} | **先平均預測再算 IC** "
                    f"| **{en[1][0].mean():+.4f}** | **{en[1][1].mean():+.4f}** "
+                   f"| **{e_ir:.4f}** | **{e_rir:.4f}** "
                    f"| **{en[1][2].mean():.2f}** "
                    + pf_cells(portfolio_stats([en[1][3]])) + "|")
         # 「增益」是兩列相減，沒有對應的日報酬序列，組合欄留空
         out.append(f"| {lab} | | 增益 | {en[1][0].mean() - ps[1][0].mean():+.4f} "
                    f"| {en[1][1].mean() - ps[1][1].mean():+.4f} "
+                   f"| **{e_ir - s_ir:+.4f}** | **{e_rir - s_rir:+.4f}** "
                    f"| {en[1][2].mean() - ps[1][2].mean():+.2f} "
                    + PF_BLANK + "|")
     if not ok:
@@ -583,9 +591,9 @@ def _ens_block():
            ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
-            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 逐日 p (IC) | 逐日 p (RankIC) "
-            + PF_HEAD + "|",
-            "|---|---|---:|---:|---:|---:" + PF_SEP + "|"]
+            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 其 **ICIR ↑** | 其 **Rank ICIR ↑** "
+            "| 逐日 p (IC) | 逐日 p (RankIC) " + PF_HEAD + "|",
+            "|---|---|---:|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, _ in FOLDS:
         if lab not in ens_cache:
             continue
@@ -596,14 +604,18 @@ def _ens_block():
             if b is None:
                 continue
             d, pv = _cmp(en, b)
+            Qb = b[3]
+            b_ir = float(np.nanmean([icir(Qb[j, 0]) for j in range(Qb.shape[0])]))
+            b_rir = float(np.nanmean([icir(Qb[j, 1]) for j in range(Qb.shape[0])]))
             out.append(f"| {lab} | {bl} | {b[1][0].mean():+.4f} | {b[1][1].mean():+.4f} "
+                       f"| {b_ir:.4f} | {b_rir:.4f} "
                        f"| {pv[0]:.4f} | {pv[1]:.4f} "
-                       + pf_cells(portfolio_stats(b[3])) + "|")
+                       + pf_cells(portfolio_stats(list(Qb[:, 3, :]))) + "|")
 
     out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
-            "| 折 | 方法 | IC ↑ | RankIC ↑ | 逐日 p (IC) | 逐日 p (RankIC) "
-            + PF_HEAD + "|",
-            "|---|---|---:|---:|---:|---:" + PF_SEP + "|"]
+            "| 折 | 方法 | IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
+            "| 逐日 p (IC) | 逐日 p (RankIC) " + PF_HEAD + "|",
+            "|---|---|---:|---:|---:|---:|---:|---:" + PF_SEP + "|"]
     for lab, _, cut, kp in FOLDS:
         if lab not in ens_cache:
             continue
@@ -634,14 +646,15 @@ def _ens_block():
             k = sorted(m)
             V = np.array([[m[d][i] for d in k] for i in (0, 1, 3)])
             pf = pf_cells(portfolio_stats([V[2]]))
+            ir4 = f"| {icir(V[0]):.4f} | {icir(V[1]):.4f} "
             if w == 0.0:
                 base = V
                 out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                           f"| — | — " + pf + "|")
+                           + ir4 + "| — | — " + pf + "|")
                 continue
             d0, d1 = V[0] - base[0], V[1] - base[1]
             out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
-                       f"| {_hac(d0):.4f} | {_hac(d1):.4f} " + pf + "|")
+                       + ir4 + f"| {_hac(d0):.4f} | {_hac(d1):.4f} " + pf + "|")
     return out
 
 
@@ -854,8 +867,12 @@ def main() -> None:
     out.append("| `離散比 std(y_hat)/std(y)` | 逐日的橫截面標準差之比，對 T 天取平均。"
                "**在 ŷ 宣告為「基數分數、尺度未校正」下這是規範選擇不是缺陷**"
                "（IC 與 RankIC 都看不到它，proposal §57.11 / §60.7） |")
-    out.append("| `其 IC` / `其 RankIC`（B 表） | 該 baseline 自己的值，"
-               "算法同訊號層 |")
+    out.append("| `其 IC` / `其 RankIC` / `其 ICIR` / `其 Rank ICIR`（B 表） | "
+               "該 baseline 自己的值，算法同訊號層（逐 seed 算完再平均） |")
+    out.append("| `ICIR` / `Rank ICIR`（A 表） | **兩列的算法刻意不同，這正是 A 表在量的東西**："
+               "「先算 IC 再平均」列是**逐 seed** 算完再平均；"
+               "「先平均預測再算 IC」列是拿**集成後的單一日序列**去算。"
+               "後者系統性偏高，`增益` 列就是這個差 |")
     out.append("| `增益`（A 表） | 「先平均預測再算 IC」減「先算 IC 再平均」。"
                "它是兩列相減，**沒有對應的日報酬序列**，故組合欄留空 |")
     out.append("")
@@ -914,7 +931,9 @@ def main() -> None:
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
                "這是目前最大的公平性缺口，比較結果須據此保留。")
     out.append("- **ICIR = mean(逐日 IC) / sd(逐日 IC)**，逐 seed 算完再跨 seed 平均"
-               "（不是拿跨 seed 平均後的日序列去算——那是集成的 ICIR，系統性偏高）。"
+               "（不是拿跨 seed 平均後的日序列去算——那是**集成**的 ICIR，系統性偏高；"
+               "§43 (A) 現在把這個差量出來了：**第一折 +0.0087、第二折 +0.0198**，"
+               "與 IC 的集成增益 +0.0074 / +0.0130 同量級甚至更大）。"
                "**為什麼要看它**：§57.8 的恆等式是 `r_t = IC_t x sigma_t`，"
                "所以 IC 只決定組合報酬的**分子**；若 sigma_t 為常數，"
                "`Sharpe = ICIR x sqrt(252)`。**與回測 Sharpe 對應的是 ICIR，不是 IC。**"
