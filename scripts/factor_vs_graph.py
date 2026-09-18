@@ -63,9 +63,14 @@ from src.dataset.features import TECH_FEATURE_COLS  # noqa: E402
 RET = TECH_FEATURE_COLS.index("log_return")
 ALPHAS = np.logspace(-2, 9, 23)
 
-# arm 名稱是可組合的：[K] + 設計矩陣 + [/r]
-#   前綴 K   = 擬合目標改成逐日橫截面 rank
+# arm 名稱是可組合的：[K|Z] + 設計矩陣 + [/r]
+#   前綴 K   = 擬合目標改成逐日橫截面 rank（序數，丟掉間距）
+#   前綴 Z   = 擬合目標改成逐日橫截面 z-score（保留間距，只去掉逐日尺度異質）
 #   /r 後綴  = 先把設計矩陣壓到 r 個主成分（列空間由 50 檔目標共享）
+#
+# K 與 Z 的對照是 proposal §52.3 的 P8-pre：K 一次改了兩件事
+# （去尺度異質 + 退到序數），Z 只改前者。三點比較 R2 / ZR2 / KR2
+# 才分得出 §60.2a(d) 那 +4.0% / +11.1% 的 IC 是哪一件事買來的。
 ARMS = {
     "R2":      "30 US t-1 returns (reference)",
     "M1":      "US equal-weight mean only (1)",
@@ -77,8 +82,10 @@ ARMS = {
     "R2/5":    "shared rank-5 subspace",
     "R2/10":   "shared rank-10 subspace",
     "KR2":     "rank target, 30 US",
+    "ZR2":     "z-score target, 30 US",
     "TW+":     "30 US + 50 TW t-1 returns (80)",
     "KTW+":    "rank target, US+TW (80)",
+    "ZTW+":    "z-score target, US+TW (80)",
     "TW+/10":  "US+TW, shared rank-10",
     "KTW+/10": "rank target, US+TW, rank-10",
     "KTW+/20": "rank target, US+TW, rank-20",
@@ -86,14 +93,14 @@ ARMS = {
 }
 
 
-def parse_arm(arm: str) -> tuple[bool, str, int | None]:
-    """arm -> (是否 rank 目標, 設計矩陣名稱, 主成分數或 None)。"""
-    use_rank = arm.startswith("K")
-    body = arm[1:] if use_rank else arm
+def parse_arm(arm: str) -> tuple[str, str, int | None]:
+    """arm -> (目標模式 raw|rank|zscore, 設計矩陣名稱, 主成分數或 None)。"""
+    mode = {"K": "rank", "Z": "zscore"}.get(arm[0], "raw")
+    body = arm[1:] if mode != "raw" else arm
     if "/" in body:
         body, r = body.split("/")
-        return use_rank, body, int(r)
-    return use_rank, body, None
+        return mode, body, int(r)
+    return mode, body, None
 
 
 def collect(ds: MultiplexDataset) -> dict:
@@ -156,13 +163,27 @@ def daily_ic_series(Yhat, Y):
 def rank_transform(Y: np.ndarray) -> np.ndarray:
     """逐日橫截面 rank，再標準化到零均值單位變異，讓 ridge 看到一致尺度。"""
     R = np.apply_along_axis(stats.rankdata, 1, Y).astype(np.float64)
-    R -= R.mean(1, keepdims=True)
+    return _row_standardize(R)
+
+
+def zscore_transform(Y: np.ndarray) -> np.ndarray:
+    """逐日橫截面 z-score：零均值單位變異，但**保留基數間距**。
+
+    與 rank_transform 的差別正是 P8-pre 要分開的那兩件事：
+    兩者都去掉了「y 的橫截面 sd 逐日差 2.2 倍」這個異質性，
+    但只有 rank 會把間距抹平成等距。
+    """
+    return _row_standardize(np.asarray(Y, dtype=np.float64))
+
+
+def _row_standardize(R: np.ndarray) -> np.ndarray:
+    R = R - R.mean(1, keepdims=True)
     sd = R.std(1, keepdims=True)
     return R / np.where(sd < 1e-12, 1.0, sd)
 
 
 def fit_arm(arm: str, tr: dict, va: dict, te: dict) -> dict:
-    use_rank, body, r = parse_arm(arm)
+    mode, body, r = parse_arm(arm)
     Xtr, Xva, Xte = design(body, tr), design(body, va), design(body, te)
 
     # 標準化只用 train 統計量
@@ -176,8 +197,9 @@ def fit_arm(arm: str, tr: dict, va: dict, te: dict) -> dict:
         pca = PCA(n_components=r, random_state=42).fit(Xtr)
         Xtr, Xva, Xte = pca.transform(Xtr), pca.transform(Xva), pca.transform(Xte)
 
-    # 擬合目標：K 前綴用逐日橫截面 rank，其餘用原始報酬
-    Ttr = rank_transform(tr["Y"]) if use_rank else tr["Y"]
+    # 擬合目標：K = 逐日橫截面 rank，Z = 逐日橫截面 z-score，其餘 = 原始報酬
+    Ttr = {"rank": rank_transform, "zscore": zscore_transform,
+           "raw": lambda Y: Y}[mode](tr["Y"])
 
     best = None
     for a in ALPHAS:

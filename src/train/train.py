@@ -194,6 +194,7 @@ def train(
     rank_normalize:    Optional[bool]  = None,
     rank_normalize_detach: Optional[bool] = None,
     variance_weight:   Optional[float] = None,
+    mse_target:        Optional[str]   = None,
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
@@ -240,6 +241,8 @@ def train(
                            而它佔總損失 99.94%。開啟後訓練目標才與尺度不變的
                            IC / RankIC 對齊。
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
+        mse_target:        若提供，覆寫 cfg.loss_weights.mse_target
+                           （raw|zscore|rank，見 base.yaml 的說明）
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
         coupling_init_other: 若提供，覆寫 cfg.model.coupling.init_other（稠密 A 的非配對
@@ -292,6 +295,9 @@ def train(
     if variance_weight is not None:
         cfg["loss_weights"]["variance"] = float(variance_weight)
         _overrides.append(f"variance={variance_weight}")
+    if mse_target is not None:
+        cfg["loss_weights"]["mse_target"] = str(mse_target)
+        _overrides.append(f"mse_target={mse_target}")
     if lr_override is not None:
         cfg["training"]["lr"] = float(lr_override)
         _overrides.append(f"lr={lr_override}")
@@ -845,6 +851,9 @@ def _parse_args() -> argparse.Namespace:
                    help="覆寫 cfg.loss_weights.rank_normalize_detach=True（並自動開啟 "
                         "rank_normalize）：標準化的分母 std 不參與反向傳播，"
                         "避免 §44 觀察到的預測塌縮吸收態")
+    p.add_argument("--mse-target", choices=["raw", "zscore", "rank"], default=None,
+                   help="覆寫 cfg.loss_weights.mse_target。zscore/rank 會把 ℒ_MSE 與 "
+                        "ℒ_var 的目標先做逐日橫截面正規化（proposal §52.3 P8）")
     p.add_argument("--variance-weight", type=float, default=None,
                    help="覆寫 cfg.loss_weights.variance")
     p.add_argument("--lr",              type=float, default=None,
@@ -957,6 +966,7 @@ if __name__ == "__main__":
         rank_normalize=args.rank_normalize,
         rank_normalize_detach=args.rank_normalize_detach,
         variance_weight=args.variance_weight,
+        mse_target=args.mse_target,
         lr_override=args.lr,
         early_stop_metric=args.early_stop_metric,
         use_scheduler=not args.no_scheduler,

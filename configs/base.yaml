@@ -90,6 +90,16 @@ loss_weights:
   rank: 0.5             # M4.5 Phase 1: 0.1 → 0.5（強迫學排序）
   align: 0.0            # M4.5 Phase 1: 0.1 → 0.0（關掉反向學的 align loss）
   variance: 0.1         # M4.5 Phase 2: 新增，對抗 prediction collapse（std(ŷ)→std(y)）
+  mse_target: raw       # ℒ_MSE 與 ℒ_var 的**目標**要不要先做逐日橫截面正規化。
+                        #   raw    （預設）y 原樣，既有 run 逐位元不變
+                        #   zscore 逐日橫截面 z-score：零均值單位變異，保留基數間距
+                        #   rank   逐日橫截面 rank 再標準化：退到序數
+                        # 動機（proposal §60.2a）：y 的橫截面 sd 逐日差 2.2 倍，
+                        # 用原始 y 當 MSE 目標等於讓離散度大的日子主導梯度。
+                        # P8-pre（線性、2 折 x 2 設計矩陣）的結論是 zscore：
+                        # 對原始 y 的 IC 與 ICIR 都是 4/4 勝，rank 只有 3/4，
+                        # 且 zscore 與 §60.1「基數、尺度未校正」的宣告一致。
+                        # ℒ_rank 不受影響——它的遮罩是 diff_y > 0，對遞增變換不變。
 
 align_loss:
   enabled: false        # M4.5 Phase 1: 同步停用

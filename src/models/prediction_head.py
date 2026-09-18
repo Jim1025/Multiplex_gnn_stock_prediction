@@ -160,6 +160,30 @@ class CombinedLoss(nn.Module):
         # 且不改變任何既有 run（含 2026-08-30 那 20 個 rnorm run）的數值。
         self.rank_normalize_detach = bool(loss_cfg.get("rank_normalize_detach", False))
 
+        # mse_target：ℒ_MSE 與 ℒ_var 的**目標**要不要先做逐日橫截面正規化。
+        #   "raw"     y 原樣（預設，既有 run 逐位元不變）
+        #   "zscore"  逐日橫截面 z-score：零均值單位變異，**保留基數間距**
+        #   "rank"    逐日橫截面 rank 再標準化：退到序數
+        #
+        # 動機（proposal §60.2a）：y 的橫截面 sd 逐日差 2.2 倍，用原始 y 當
+        # MSE 目標等於讓離散度大的日子主導梯度。KTW+ 正是用 rank 目標繞開
+        # 這件事，而它是唯一在 ICIR 上贏我們的方法。
+        #
+        # P8-pre（`factor_vs_graph.py` 的 Z/K 前綴，線性模型、兩折、兩個設計
+        # 矩陣）把「去尺度異質」與「丟基數間距」分開，結果是**前者才是有效的
+        # 那一半**：z-score 在 4 格裡 3 格拿到最高 ICIR 與最高 Pearson IC，
+        # rank 只在名次側的指標上領先。所以預設的推薦值是 "zscore"，
+        # 它同時與 §60.1「基數、尺度未校正」的宣告一致。
+        #
+        # **變換同時套用在 ℒ_MSE 與 ℒ_var 上，這是必要的不是選擇**：正規化後的
+        # 目標 sd 是 1.0，而 y 的日內橫截面 sd 約 0.016，兩者差 60 倍；若 ℒ_var
+        # 仍比對原始 y，兩項會互相拉扯。ℒ_rank **不受影響**——它的遮罩是
+        # `diff_y > 0`，對任何遞增變換不變，故保持吃原始 y 以求逐位元一致。
+        self.mse_target = str(loss_cfg.get("mse_target", "raw"))
+        if self.mse_target not in ("raw", "zscore", "rank"):
+            raise ValueError(
+                f"loss_weights.mse_target 必須是 raw/zscore/rank，得到 {self.mse_target!r}")
+
     # ------------------------------------------------------------------
     # ℒ_rank : RankNet pairwise loss
     # ------------------------------------------------------------------
@@ -193,6 +217,28 @@ class CombinedLoss(nn.Module):
         mask = (diff_y > 0).float()
         loss = F.softplus(-diff_hat)   # log(1 + exp(-x))，等同 RankNet
         return (loss * mask).sum() / (mask.sum().clamp(min=1.0))
+
+    # ------------------------------------------------------------------
+    # mse_target 的目標變換
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _norm_target(y: Tensor, mode: str) -> Tensor:
+        """逐日橫截面正規化 y，供 ℒ_MSE 與 ℒ_var 使用（見 __init__ 的說明）。
+
+        mode="raw" 時原樣回傳——既有 run 走這條路，逐位元不變。
+
+        rank 用 argsort(argsort(·)) 取名次。**這裡的平手處理與 §44.7 的
+        RankIC 修正是兩回事**：那裡是評估指標、平手必須取平均名次才不會
+        捏造相關；這裡是訓練目標，平手給相異名次只是在等價的 y 之間
+        指定一個任意但固定的順序，不會造成偏差。
+        """
+        if mode == "raw":
+            return y
+        t = y
+        if mode == "rank":
+            t = torch.argsort(torch.argsort(y, dim=-1), dim=-1).to(y.dtype)
+        t = t - t.mean(dim=-1, keepdim=True)
+        return t / (t.std(dim=-1, keepdim=True) + 1e-8)
 
     # ------------------------------------------------------------------
     # ℒ_align : InfoNCE contrastive loss
@@ -296,9 +342,11 @@ class CombinedLoss(nn.Module):
             total_loss : scalar
             components : dict{"mse", "rank", "align", "variance"}  各分量（供 logging）
         """
-        l_mse  = self.mse(y_hat, y)
+        # ℒ_MSE 與 ℒ_var 吃變換後的目標，ℒ_rank 吃原始 y（見 __init__）
+        y_t    = self._norm_target(y, self.mse_target)
+        l_mse  = self.mse(y_hat, y_t)
         l_rank = self._rank_loss(y_hat, y)
-        l_var  = self._variance_loss(y_hat, y)
+        l_var  = self._variance_loss(y_hat, y_t)
 
         l_align = torch.tensor(0.0, device=y.device)
         if self.align_enabled and h_L1 is not None and h_L2 is not None:
