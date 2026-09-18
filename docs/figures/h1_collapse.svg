@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1840" height="1000" viewBox="0 0 1840 1000" font-family="Helvetica Neue, Arial, sans-serif">
-<rect width="1840" height="1000" fill="#ffffff"/>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker></defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="1840" height="1450" viewBox="0 0 1840 1450" font-family="Helvetica Neue, Arial, sans-serif">
+<rect width="1840" height="1450" fill="#ffffff"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/></marker></defs>
 <text x="56" y="58" font-size="28" font-weight="600" fill="#1a1a1a">30 檔美股的表示 h₁ᵢ 如何一路被壓成同一個向量，以及它的後果</text>
 <text x="56" y="90" font-size="15.5" fill="#8a8a8a">一根箭頭 = 一檔美股，共 30 根。扇形張角按實測兩兩餘弦換算，非示意。整條鏈在同一次前向傳遞上、用整個 test split（246 天）量，舊寫法訓練後。</text>
 <text x="56" y="114" font-size="15.5" fill="#8a8a8a">各站維度不同（3 / 3 / 64 / 64 / 32），但餘弦量的是「這 30 個向量彼此多對齊」，是各空間內部的正規化內積，跨站可比。</text>
@@ -266,6 +266,68 @@
 <text x="1240" y="718" font-size="14.5" fill="#8a8a8a">對 7 檔配對股還會跟權重固定為 1 的</text>
 <text x="1240" y="742" font-size="14.5" fill="#8a8a8a">恆等邊搶同一個方向——</text>
 <text x="1240" y="772" font-size="15.5" font-weight="700" fill="#b45309">它唯一推得動的方向是多餘的。</text>
-<line x1="56" y1="908" x2="1784" y2="908" stroke="#e0e0e0" stroke-width="1.4"/>
-<text x="56" y="948" font-size="17" fill="#1a1a1a">結果：舊寫法的 |B|max 中位數停在 <tspan font-weight="700">0.0005</tspan>（幾乎沒離開 0 初始值），新寫法 <tspan font-weight="700">0.41</tspan>；同樣 1,493 條邊全部拿掉，舊寫法 ΔIC <tspan font-weight="700">+0.0000</tspan>，新寫法 <tspan font-weight="700">−0.0269</tspan>。</text>
+<line x1="56" y1="976" x2="1784" y2="976" stroke="#e0e0e0" stroke-width="1.4"/>
+<text x="56" y="1010" font-size="20" font-weight="600" fill="#1a1a1a">新寫法：不是把共同成分變小，是把它移出 B 的輸入</text>
+<line x1="270.0" y1="1246.0" x2="270.0" y2="1096.0" stroke="#1a1a1a" stroke-width="3.4" marker-end="url(#a)"/>
+<line x1="270.0" y1="1096.0" x2="253.2" y2="1087.1" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="255.3" y2="1084.0" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="257.9" y2="1081.3" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="261.0" y2="1079.3" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="264.5" y2="1077.8" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="268.1" y2="1077.1" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="271.9" y2="1077.1" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="275.5" y2="1077.8" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="279.0" y2="1079.3" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="282.1" y2="1081.3" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="284.7" y2="1084.0" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<line x1="270.0" y1="1096.0" x2="286.8" y2="1087.1" stroke="#b45309" stroke-width="1.7" marker-end="url(#h)"/>
+<text x="270" y="1278" font-size="16" font-weight="600" text-anchor="middle" fill="#1a1a1a">h₁ᵢ = h̄₁ + dᵢ</text>
+<text x="270" y="1302" font-size="13" text-anchor="middle" fill="#8a8a8a">實測 ‖h̄₁‖ / ‖dᵢ‖ = 26.41x</text>
+<text x="270" y="1322" font-size="13" text-anchor="middle" fill="#8a8a8a">（圖為可讀性放大了 dᵢ）</text>
+<text x="152" y="1118" font-size="14.5" font-weight="600" text-anchor="end" fill="#1a1a1a">共同成分 h̄₁</text>
+<text x="316" y="1094" font-size="14.5" font-weight="600" fill="#b45309">個股偏差 dᵢ</text>
+<line x1="420" y1="1128" x2="514" y2="1086" stroke="#8a8a8a" stroke-width="1.4" marker-end="url(#a)"/>
+<line x1="420" y1="1170" x2="514" y2="1210" stroke="#b45309" stroke-width="1.4" marker-end="url(#h)"/>
+<text x="530" y="1078" font-size="17" font-weight="600" fill="#1a1a1a">② γ_j · h̄₁</text>
+<text x="530" y="1104" font-size="14" fill="#8a8a8a">共同成分交給自己的項，每檔一個暴露係數</text>
+<text x="530" y="1210" font-size="17" font-weight="600" fill="#b45309">③ Σᵢ B[i,j] · dᵢ</text>
+<text x="530" y="1236" font-size="14" fill="#8a8a8a">B 只吃殘差——它再也看不到共同成分</text>
+<text x="1010" y="1050" font-size="15.5" font-weight="600" fill="#1a1a1a">所以 B 的偏導數變成 ∂L/∂B[i,j] = ⟨g_j , dᵢ⟩</text>
+<text x="1010" y="1076" font-size="14" fill="#8a8a8a">那個讓整欄等高的 ⟨g_j , h̄₁⟩ 項，在定義上就是 0：</text>
+<rect x="1010.0" y="1114.6" width="7.0" height="81.4" fill="#8a8a8a"/>
+<rect x="1020.0" y="1120.5" width="7.0" height="75.5" fill="#8a8a8a"/>
+<rect x="1030.0" y="1143.4" width="7.0" height="52.6" fill="#8a8a8a"/>
+<rect x="1040.0" y="1154.4" width="7.0" height="41.6" fill="#8a8a8a"/>
+<rect x="1050.0" y="1137.2" width="7.0" height="58.8" fill="#8a8a8a"/>
+<rect x="1060.0" y="1144.5" width="7.0" height="51.5" fill="#8a8a8a"/>
+<rect x="1070.0" y="1118.7" width="7.0" height="77.3" fill="#8a8a8a"/>
+<rect x="1080.0" y="1151.4" width="7.0" height="44.6" fill="#8a8a8a"/>
+<rect x="1090.0" y="1139.6" width="7.0" height="56.4" fill="#8a8a8a"/>
+<rect x="1100.0" y="1132.3" width="7.0" height="63.7" fill="#8a8a8a"/>
+<rect x="1110.0" y="1110.2" width="7.0" height="85.8" fill="#8a8a8a"/>
+<rect x="1120.0" y="1137.7" width="7.0" height="58.3" fill="#8a8a8a"/>
+<rect x="1130.0" y="1152.8" width="7.0" height="43.2" fill="#8a8a8a"/>
+<rect x="1140.0" y="1120.6" width="7.0" height="75.4" fill="#8a8a8a"/>
+<rect x="1150.0" y="1130.0" width="7.0" height="66.0" fill="#8a8a8a"/>
+<rect x="1160.0" y="1155.0" width="7.0" height="41.0" fill="#8a8a8a"/>
+<rect x="1170.0" y="1110.1" width="7.0" height="85.9" fill="#8a8a8a"/>
+<rect x="1180.0" y="1105.2" width="7.0" height="90.8" fill="#8a8a8a"/>
+<rect x="1190.0" y="1116.9" width="7.0" height="79.1" fill="#8a8a8a"/>
+<rect x="1200.0" y="1110.7" width="7.0" height="85.3" fill="#8a8a8a"/>
+<rect x="1210.0" y="1150.9" width="7.0" height="45.1" fill="#8a8a8a"/>
+<rect x="1220.0" y="1122.4" width="7.0" height="73.6" fill="#8a8a8a"/>
+<rect x="1230.0" y="1110.9" width="7.0" height="85.1" fill="#8a8a8a"/>
+<rect x="1240.0" y="1125.5" width="7.0" height="70.5" fill="#8a8a8a"/>
+<rect x="1250.0" y="1139.9" width="7.0" height="56.1" fill="#8a8a8a"/>
+<rect x="1260.0" y="1165.2" width="7.0" height="30.8" fill="#8a8a8a"/>
+<rect x="1270.0" y="1142.5" width="7.0" height="53.5" fill="#8a8a8a"/>
+<rect x="1280.0" y="1130.5" width="7.0" height="65.5" fill="#8a8a8a"/>
+<rect x="1290.0" y="1109.9" width="7.0" height="86.1" fill="#8a8a8a"/>
+<rect x="1300.0" y="1106.3" width="7.0" height="89.7" fill="#8a8a8a"/>
+<text x="1010" y="1228" font-size="15.5" font-weight="700" fill="#b45309">整欄不再綁在一起 = 造得出個股結構</text>
+<text x="1010" y="1260" font-size="14" fill="#8a8a8a">函數空間不變：② + ③ = Σᵢ B′[i,j]·h₁ᵢ，</text>
+<text x="1010" y="1282" font-size="14" fill="#8a8a8a">B′[i,j] = B[i,j] + (γ_j − Σₖ B[k,j]) / n₁  ——  沒有多出容量</text>
+<text x="1010" y="1314" font-size="14" fill="#8a8a8a">h̄₁ = 0 時 ② 歸零、③ 退回舊式，兩者等價</text>
+<line x1="56" y1="1358" x2="1784" y2="1358" stroke="#e0e0e0" stroke-width="1.4"/>
+<text x="56" y="1398" font-size="17" fill="#1a1a1a">結果：舊寫法的 |B|max 中位數停在 <tspan font-weight="700">0.0005</tspan>（幾乎沒離開 0 初始值），新寫法 <tspan font-weight="700">0.41</tspan>；同樣 1,493 條邊全部拿掉，舊寫法 ΔIC <tspan font-weight="700">+0.0000</tspan>，新寫法 <tspan font-weight="700">−0.0269</tspan>。</text>
 </svg>

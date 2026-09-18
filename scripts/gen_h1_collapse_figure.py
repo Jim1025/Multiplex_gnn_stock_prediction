@@ -47,7 +47,7 @@ STAGES = [
 ]
 BAR_MAX = 94.0
 N_ARROWS = 30
-W, H = 1840, 1000
+W, H = 1840, 1450
 INK, MUTE, HL, GOOD, BG = "#1a1a1a", "#8a8a8a", "#b45309", "#15803d", "#ffffff"
 
 
@@ -64,6 +64,25 @@ def fan(cx: float, cy: float, rho: float, r: float = 100.0) -> str:
         out.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" '
                    f'x2="{cx + r * math.cos(a):.1f}" y2="{cy + r * math.sin(a):.1f}" '
                    f'stroke="{INK}" stroke-width="1.0" marker-end="url(#a)"/>')
+    return "\n".join(out)
+
+
+def decomp(cx: float, cy: float) -> str:
+    """h₁ᵢ = h̄₁ + dᵢ 的拆解：一根長的共同成分，尖端一叢短的個股偏差。
+
+    長度比按實測：舊 arm 訓練後 ||h̄₁|| / ||dᵢ|| = 26.41x，
+    畫成 1:1/8 而非 1:1/26——真按比例畫偏差會短到看不見。標註寫明實測值。
+    """
+    import math as _m
+    out, L = [], 150.0
+    out.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{cx:.1f}" y2="{cy - L:.1f}" '
+               f'stroke="{INK}" stroke-width="3.4" marker-end="url(#a)"/>')
+    tipy = cy - L
+    for k in range(12):
+        a = _m.radians(-90 + (-1 + 2 * k / 11) * 62)
+        out.append(f'<line x1="{cx:.1f}" y1="{tipy:.1f}" '
+                   f'x2="{cx + 19 * _m.cos(a):.1f}" y2="{tipy + 19 * _m.sin(a):.1f}" '
+                   f'stroke="{HL}" stroke-width="1.7" marker-end="url(#h)"/>')
     return "\n".join(out)
 
 
@@ -85,7 +104,10 @@ def main() -> None:
          f'<rect width="{W}" height="{H}" fill="{BG}"/>',
          '<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" '
          'markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
-         f'<path d="M 0 0 L 10 5 L 0 10 z" fill="{INK}"/></marker></defs>']
+         f'<path d="M 0 0 L 10 5 L 0 10 z" fill="{INK}"/></marker>'
+         '<marker id="h" viewBox="0 0 10 10" refX="9" refY="5" '
+         'markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
+         f'<path d="M 0 0 L 10 5 L 0 10 z" fill="{HL}"/></marker></defs>']
 
     p.append(f'<text x="56" y="58" font-size="28" font-weight="600" fill="{INK}">'
              '30 檔美股的表示 h₁ᵢ 如何一路被壓成同一個向量，以及它的後果</text>')
@@ -150,6 +172,55 @@ def main() -> None:
              '恆等邊搶同一個方向——</text>')
     p.append(f'<text x="1240" y="{yb + 112}" font-size="15.5" font-weight="700" fill="{HL}">'
              '它唯一推得動的方向是多餘的。</text>')
+
+    # ── 新式：把 h₁ᵢ 拆成兩份，B 只吃其中一份 ──────────────────────
+    yn = 1010
+    p.append(f'<line x1="56" y1="{yn - 34}" x2="{W - 56}" y2="{yn - 34}" '
+             f'stroke="#e0e0e0" stroke-width="1.4"/>')
+    p.append(f'<text x="56" y="{yn}" font-size="20" font-weight="600" fill="{INK}">'
+             '新寫法：不是把共同成分變小，是把它移出 B 的輸入</text>')
+
+    dx0 = 270
+    p.append(decomp(dx0, yn + 236))
+    p.append(f'<text x="{dx0}" y="{yn + 268}" font-size="16" font-weight="600" '
+             f'text-anchor="middle" fill="{INK}">h₁ᵢ = h̄₁ + dᵢ</text>')
+    p.append(f'<text x="{dx0}" y="{yn + 292}" font-size="13" '
+             f'text-anchor="middle" fill="{MUTE}">實測 ‖h̄₁‖ / ‖dᵢ‖ = 26.41x</text>')
+    p.append(f'<text x="{dx0}" y="{yn + 312}" font-size="13" '
+             f'text-anchor="middle" fill="{MUTE}">（圖為可讀性放大了 dᵢ）</text>')
+    p.append(f'<text x="{dx0 - 118}" y="{yn + 108}" font-size="14.5" font-weight="600" '
+             f'text-anchor="end" fill="{INK}">共同成分 h̄₁</text>')
+    p.append(f'<text x="{dx0 + 46}" y="{yn + 84}" font-size="14.5" font-weight="600" '
+             f'fill="{HL}">個股偏差 dᵢ</text>')
+
+    rx = 530
+    p.append(f'<line x1="{dx0 + 150}" y1="{yn + 118}" x2="{rx - 16}" y2="{yn + 76}" '
+             f'stroke="{MUTE}" stroke-width="1.4" marker-end="url(#a)"/>')
+    p.append(f'<line x1="{dx0 + 150}" y1="{yn + 160}" x2="{rx - 16}" y2="{yn + 200}" '
+             f'stroke="{HL}" stroke-width="1.4" marker-end="url(#h)"/>')
+    p.append(f'<text x="{rx}" y="{yn + 68}" font-size="17" font-weight="600" fill="{INK}">'
+             '② γ_j · h̄₁</text>')
+    p.append(f'<text x="{rx}" y="{yn + 94}" font-size="14" fill="{MUTE}">'
+             '共同成分交給自己的項，每檔一個暴露係數</text>')
+    p.append(f'<text x="{rx}" y="{yn + 200}" font-size="17" font-weight="600" fill="{HL}">'
+             '③ Σᵢ B[i,j] · dᵢ</text>')
+    p.append(f'<text x="{rx}" y="{yn + 226}" font-size="14" fill="{MUTE}">'
+             'B 只吃殘差——它再也看不到共同成分</text>')
+
+    gx2 = 1010
+    p.append(f'<text x="{gx2}" y="{yn + 40}" font-size="15.5" font-weight="600" fill="{INK}">'
+             '所以 B 的偏導數變成 ∂L/∂B[i,j] = ⟨g_j , dᵢ⟩</text>')
+    p.append(f'<text x="{gx2}" y="{yn + 66}" font-size="14" fill="{MUTE}">'
+             '那個讓整欄等高的 ⟨g_j , h̄₁⟩ 項，在定義上就是 0：</text>')
+    p.append(bars(gx2, yn + 186, equal=False))
+    p.append(f'<text x="{gx2}" y="{yn + 218}" font-size="15.5" font-weight="700" fill="{HL}">'
+             '整欄不再綁在一起 = 造得出個股結構</text>')
+    p.append(f'<text x="{gx2}" y="{yn + 250}" font-size="14" fill="{MUTE}">'
+             '函數空間不變：② + ③ = Σᵢ B′[i,j]·h₁ᵢ，</text>')
+    p.append(f'<text x="{gx2}" y="{yn + 272}" font-size="14" fill="{MUTE}">'
+             'B′[i,j] = B[i,j] + (γ_j − Σₖ B[k,j]) / n₁  ——  沒有多出容量</text>')
+    p.append(f'<text x="{gx2}" y="{yn + 304}" font-size="14" fill="{MUTE}">'
+             'h̄₁ = 0 時 ② 歸零、③ 退回舊式，兩者等價</text>')
 
     y = H - 52
     p.append(f'<line x1="56" y1="{y - 40}" x2="{W - 56}" y2="{y - 40}" '
