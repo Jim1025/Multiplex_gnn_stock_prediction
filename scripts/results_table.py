@@ -124,6 +124,10 @@ PF_HEAD = ("| 日均報酬 ↑ | 日 sd ↓ | 年化(幾何) ↑ "
 PF_SEP = "|---:|---:|---:|---:|---:|---:"
 PF_BLANK = "| — | — | — | — | — | — "
 
+CAL_HEAD = ("| MSE (1e-3) ↓ | RMSE (%) ↓ | 離散比 (->1.0) | 校正後 R² ↑ ")
+CAL_SEP = "|---:|---:|---:|---:"
+CAL_BLANK = "| — | — | — | — "
+
 
 def topk_ret(p_hat, y, k: int = TOPK) -> float:
     """Top-k 多空、等權、金額中性的當日報酬。
@@ -189,6 +193,85 @@ def pf_cells(pf) -> str:
             f"| {pf['mdd_c'] * 100:.2f}% | {pf['mdd_a'] * 100:.2f}% ")
 
 
+def calib_stats(Hn, Yn) -> dict | None:
+    """校準診斷：MSE / RMSE / 離散比 / 校正後 R²。
+
+    **為什麼這四個要一起看。** §60.1 宣告 ŷ 是「基數分數、**尺度未校正**」，
+    所以 MSE / RMSE 量到的主要是**尺度誤差**，不是排序品質。單看它們會得到
+    與 IC 幾乎相反的排名——實測 IC 最好的 arm（+0.1090）MSE 是 IC 最差那一版
+    （+0.0517）的 4.6 倍，而兩者的 R² 都是負的（−4.03 / −0.10）。
+    後兩欄就是把那個負 R² 拆成可讀的部分：
+
+      離散比   = mean_t[ std(ŷ_t) / std(y_t) ]，逐日算完再平均。
+                 與 §60.7 / §52 引用的 **2.59**（主結果 arm）與 **1.69**
+                 （前版 beta）同定義。**注意它不等於** src/train/metrics.py 的
+                 `dispersion`——那個是攤平的，同一個 arm 給 2.13；差在攤平版
+                 把大盤的跨日變動也算進 std。
+      校正後 R² = **先把每天的橫截面均值從 ŷ 與 y 各自扣掉**，再攤平配
+                 OLS（y ~ a·ŷ + b）之後的 level R²，代數上等於扣完均值的
+                 `corr²`。列它是為了與 Gu/Kelly/Xiu 那類報 level R² 的文獻
+                 對照，並且把一件事講明：ŷ 的數值可預測性大約就是 IC² 的量級。
+
+                 **逐日扣均值是必要的，不是口味問題。** 不扣的話 `corr²` 會
+                 混進「有沒有預測到當天的大盤方向」——實測 `R2 ridge` 的
+                 逐日橫截面均值與 y 的均值相關 +0.5144，把它的攤平 R² 抬到
+                 0.0940，比 IC 更高的本專案主結果（0.0173）還高三倍多。
+                 扣完之後兩者分別是 0.0171 與 0.0140，回到與 IC 一致的次序。
+                 本表所有其他指標都是橫截面的，這一欄也必須是。
+
+                 它**不等於** `mean_t(IC_t)²`（本表主結果 0.0135 vs 0.0119）：
+                 攤平的 corr 用橫截面離散度給每天加權，`mean IC` 每天等權。
+
+    MSE / RMSE 攤平計算，與 `src/train/metrics.py:regression_metrics` 同。
+    讀 MSE 需要錨，所以本函式一併回傳 `var_y` / `sd_y`，由表下的註腳印出。
+    """
+    H = np.asarray(Hn, float)
+    Y = np.asarray(Yn, float)
+    ok = np.isfinite(H) & np.isfinite(Y)
+    if ok.sum() < 3:
+        return None
+    hf, yf = H[ok], Y[ok]
+    d = hf - yf
+    mse = float((d * d).mean())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sh, sy = np.nanstd(H, axis=1), np.nanstd(Y, axis=1)
+    good = np.isfinite(sh) & np.isfinite(sy) & (sy > 1e-15)
+    disp = float(np.mean(sh[good] / sy[good])) if good.any() else float("nan")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Hd = H - np.nanmean(H, axis=1, keepdims=True)
+        Yd = Y - np.nanmean(Y, axis=1, keepdims=True)
+    hd, yd = Hd[ok], Yd[ok]
+    r = (float(np.corrcoef(hd, yd)[0, 1])
+         if hd.std() > 1e-15 and yd.std() > 1e-15 else float("nan"))
+    return dict(mse=mse, rmse=float(np.sqrt(mse)), disp=disp,
+                r2cal=float(r * r) if np.isfinite(r) else float("nan"),
+                var_y=float(yf.var()), sd_y=float(yf.std()))
+
+
+def cal_cells(c, sd=None) -> str:
+    if c is None:
+        return CAL_BLANK
+    g = (lambda k: (sd or {}).get(k, float("nan")))
+    return (f"| {pm(c['mse'] * 1e3, g('mse') * 1e3, 3, False)} "
+            f"| {pm(c['rmse'] * 100, g('rmse') * 100, 3, False)} "
+            f"| {pm(c['disp'], g('disp'), 3, False)} "
+            f"| {pm(c['r2cal'], g('r2cal'), 4)} ")
+
+
+def cal_mean_sd(cals):
+    """一批（逐 seed 的）calib_stats -> (均值 dict, 跨 seed sd dict)。"""
+    cals = [c for c in cals if c]
+    if not cals:
+        return None, None
+    ks = ("mse", "rmse", "disp", "r2cal", "var_y", "sd_y")
+    A = {k: np.array([c[k] for c in cals], float) for k in ks}
+    return ({k: float(np.nanmean(v)) for k, v in A.items()},
+            {k: (float(np.nanstd(v, ddof=1)) if v.size > 1 else float("nan"))
+             for k, v in A.items()})
+
+
 def daily_series(run_dir: str):
     f = os.path.join(run_dir, "predictions", "test_predictions_reeval.csv")
     if PREDICTIONS != "reeval" or not os.path.exists(f):
@@ -212,7 +295,7 @@ def daily_series(run_dir: str):
             v = stats.spearmanr(a, b).statistic
         ric[t] = np.nan if np.isnan(v) else v
         rk[t] = topk_ret(a, b)
-    return H.index.to_numpy(), ic, ric, rk
+    return H.index.to_numpy(), ic, ric, rk, calib_stats(Hn, Yn)
 
 
 def icir(arr) -> float:
@@ -257,7 +340,7 @@ def neural_stats(arm: str):
     runs = find_seeds(arm)
     if not runs:
         return None
-    ics, rics, rks = [], [], []
+    ics, rics, rks, cals = [], [], [], []
     per_ic, per_ric, per_icir, per_ricir, params = [], [], [], [], None
     for s, d in sorted(runs.items(), key=lambda kv: int(kv[0])):
         tm = (json.load(open(os.path.join(d, "meta.json"))).get("test_metrics") or {})
@@ -288,12 +371,14 @@ def neural_stats(arm: str):
         per_ricir.append(icir(ser[2]) if ser is not None else np.nan)
         if ser is not None:
             ics.append(ser[1]); rics.append(ser[2]); rks.append(ser[3])
+            cals.append(ser[4])
             dates = ser[0]
         if params is None:
             params = tm.get("n_params")
     if not per_ic:
         return None
-    return dict(seeds=sorted(runs, key=int), n=len(per_ic),
+    cal, cal_sd = cal_mean_sd(cals)
+    return dict(seeds=sorted(runs, key=int), n=len(per_ic), cal=cal, cal_sd=cal_sd,
                 ic=float(np.mean(per_ic)), ic_sd=float(np.std(per_ic, ddof=1)) if len(per_ic) > 1 else np.nan,
                 ric=float(np.mean(per_ric)), ric_sd=float(np.std(per_ric, ddof=1)) if len(per_ric) > 1 else np.nan,
                 icir=float(np.nanmean(per_icir)) if per_icir else np.nan,
@@ -317,8 +402,8 @@ def nonneural_stats(pat: str):
     ser = daily_series(ds[-1])
     if ser is None:
         return None
-    dates, ic, ric, rk = ser
-    return dict(n=1, ic=float(np.nanmean(ic)), ic_sd=np.nan,
+    dates, ic, ric, rk, cal = ser
+    return dict(n=1, cal=cal, cal_sd=None, ic=float(np.nanmean(ic)), ic_sd=np.nan,
                 ric=float(np.nanmean(ric)), ric_sd=np.nan,
                 icir=icir(ic), icir_sd=np.nan,
                 ricir=icir(ric), ricir_sd=np.nan,
@@ -385,9 +470,11 @@ def _fold2_rows():
 
     def _load(pat):
         ds = []
+        cals = []
         for f in sorted(_g.glob(pat, recursive=True)):
             df = pd.read_csv(f)
             o = {}
+            hh, yy = [], []          # 校準診斷用：只收進入評估窗的那些天
             for d, g in df.groupby("target_date"):
                 d = str(d)[:10]
                 if d > CUT or g.y.std() == 0 or g.y_hat.std() == 0:
@@ -395,8 +482,13 @@ def _fold2_rows():
                 o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
                         stats.spearmanr(g.y_hat, g.y).statistic,
                         topk_ret(g.y_hat.to_numpy(), g.y.to_numpy()))
+                hh.append(g.y_hat.to_numpy()); yy.append(g.y.to_numpy())
             if o:
                 ds.append(o)
+                # 每天的檔數必須一致才疊得起來；不一致就放棄這一個 run 的
+                # 校準欄（其餘欄位不受影響），不要靜默地補 NaN 算出偏差值。
+                if hh and len({len(a) for a in hh}) == 1:
+                    cals.append(calib_stats(np.vstack(hh), np.vstack(yy)))
         if not ds:
             return None
         k = sorted(set.intersection(*[set(x) for x in ds]))
@@ -411,8 +503,9 @@ def _fold2_rows():
         per_rir = np.array([icir(P[r, 1]) for r in range(P.shape[0])])
         ir = float(np.nanmean(per_ir))
         rir = float(np.nanmean(per_rir))
+        cm, cs = cal_mean_sd(cals)
         return (k, V, ir, P, per_ir, portfolio_stats(list(P[:, 2, :])),
-                rir, per_rir)
+                rir, per_rir, cm, cs)
 
     def _sd(a):
         """跨 run 的樣本 sd（ddof=1）。n<2 時回 NaN，`fmt` 會印成「—」。"""
@@ -430,7 +523,7 @@ def _fold2_rows():
     b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
-    kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF, BESTRIR, BESTRIRS = b
+    kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF, BESTRIR, BESTRIRS, BESTCAL, BESTCALSD = b
     rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
@@ -440,7 +533,7 @@ def _fold2_rows():
                      ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
                      ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
         rows.append((lab, _load(str(ROOT / pat))))
-    sig, pf_rows = [], []                 # 拆成訊號層與組合讀法兩張表
+    sig, pf_rows, cal_rows = [], [], []   # 訊號層 / 組合讀法 / 校準診斷
     for lab, r in rows:
         if r is None and lab.startswith("**"):
             sig.append(
@@ -450,10 +543,12 @@ def _fold2_rows():
                 f"| {pm(BESTIR, _sd(BESTIRS), signed=False)} "
                 f"| {pm(BESTRIR, _sd(BESTRIRS), signed=False)} | — | — |")
             pf_rows.append(f"| {lab} | {BESTP.shape[0]} " + pf_cells(BESTPF) + "|")
+            cal_rows.append(f"| {lab} | {BESTP.shape[0]} "
+                            + cal_cells(BESTCAL, BESTCALSD) + "|")
             continue
         if r is None:
             continue
-        kk, V, IR, P, IRS, PF, RIR, RIRS = r
+        kk, V, IR, P, IRS, PF, RIR, RIRS, CM, CS = r
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
@@ -470,7 +565,8 @@ def _fold2_rows():
             f"| {pm(RIR, _sd(RIRS), signed=False)} "
             f"| {cells[1]} | {cells[3]} |")
         pf_rows.append(f"| {lab} | {P.shape[0]} " + pf_cells(PF) + "|")
-    return sig, pf_rows
+        cal_rows.append(f"| {lab} | {P.shape[0]} " + cal_cells(CM, CS) + "|")
+    return sig, pf_rows, cal_rows
 
 
 def _ens_block():
@@ -732,6 +828,45 @@ def main() -> None:
         star = " **" if arm == BEST else " "
         out.append(f"|{star}{label}{star.strip()} | {st['n']} "
                    + pf_cells(st.get("pf")) + "|")
+    out.append("")
+    out.append("### 校準診斷")
+    out.append("")
+    _bc = base.get("cal")
+    _anchor = (f"`Var(y) = {_bc['var_y']:.3e}`（在本欄的單位下是 "
+               f"**{_bc['var_y'] * 1e3:.3f}**），`std(y) = {_bc['sd_y'] * 100:.3f}%`"
+               if _bc else "（基準列缺預測檔，錨值無法計算）")
+    out.append("**這一組不是準度，讀法和上面兩張表相反。** §60.1 宣告 `y_hat` 是"
+               "**基數分數、尺度未校正**，所以 MSE / RMSE 量到的主要是**尺度誤差**，"
+               "不是排序品質。列序仍照 IC 排，於是本表最重要的一件事直接看得到："
+               "**MSE 由小到大幾乎就是離散比由小到大**"
+               "（34 列的 Spearman = **+0.90**），**與 IC 無關**。")
+    out.append("")
+    out.append(f"錨：{_anchor}。`R² = 1 − MSE / Var(y)`，所以 **`MSE (1e-3)` 超過"
+               "那個值就代表 level R² 是負的**。關鍵是誰沒超過：`RC 常數對照` "
+               "（離散比 0.026）**恰好落在 0.405**——一個永遠猜均值的模型正是 "
+               "`MSE = Var(y)` 的定義。少數低於它的列（`[24]` 0.297、"
+               "`R2 ridge` 0.373）靠的是**比常數還往均值縮**，不是靠預測得準——"
+               "34 列裡有 30 列在 0.405 之上。"
+               "`src/train/metrics.py:regression_metrics` 的 docstring 早就記了"
+               "這件事：**MSE 獎勵塌縮**。")
+    out.append("")
+    out.append("另一頭同樣說明問題：`KTW+` 的 MSE 是 **37.181**（Var(y) 的 92 倍）、"
+               "離散比 **11.49**。它是本表 IC 第二高的方法。**沒有任何一個方法的 "
+               "`y_hat` 是校準過的**，所以 MSE 在這張表上不是一個可以排名次的軸。")
+    out.append("")
+    out.append("後兩欄把負 R² 拆開：`離散比` 說 `y_hat` 的橫截面比 `y` 寬幾倍"
+               "（1.0 是校準），`校正後 R²` 說**扣掉每日橫截面均值、再把尺度仿射"
+               "校正之後**還剩多少 level 可解釋變異。它與 `mean IC²` 同量級但不相等"
+               "（主結果 **0.0135** vs `mean_t(IC_t)² = 0.1090² = 0.0119`），"
+               "差在攤平的 corr 用橫截面離散度給每天"
+               "加權。**這一欄才是與 Gu/Kelly/Xiu 那類 level R² 可比的數字。**")
+    out.append("")
+    out.append("| 方法 | n " + CAL_HEAD + "|")
+    out.append("|---|---:" + CAL_SEP + "|")
+    for label, cat, note, st, arm in ordered:
+        star = " **" if arm == BEST else " "
+        out.append(f"|{star}{label}{star.strip()} | {st['n']} "
+                   + cal_cells(st.get("cal"), st.get("cal_sd")) + "|")
     # ── 第二折驗證（proposal §36 事先登記、§38/§40 判定）──────────────
     out.append("")
     out.append("## 第二折驗證（獨立測試期）")
@@ -744,7 +879,7 @@ def main() -> None:
     if f2 is None:
         out.append("_（第二折的 run 或 baseline 尚未齊備）_")
     else:
-        f2_sig, f2_pf = f2
+        f2_sig, f2_pf, f2_cal = f2
         out.append("### 訊號層（第二折）")
         out.append("")
         out.append("| 方法 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
@@ -759,6 +894,14 @@ def main() -> None:
         out.append("| 方法 | n " + PF_HEAD + "|")
         out.append("|---|---:" + PF_SEP + "|")
         out += f2_pf
+        out.append("")
+        out.append("### 校準診斷（第二折）")
+        out.append("")
+        out.append("定義與警語同第一折。列序與上表相同。")
+        out.append("")
+        out.append("| 方法 | n " + CAL_HEAD + "|")
+        out.append("|---|---:" + CAL_SEP + "|")
+        out += f2_cal
     out.append("")
     out.append("**判定（§38）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
                "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
@@ -816,6 +959,32 @@ def main() -> None:
                "| `paired_daily` |")
     out.append("| `跨種子 Welch p` | 在**共同種子集合**上，對兩組逐 seed 的 IC 做 "
                "Welch t 檢定（不假設等變異） | `across_seed` |")
+    out.append("")
+    out.append("### 校準診斷的欄")
+    out.append("")
+    out.append("**這四欄不是準度指標，是宣告的一致性檢查。** 它們回答「`y_hat` "
+               "離 `y` 的尺度有多遠」，不回答「排序對不對」——後者是 IC / RankIC 的事。")
+    out.append("")
+    out.append("| 欄 | 算式 | 出處 |")
+    out.append("|---|---|---|")
+    out.append("| `MSE (1e-3)` | 攤平所有 (日, 檔) 算 `mean((y_hat − y)²)`，"
+               "再 x1000。與 `src/train/metrics.py:regression_metrics` 同定義。"
+               "**它是損失裡 `mse: 1.0` 那一項在測試集上的值** | `calib_stats` |")
+    out.append("| `RMSE (%)` | `sqrt(MSE)` 再 x100，與 `std(y)` 同單位可直接比 "
+               "| `calib_stats` |")
+    out.append("| `離散比` | `mean_t[ std(y_hat_t) / std(y_t) ]`，**逐日算完再平均**。"
+               "與 §60.7 / §52 引用的 2.59（主結果）、1.69（前版 beta）同定義。"
+               "**不等於** `regression_metrics` 的 `dispersion`（那個攤平算，"
+               "同一個 arm 給 2.13）——差在攤平版把大盤的跨日變動也算進 `std` "
+               "| `calib_stats` |")
+    out.append("| `校正後 R²` | **先逐日把橫截面均值從 `y_hat` 與 `y` 各自扣掉**，"
+               "再攤平配 OLS（`y ~ a·y_hat + b`）後的 level R²；代數上等於扣完均值的 "
+               "`corr²`，故直接用 `corr²` 算。**逐日扣均值是必要的**——不扣會混進"
+               "「有沒有猜中當天大盤方向」，實測 `R2 ridge` 的日均值相關 +0.5144 "
+               "會把它的攤平 R² 抬到 0.0940，超過 IC 更高的主結果（0.0173）三倍多；"
+               "扣完之後是 0.0171 vs 0.0140，回到與 IC 一致的次序。"
+               "與 `mean_t(IC_t)²` 不相等（0.0135 vs 0.0119）：攤平的 corr 用橫截面"
+               "離散度給每天加權，`mean IC` 每天等權 | `calib_stats` |")
     out.append("| `MW p` | 同上，改用 Mann-Whitney U，雙尾。"
                "**n=3 時下限是 `2/C(6,3) = 0.1000`**，達不到 0.05 | `across_seed` |")
     out.append("")
