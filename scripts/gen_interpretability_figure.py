@@ -1,15 +1,16 @@
-"""gen_interpretability_figure.py — 兩個可解釋性證據的投影片用圖（§55 / §55.7）
+"""gen_interpretability_figure.py — 兩個可解釋性證據的投影片用圖（§55 / §55.7 / §55.8）
 
-一張 2:1 的雙面板，一個面板一個證據，合起來講同一句話：
-**結構被識別了，參數沒有。**
+輸出**兩張獨立的純英文圖**（投影片一張講一件事，比並排的雙面板好用）：
 
-  左：B 的欄間餘弦熱圖（§55）——參數矩陣層級。按粗分組（電子/金融/其餘）
-      再按細產業排序，電子與金融各自在對角線上發熱，之間是冷的。
-  右：w̄ 的逐檔長條（§55.7）——模型輸出層級。排序後上多空電信的梯度，
-      誤差棒是跨種子 sd，空心點是第二折（不重疊的測試期）。
+  interp_b_industry_en.svg   ①  B 的欄間餘弦，產業 x 產業的區塊均值（參數矩陣層級）
+  interp_tilt_en.svg         ②  w̄ 的逐檔持久傾斜（模型輸出層級）
 
-與 `gen_magnet_figure.py` 的架構圖house style 不同：**那張不放讀數，
-這張是結果圖，讀數就是內容**。共通的是 2:1、無表情符號、字不重疊。
+**① 不畫 50x50 的原始格點。** 單格餘弦的 sd 是 0.224（同產業）/ 0.277（異產業），
+遠大於區塊均值之間的差（+0.26 vs −0.04），原始格點必然看起來像雜訊——
+結構是統計上的，不是逐格看得出來的（§55.5 的更正）。
+
+與 `gen_magnet_figure.py` 的架構圖 house style 不同：**那張不放讀數，
+這兩張是結果圖，讀數就是內容**。共通的是無表情符號、字不重疊。
 
 用法：
     .venv/bin/python scripts/gen_interpretability_figure.py
@@ -32,27 +33,37 @@ import beta_industry_clustering as bic   # noqa: E402
 import static_tilt as stl                # noqa: E402
 from src.dataset.config import load_universe   # noqa: E402
 
-W, H = 1600, 800
 INK, MUTE, LINE = "#1a1a1a", "#8a8a8a", "#d8d8d8"
-# 三個粗分組的顏色：電子 / 金融 / 其餘。避免紅綠，色盲可分。
-GC = {"電子": "#1f6f8b", "金融": "#b45309", "其餘": "#9aa0a6"}
+# 三個粗分組的顏色。避開紅綠，色盲可分。
+GC = {"Electronics": "#1f6f8b", "Financials": "#b45309", "Other": "#9aa0a6"}
+
+# 台股的產業別是中文，投影片要英文。只列 universe 實際用到的。
+IND_EN = {
+    "半導體業": "Semiconductors", "電腦及週邊設備業": "Computers & Peripherals",
+    "電子零組件業": "Electronic Components", "其他電子業": "Other Electronics",
+    "光電業": "Optoelectronics", "通信網路業": "Telecom & Networking",
+    "金融保險業": "Financials", "塑膠工業": "Plastics", "水泥工業": "Cement",
+    "鋼鐵工業": "Steel", "橡膠工業": "Rubber", "紡織纖維": "Textiles",
+    "食品工業": "Food", "航運業": "Shipping", "貿易百貨": "Trading & Retail",
+    "油電燃氣業": "Oil, Gas & Power", "運動休閒": "Sports & Leisure", "其他": "Other",
+}
+NAMED = {"2330": "TSMC", "3711": "ASE", "2303": "UMC",
+         "4904": "FET", "3045": "Taiwan Mobile", "2412": "Chunghwa Telecom"}
 
 
-def coarse(x: str) -> str:
-    if any(k in x for k in ("半導體", "電腦", "電子", "光電", "通信")):
-        return "電子"
-    return "金融" if "金融" in x else "其餘"
+def coarse(en: str) -> str:
+    if en in ("Semiconductors", "Computers & Peripherals", "Electronic Components",
+              "Other Electronics", "Optoelectronics", "Telecom & Networking"):
+        return "Electronics"
+    return "Financials" if en == "Financials" else "Other"
 
 
-def heat(v: float) -> str:
-    """−1..1 -> 冷藍 / 白 / 暖橘。0 附近是白的，讓區塊結構跳出來。"""
-    t = max(-1.0, min(1.0, v))
-    if t >= 0:
-        a, b = np.array([255, 255, 255]), np.array([31, 111, 139])
-    else:
-        a, b = np.array([255, 255, 255]), np.array([180, 83, 9])
-        t = -t
-    c = (a + (b - a) * (t ** 0.7)).astype(int)
+def heat(v: float, vmax: float = 0.6) -> str:
+    """−vmax..vmax -> 暖橘 / 白 / 冷藍。0 附近是白的，讓對角線跳出來。"""
+    t = max(-1.0, min(1.0, v / vmax))
+    a = np.array([255, 255, 255])
+    b = np.array([31, 111, 139]) if t >= 0 else np.array([180, 83, 9])
+    c = (a + (b - a) * (abs(t) ** 0.7)).astype(int)
     return f"rgb({c[0]},{c[1]},{c[2]})"
 
 
@@ -60,66 +71,33 @@ def esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="兩個可解釋性證據的投影片用圖")
-    ap.add_argument("--arm", default="tw50_betaF1nA2r1")
-    ap.add_argument("--arm-f2", default="f2_best")
-    ap.add_argument("--out", default="docs/figures/interpretability_two_levels.svg")
-    a = ap.parse_args()
+def svg(w: int, h: int) -> list[str]:
+    return [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+            f'width="{w}" height="{h}" font-family="Helvetica, Arial, sans-serif">',
+            f'<rect width="{w}" height="{h}" fill="#ffffff"/>']
 
-    u = load_universe("tw50")
-    tw = [str(c) for c in u.tw_nodes]
-    ind = {c: u.industry.get(c, "其他") for c in tw}
 
-    # ── 左：B 的欄間餘弦 ────────────────────────────────────────────
-    mats = []
-    for _, d in sorted(bic.find_seeds(a.arm).items(), key=lambda kv: int(kv[0])):
-        B = bic.load_B(d)
-        if B is None:
-            continue
-        mats.append(bic.separation(B, [ind[c] for c in tw])[3])
-    M = np.mean(mats, axis=0)
-    n_seed_b = len(mats)
-    # 排序：粗分組 -> 細產業 -> 代號
-    order = sorted(range(len(tw)),
-                   key=lambda j: ({"電子": 0, "金融": 1, "其餘": 2}[coarse(ind[tw[j]])],
-                                  ind[tw[j]], tw[j]))
-    M = M[np.ix_(order, order)]
-    gl = [coarse(ind[tw[j]]) for j in order]
+def txt(s, x, y, t, sz=14, col=INK, anc="start", wt="400", extra=""):
+    s.append(f'<text x="{x}" y="{y}" font-size="{sz}" fill="{col}" '
+             f'text-anchor="{anc}" font-weight="{wt}"{extra}>{esc(t)}</text>')
 
-    # ── 右：w̄ ──────────────────────────────────────────────────────
-    _, W1, cols = stl.tilts(a.arm)
-    _, W2, _ = stl.tilts(a.arm_f2, fold2=True)
-    w1, e1 = W1.mean(0), W1.std(0, ddof=1)
-    w2 = W2.mean(0) if W2.size else np.full_like(w1, np.nan)
-    o2 = np.argsort(-w1)
 
-    s: list[str] = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" '
-                    f'width="{W}" height="{H}" font-family="Helvetica, Arial, sans-serif">',
-                    f'<rect width="{W}" height="{H}" fill="#ffffff"/>']
-    T = (lambda x, y, t, sz=14, col=INK, anc="start", wt="400":
-         s.append(f'<text x="{x}" y="{y}" font-size="{sz}" fill="{col}" '
-                  f'text-anchor="{anc}" font-weight="{wt}">{esc(t)}</text>'))
-
-    T(56, 52, "模型在沒有任何產業標籤下，自己學出產業結構", 25, INK, "start", "600")
-    T(56, 80, "兩個層級的同一件事：參數矩陣裡有，模型輸出裡也有。"
-              "兩者都跨 10 顆種子成立，右圖另外跨一段不重疊的測試期。", 15, MUTE)
-
-    # ── 左面板：產業 x 產業的區塊均值 ──
-    #
-    # **不畫 50x50 的原始格點。** 個別 cell 的 sd 是 0.224（同產業）/ 0.277（異產業），
-    # 遠大於區塊均值的差（0.2~0.3），所以原始格點必然看起來像雜訊——
-    # 結構是統計上的，不是逐格看得出來的。平均成區塊才誠實也才讀得到。
-    x0, y0, side = 210, 150, 400
-    fine = [ind[tw[j]] for j in order]
-    groups = [g for g, c in sorted({g: fine.count(g) for g in set(fine)}.items(),
-                                   key=lambda kv: (-kv[1], kv[0])) if c >= 2]
-    groups = sorted(groups, key=lambda g: ({"電子": 0, "金融": 1, "其餘": 2}[coarse(g)], g))
-    gi = {g: np.array([f == g for f in fine]) for g in groups}
+# ─────────────────────────────────────────────────────────────────────
+def fig_b(M, fine_en, n_seed, out: Path) -> None:
+    """① 產業 x 產業的區塊均值 + 色標尺。"""
+    W, H = 1180, 900
+    groups = sorted({g for g in fine_en if fine_en.count(g) >= 2},
+                    key=lambda g: ({"Electronics": 0, "Financials": 1, "Other": 2}[coarse(g)], g))
+    gi = {g: np.array([f == g for f in fine_en]) for g in groups}
     K = len(groups)
+    x0, y0, side = 390, 150, 430
     cell = side / K
-    T(x0, y0 - 46, "① B 的欄間餘弦（跨層權重）", 17, INK, "start", "600")
-    T(x0, y0 - 24, "產業 x 產業的區塊均值；單格雜訊已平均掉", 13.5, MUTE)
+    s = svg(W, H)
+
+    txt(s, 56, 52, "Industry structure emerges in B without any industry label", 24, INK, "start", "600")
+    txt(s, 56, 82, "Columns of the cross-layer weight matrix B, averaged into industry x industry blocks.", 15, MUTE)
+    txt(s, 56, 106, "Each column is one Taiwanese stock's loading on the 30 US stocks.", 15, MUTE)
+
     Mn = M.copy()
     np.fill_diagonal(Mn, np.nan)
     for r, ga in enumerate(groups):
@@ -129,79 +107,163 @@ def main() -> None:
                      f'width="{cell:.1f}" height="{cell:.1f}" fill="{heat(v)}" '
                      f'stroke="#ffffff" stroke-width="1"/>')
             if r == c_:
-                T(x0 + c_ * cell + cell / 2, y0 + r * cell + cell / 2 + 5,
-                  f"{v:+.2f}", 12.5, "#ffffff", "middle", "700")
-        T(x0 - 10, y0 + r * cell + cell / 2 + 5,
-          f"{ga}({int(gi[ga].sum())})", 12.5, GC[coarse(ga)], "end", "600")
-        s.append(f'<line x1="{x0+r*cell:.1f}" y1="{y0}" x2="{x0+r*cell:.1f}" '
-                 f'y2="{y0+side}" stroke="#ffffff" stroke-width="0"/>')
+                txt(s, x0 + c_ * cell + cell / 2, y0 + r * cell + cell / 2 + 5,
+                    f"{v:+.2f}", 13, "#ffffff", "middle", "700")
+        txt(s, x0 - 12, y0 + r * cell + cell / 2 + 5,
+            f"{ga} ({int(gi[ga].sum())})", 13, GC[coarse(ga)], "end", "600")
     for c_, gb in enumerate(groups):
         cx = x0 + c_ * cell + cell / 2
-        s.append(f'<text x="{cx}" y="{y0+side+16}" font-size="12" fill="{GC[coarse(gb)]}" '
+        s.append(f'<text x="{cx}" y="{y0+side+14}" font-size="12" fill="{GC[coarse(gb)]}" '
                  f'text-anchor="end" font-weight="600" '
-                 f'transform="rotate(-42 {cx} {y0+side+16})">{esc(gb)}</text>')
+                 f'transform="rotate(-40 {cx} {y0+side+14})">{esc(gb)}</text>')
     s.append(f'<rect x="{x0}" y="{y0}" width="{side}" height="{side}" '
              f'fill="none" stroke="{LINE}" stroke-width="1"/>')
-    T(x0 - 140, y0 + side + 108, "同產業 +0.2610   異產業 −0.0378   分離度 +0.2988", 15, INK)
-    T(x0 - 140, y0 + side + 132,
-      f"{n_seed_b}/{n_seed_b} 顆種子為正；洗牌產業標籤 1000 次 p <= 0.001", 15, MUTE)
-    T(x0 - 140, y0 + side + 156,
-      "對角線整條發熱，非對角線幾乎全白（僅列出 n >= 2 的產業）", 15, MUTE)
 
-    # ── 右面板 ──
-    rx, ry, rw, rh = 760, 130, 640, 480
-    T(rx, ry - 18, "② w̄：每檔台股的持久傾斜（模型輸出）", 17, INK, "start", "600")
-    lo, hi = float(min(w1.min(), np.nanmin(w2))), float(max(w1.max(), np.nanmax(w2)))
-    pad = (hi - lo) * 0.12
+    # 色標尺
+    bx, by, bw, bh = x0, y0 + side + 150, side, 20
+    txt(s, bx, by - 14, "Mean cosine similarity between columns of B", 14, INK, "start", "600")
+    for k in range(240):
+        v = -0.6 + 1.2 * k / 239
+        s.append(f'<rect x="{bx+bw*k/240:.2f}" y="{by}" width="{bw/240+0.6:.2f}" '
+                 f'height="{bh}" fill="{heat(v)}"/>')
+    s.append(f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" fill="none" '
+             f'stroke="{LINE}" stroke-width="1"/>')
+    for v in (-0.6, -0.3, 0.0, 0.3, 0.6):
+        cx = bx + bw * (v + 0.6) / 1.2
+        s.append(f'<line x1="{cx:.1f}" y1="{by+bh}" x2="{cx:.1f}" y2="{by+bh+5}" '
+                 f'stroke="{MUTE}" stroke-width="1"/>')
+        txt(s, cx, by + bh + 20, f"{v:+.1f}", 13, MUTE, "middle")
+    txt(s, bx - 8, by + bh / 2 + 5, "opposite", 12.5, MUTE, "end")
+    txt(s, bx + bw + 8, by + bh / 2 + 5, "aligned", 12.5, MUTE, "start")
+
+    y = by + bh + 58
+    txt(s, 56, y, "Same industry +0.2610     Different industry -0.0378     "
+                  "Separation +0.2988", 16, INK, "start", "600")
+    txt(s, 56, y + 26, f"Positive in {n_seed}/{n_seed} seeds. "
+                       "Permutation test (industry labels shuffled 1000x): p <= 0.001.", 15, MUTE)
+    txt(s, 56, y + 50, "The diagonal is uniformly warm (+0.20 to +0.58); off-diagonal cells are near zero.", 15, MUTE)
+    txt(s, 56, H - 26, "Industries with n >= 2 shown (9 of 18). Cell = mean cosine over all "
+                       "cross-pairs of the two industries; diagonal = within-industry mean.", 13, MUTE)
+    s.append("</svg>")
+    out.write_text("\n".join(s), encoding="utf-8")
+    print(f"-> {out.relative_to(ROOT)}  ({W}x{H}, {W/H:.2f}:1)")
+
+
+# ─────────────────────────────────────────────────────────────────────
+def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
+    """② w̄ 的逐檔長條 + x 軸單位 + 誤差棒說明。"""
+    W, H = 1180, 960
+    o = np.argsort(-w1)
+    rx, ry, rw, rh = 330, 190, 620, 560
+    lo = float(min(w1.min(), np.nanmin(w2), (w1 - e1).min()))
+    hi = float(max(w1.max(), np.nanmax(w2), (w1 + e1).max()))
+    pad = (hi - lo) * 0.06
     lo, hi = lo - pad, hi + pad
     X = lambda v: rx + (v - lo) / (hi - lo) * rw
-    bh = rh / len(tw)
-    s.append(f'<line x1="{X(0):.1f}" y1="{ry}" x2="{X(0):.1f}" y2="{ry+rh}" '
-             f'stroke="{LINE}" stroke-width="1.2"/>')
-    for k, j in enumerate(o2):
-        yy = ry + k * bh
-        g = coarse(ind[cols[j]])
-        xa, xb = (X(0), X(w1[j])) if w1[j] >= 0 else (X(w1[j]), X(0))
-        s.append(f'<rect x="{xa:.1f}" y="{yy+0.8:.1f}" width="{max(xb-xa,0.6):.1f}" '
-                 f'height="{bh-1.6:.1f}" fill="{GC[g]}" opacity="0.88"/>')
-        s.append(f'<line x1="{X(w1[j]-e1[j]):.1f}" y1="{yy+bh/2:.1f}" '
-                 f'x2="{X(w1[j]+e1[j]):.1f}" y2="{yy+bh/2:.1f}" '
-                 f'stroke="{INK}" stroke-width="0.9" opacity="0.5"/>')
-        if np.isfinite(w2[j]):
-            s.append(f'<circle cx="{X(w2[j]):.1f}" cy="{yy+bh/2:.1f}" r="2.6" '
-                     f'fill="none" stroke="{INK}" stroke-width="1.1" opacity="0.8"/>')
-    named = {"2330": "台積電", "3711": "日月光", "2303": "聯電",
-             "4904": "遠傳", "3045": "台灣大", "2412": "中華電"}
-    for k, j in enumerate(o2):
-        c = cols[j]
-        if c in named:
-            yy = ry + k * bh + bh / 2 + 4
-            side_x = X(w1[j]) + (12 if w1[j] >= 0 else -12)
-            anc = "start" if w1[j] >= 0 else "end"
-            T(side_x, yy, f"{c} {named[c]}", 12.5, INK, anc, "600")
-    for v in (-0.2, 0.0, 0.2, 0.4):
-        T(X(v), ry + rh + 22, f"{v:+.1f}", 13, MUTE, "middle")
-    T(rx, ry + rh + 52, "實心棒 = 第一折（10 顆種子平均，橫線為跨種子 sd）"
-                        "　空心圈 = 第二折（測試期不重疊）", 14, MUTE)
-    T(rx, ry + rh + 76, "半導體 vs 其餘　Δw̄ +0.2227 / +0.1867（兩折各 10/10 種子）",
-      15, INK)
-    T(rx, ry + rh + 100, "跨種子 corr(w̄) +0.751　跨折 corr(w̄) +0.718　"
-                         "（隨機方向對照 sd 0.146）", 15, MUTE)
+    bh = rh / len(cols)
+    s = svg(W, H)
+
+    txt(s, 56, 52, "The model holds a persistent cross-sectional tilt", 24, INK, "start", "600")
+    txt(s, 56, 82, "w-bar = time average of the daily cross-sectionally standardized prediction, "
+                   "per Taiwanese stock.", 15, MUTE)
+    txt(s, 56, 106, "Long semiconductors, short telecom. Same sign in both folds.", 15, MUTE)
 
     # 圖例
-    lx = rx + 430
-    for k, (g, lab) in enumerate((("電子", "電子"), ("金融", "金融"), ("其餘", "其餘"))):
-        s.append(f'<rect x="{lx+k*72}" y="{ry-34}" width="12" height="12" fill="{GC[g]}"/>')
-        T(lx + k * 72 + 17, ry - 24, lab, 13, MUTE)
+    lx = 640
+    for k, g in enumerate(("Electronics", "Financials", "Other")):
+        s.append(f'<rect x="{lx+k*128}" y="{ry-38}" width="12" height="12" fill="{GC[g]}"/>')
+        txt(s, lx + k * 128 + 18, ry - 28, g, 13, MUTE)
 
-    T(56, H - 26, "①：50 檔台股在 30 檔美股上的載重向量，兩兩餘弦。"
-                  "②：逐日橫截面標準化後的預測，對時間取平均。"
-                  "兩者都沒有用到任何產業標籤。", 13, MUTE)
+    s.append(f'<line x1="{X(0):.1f}" y1="{ry}" x2="{X(0):.1f}" y2="{ry+rh}" '
+             f'stroke="{LINE}" stroke-width="1.2"/>')
+    for k, j in enumerate(o):
+        yy = ry + k * bh
+        g = coarse(fine_en[j])
+        xa, xb = (X(0), X(w1[j])) if w1[j] >= 0 else (X(w1[j]), X(0))
+        s.append(f'<rect x="{xa:.1f}" y="{yy+0.9:.1f}" width="{max(xb-xa,0.6):.1f}" '
+                 f'height="{bh-1.8:.1f}" fill="{GC[g]}" opacity="0.88"/>')
+        s.append(f'<line x1="{X(w1[j]-e1[j]):.1f}" y1="{yy+bh/2:.1f}" '
+                 f'x2="{X(w1[j]+e1[j]):.1f}" y2="{yy+bh/2:.1f}" '
+                 f'stroke="{INK}" stroke-width="1.0" opacity="0.45"/>')
+        if np.isfinite(w2[j]):
+            s.append(f'<circle cx="{X(w2[j]):.1f}" cy="{yy+bh/2:.1f}" r="2.8" '
+                     f'fill="none" stroke="{INK}" stroke-width="1.1" opacity="0.8"/>')
+        if cols[j] in NAMED:
+            # 標籤要讓開這一列畫出來的最外緣——誤差棒的端點與第二折的圓，
+            # 否則負值那幾檔的圓圈會壓在字上
+            ends = [w1[j] - e1[j], w1[j] + e1[j]]
+            if np.isfinite(w2[j]):
+                ends.append(w2[j])
+            sx = (X(max(ends)) + 16) if w1[j] >= 0 else (X(min(ends)) - 16)
+            txt(s, sx, yy + bh / 2 + 4, f"{cols[j]} {NAMED[cols[j]]}", 12.5, INK,
+                "start" if w1[j] >= 0 else "end", "600")
+
+    for v in (-0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4):
+        cx = X(v)
+        s.append(f'<line x1="{cx:.1f}" y1="{ry+rh}" x2="{cx:.1f}" y2="{ry+rh+5}" '
+                 f'stroke="{MUTE}" stroke-width="1"/>')
+        txt(s, cx, ry + rh + 22, f"{v:+.1f}", 13, MUTE, "middle")
+    txt(s, rx + rw / 2, ry + rh + 48,
+        "persistent tilt  w-bar   (units: cross-sectional standard deviations of the daily prediction)",
+        15, INK, "middle", "600")
+
+    # 圖例樣本：橫線 = ±1 跨種子 sd
+    ex, ey = 56, ry + 40
+    txt(s, ex, ey - 22, "How to read one row", 14, INK, "start", "600")
+    s.append(f'<rect x="{ex}" y="{ey+4}" width="86" height="11" fill="{GC["Electronics"]}" opacity="0.88"/>')
+    txt(s, ex + 96, ey + 13, "bar: fold-1 mean", 12.5, MUTE)
+    s.append(f'<line x1="{ex+18}" y1="{ey+44}" x2="{ex+104}" y2="{ey+44}" '
+             f'stroke="{INK}" stroke-width="1.0" opacity="0.45"/>')
+    txt(s, ex, ey + 68, "grey horizontal line:", 12.5, MUTE)
+    txt(s, ex, ey + 86, "+/- 1 SD across the 10 seeds", 12.5, INK, "start", "600")
+    txt(s, ex, ey + 104, "(not a confidence interval)", 12.5, MUTE)
+    s.append(f'<circle cx="{ex+61}" cy="{ey+134}" r="2.8" fill="none" '
+             f'stroke="{INK}" stroke-width="1.1" opacity="0.8"/>')
+    txt(s, ex, ey + 158, "open circle: fold 2", 12.5, INK, "start", "600")
+    txt(s, ex, ey + 176, "(non-overlapping test window)", 12.5, MUTE)
+
+    y = ry + rh + 92
+    txt(s, 56, y, "Semiconductors vs rest    dw-bar +0.2227 (fold 1) / +0.1867 (fold 2), "
+                  f"{n_seed}/{n_seed} seeds each", 16, INK, "start", "600")
+    txt(s, 56, y + 26, "Reproducibility of w-bar: corr +0.751 across seeds, +0.718 across folds "
+                       "(random-direction control SD 0.146).", 15, MUTE)
+    txt(s, 56, H - 28, "Cross-seed SD is 0.064 at the median against a cross-sectional SD of 0.127 "
+                       "in w-bar, so read groups, not individual pairs.", 13, MUTE)
     s.append("</svg>")
-    out = ROOT / a.out
-    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(s), encoding="utf-8")
-    print(f"-> {a.out}  ({W}x{H}, {W/H:.2f}:1)")
+    print(f"-> {out.relative_to(ROOT)}  ({W}x{H}, {W/H:.2f}:1)")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="兩個可解釋性證據的投影片用圖（英文）")
+    ap.add_argument("--arm", default="tw50_betaF1nA2r1")
+    ap.add_argument("--arm-f2", default="f2_best")
+    ap.add_argument("--outdir", default="docs/figures")
+    a = ap.parse_args()
+
+    u = load_universe("tw50")
+    tw = [str(c) for c in u.tw_nodes]
+    fine_cn = [u.industry.get(c, "其他") for c in tw]
+    unknown = sorted({g for g in fine_cn if g not in IND_EN})
+    if unknown:
+        raise SystemExit(f"IND_EN 缺少這些產業的英文：{unknown}")
+    fine_en = [IND_EN[g] for g in fine_cn]
+
+    mats = []
+    for _, d in sorted(bic.find_seeds(a.arm).items(), key=lambda kv: int(kv[0])):
+        B = bic.load_B(d)
+        if B is not None:
+            mats.append(bic.separation(B, fine_cn)[3])
+    outdir = ROOT / a.outdir
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig_b(np.mean(mats, axis=0), fine_en, len(mats), outdir / "interp_b_industry_en.svg")
+
+    _, W1, cols = stl.tilts(a.arm)
+    _, W2, _ = stl.tilts(a.arm_f2, fold2=True)
+    idx = [cols.index(c) for c in tw]      # 對齊到 universe 的順序
+    w1, e1 = W1.mean(0)[idx], W1.std(0, ddof=1)[idx]
+    w2 = (W2.mean(0)[idx] if W2.size else np.full(len(tw), np.nan))
+    fig_tilt(w1, e1, w2, tw, fine_en, len(W1), outdir / "interp_tilt_en.svg")
 
 
 if __name__ == "__main__":
