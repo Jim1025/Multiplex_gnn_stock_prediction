@@ -179,7 +179,7 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────
 def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
     """② w̄ 的逐檔長條 + x 軸單位 + 誤差棒說明。"""
-    W, H = 1180, 960
+    W, H = 1180, 1040
     o = np.argsort(-w1)
     rx, ry, rw, rh = 330, 190, 620, 560
     lo = float(min(w1.min(), np.nanmin(w2), (w1 - e1).min()))
@@ -230,9 +230,13 @@ def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
         s.append(f'<line x1="{cx:.1f}" y1="{ry+rh}" x2="{cx:.1f}" y2="{ry+rh+5}" '
                  f'stroke="{MUTE}" stroke-width="1"/>')
         txt(s, cx, ry + rh + 22, f"{v:+.1f}", 13, MUTE, "middle")
-    txt(s, rx + rw / 2, ry + rh + 48,
-        "persistent tilt  w-bar   (units: cross-sectional standard deviations of the daily prediction)",
-        15, INK, "middle", "600")
+    # x 軸單位：w̄ 就是「逐日橫截面 z 分數對時間取平均」。不硬翻成名次——
+    # 那個對應在實測上是雙峰的（台積電平均名次 21、中位 8），線性換算會騙人。
+    txt(s, rx + rw / 2, ry + rh + 50,
+        "average z-score of the daily prediction", 16, INK, "middle", "600")
+    txt(s, rx + rw / 2, ry + rh + 72,
+        "0 = that day's cross-sectional mean of the 50 stocks, averaged over 246 trading days",
+        13.5, MUTE, "middle")
 
     # 圖例樣本：橫線 = ±1 跨種子 sd
     ex, ey = 56, ry + 40
@@ -254,6 +258,10 @@ def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
                   f"{n_seed}/{n_seed} seeds each", 16, INK, "start", "600")
     txt(s, 56, y + 26, "Reproducibility of w-bar: corr +0.751 across seeds, +0.718 across folds "
                        "(random-direction control SD 0.146).", 15, MUTE)
+    txt(s, 56, y + 52, "How to read +0.44 (TSMC): its prediction sits 0.44 SD above the daily "
+                       "average. In ranks that is top-5 on 48% of days", 15, MUTE)
+    txt(s, 56, y + 74, "and bottom-10 on 35% - the tilt is a net over two extremes, "
+                       "not a steady placement.", 15, MUTE)
     txt(s, 56, H - 28, "Cross-seed SD is 0.064 at the median against a cross-sectional SD of 0.127 "
                        "in w-bar, so read groups, not individual pairs.", 13, MUTE)
     s.append("</svg>")

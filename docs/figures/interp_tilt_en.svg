@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 960" width="1180" height="960" font-family="Helvetica, Arial, sans-serif">
-<rect width="1180" height="960" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1040" width="1180" height="1040" font-family="Helvetica, Arial, sans-serif">
+<rect width="1180" height="1040" fill="#ffffff"/>
 <text x="56" y="52" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="600">The model holds a persistent cross-sectional tilt</text>
 <text x="56" y="82" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">w-bar = time average of the daily cross-sectionally standardized prediction, per Taiwanese stock.</text>
 <text x="56" y="106" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Long semiconductors, short telecom. Same sign in both folds.</text>
@@ -184,7 +184,8 @@
 <text x="748.9742854579374" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.3</text>
 <line x1="809.2" y1="750" x2="809.2" y2="755" stroke="#8a8a8a" stroke-width="1"/>
 <text x="809.209196307126" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.4</text>
-<text x="640.0" y="798" font-size="15" fill="#1a1a1a" text-anchor="middle" font-weight="600">persistent tilt  w-bar   (units: cross-sectional standard deviations of the daily prediction)</text>
+<text x="640.0" y="800" font-size="16" fill="#1a1a1a" text-anchor="middle" font-weight="600">average z-score of the daily prediction</text>
+<text x="640.0" y="822" font-size="13.5" fill="#8a8a8a" text-anchor="middle" font-weight="400">0 = that day's cross-sectional mean of the 50 stocks, averaged over 246 trading days</text>
 <text x="56" y="208" font-size="14" fill="#1a1a1a" text-anchor="start" font-weight="600">How to read one row</text>
 <rect x="56" y="234" width="86" height="11" fill="#1f6f8b" opacity="0.88"/>
 <text x="152" y="243" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">bar: fold-1 mean</text>
@@ -197,5 +198,7 @@
 <text x="56" y="406" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">(non-overlapping test window)</text>
 <text x="56" y="842" font-size="16" fill="#1a1a1a" text-anchor="start" font-weight="600">Semiconductors vs rest    dw-bar +0.2227 (fold 1) / +0.1867 (fold 2), 10/10 seeds each</text>
 <text x="56" y="868" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Reproducibility of w-bar: corr +0.751 across seeds, +0.718 across folds (random-direction control SD 0.146).</text>
-<text x="56" y="932" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Cross-seed SD is 0.064 at the median against a cross-sectional SD of 0.127 in w-bar, so read groups, not individual pairs.</text>
+<text x="56" y="894" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">How to read +0.44 (TSMC): its prediction sits 0.44 SD above the daily average. In ranks that is top-5 on 48% of days</text>
+<text x="56" y="916" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">and bottom-10 on 35% - the tilt is a net over two extremes, not a steady placement.</text>
+<text x="56" y="1012" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Cross-seed SD is 0.064 at the median against a cross-sectional SD of 0.127 in w-bar, so read groups, not individual pairs.</text>
 </svg>

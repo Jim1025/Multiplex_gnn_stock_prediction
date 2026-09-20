@@ -7287,9 +7287,17 @@ ADR 配對有特殊地位（本節 (d)）、
 
 **② 的設計重點**
 
-- **x 軸有單位**：`persistent tilt w-bar (units: cross-sectional standard
-  deviations of the daily prediction)`。`w̄ = +0.44` 的意思是該檔被持久地排在
-  橫截面均值之上 **0.44 個標準差**，不是 44%。
+- **x 軸用最熟的名字**（2026-09-21）：`average z-score of the daily prediction`，
+  副標 `0 = that day's cross-sectional mean of the 50 stocks, averaged over 246
+  trading days`。z 分數與圖①的相關係數一樣，是財金讀者天天在看的尺度，
+  **不必換算**。原本寫的是「cross-sectional standard deviations of the daily
+  prediction」——正確但要讀者自己翻譯。
+- **不硬翻成名次。** 名次更直覺，但實測那個對應是**雙峰**的
+  （台積電 `w̄ = +0.44`，平均名次 21、**中位名次 8**），線性換算會騙人。
+- **底下給一個量測過的錨**，擋掉最容易的誤讀：
+  「+0.44（台積電）= 預測平均落在當日均值之上 0.44 個 SD。換成名次是
+  **48% 的天數進前 5、35% 的天數落後 10 名**——這個傾斜是**兩個極端的淨值，
+  不是穩定的位置**」。沒有這一句，長條圖會被讀成「模型持續看好台積電」。
 - **左側有「How to read one row」圖例**，逐項說明一列裡的三個元素：
   實心棒 = 第一折均值；**灰色橫線 = ±1 個跨種子 sd（10 顆種子，不是信賴區間）**；
   空心圈 = 第二折（測試期不重疊）。
