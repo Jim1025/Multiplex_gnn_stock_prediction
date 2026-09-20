@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 900" width="1180" height="900" font-family="Helvetica, Arial, sans-serif">
-<rect width="1180" height="900" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 960" width="1180" height="960" font-family="Helvetica, Arial, sans-serif">
+<rect width="1180" height="960" fill="#ffffff"/>
 <text x="56" y="52" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="600">Industry structure emerges in B without any industry label</text>
-<text x="56" y="82" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Columns of the cross-layer weight matrix B, averaged into industry x industry blocks.</text>
-<text x="56" y="106" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Each column is one Taiwanese stock's loading on the 30 US stocks.</text>
+<text x="56" y="82" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Each column of the cross-layer weight matrix B is one Taiwanese stock's loading profile over the 30 US stocks.</text>
+<text x="56" y="106" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Cells are the correlation between two such profiles, averaged over all cross-pairs of the two industries.</text>
 <rect x="390.0" y="150.0" width="47.8" height="47.8" fill="rgb(90,149,169)" stroke="#ffffff" stroke-width="1"/>
 <text x="413.8888888888889" y="178.88888888888889" font-size="13" fill="#ffffff" text-anchor="middle" font-weight="700">+0.39</text>
 <rect x="437.8" y="150.0" width="47.8" height="47.8" fill="rgb(104,158,177)" stroke="#ffffff" stroke-width="1"/>
@@ -112,7 +112,7 @@
 <text x="748.3333333333334" y="594" font-size="12" fill="#9aa0a6" text-anchor="end" font-weight="600" transform="rotate(-40 748.3333333333334 594)">Cement</text>
 <text x="796.1111111111111" y="594" font-size="12" fill="#9aa0a6" text-anchor="end" font-weight="600" transform="rotate(-40 796.1111111111111 594)">Plastics</text>
 <rect x="390" y="150" width="430" height="430" fill="none" stroke="#d8d8d8" stroke-width="1"/>
-<text x="390" y="716" font-size="14" fill="#1a1a1a" text-anchor="start" font-weight="600">Mean cosine similarity between columns of B</text>
+<text x="390" y="716" font-size="14" fill="#1a1a1a" text-anchor="start" font-weight="600">Mean correlation between loading profiles</text>
 <rect x="390.00" y="730" width="2.39" height="20" fill="rgb(180,83,9)"/>
 <rect x="391.79" y="730" width="2.39" height="20" fill="rgb(180,84,10)"/>
 <rect x="393.58" y="730" width="2.39" height="20" fill="rgb(180,85,11)"/>
@@ -364,10 +364,11 @@
 <text x="712.5" y="770" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.3</text>
 <line x1="820.0" y1="750" x2="820.0" y2="755" stroke="#8a8a8a" stroke-width="1"/>
 <text x="820.0" y="770" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.6</text>
-<text x="382" y="745.0" font-size="12.5" fill="#8a8a8a" text-anchor="end" font-weight="400">opposite</text>
+<text x="382" y="745.0" font-size="12.5" fill="#8a8a8a" text-anchor="end" font-weight="400">opposed</text>
 <text x="828" y="745.0" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">aligned</text>
 <text x="56" y="808" font-size="16" fill="#1a1a1a" text-anchor="start" font-weight="600">Same industry +0.2610     Different industry -0.0378     Separation +0.2988</text>
 <text x="56" y="834" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Positive in 10/10 seeds. Permutation test (industry labels shuffled 1000x): p &lt;= 0.001.</text>
 <text x="56" y="858" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">The diagonal is uniformly warm (+0.20 to +0.58); off-diagonal cells are near zero.</text>
-<text x="56" y="874" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Industries with n &gt;= 2 shown (9 of 18). Cell = mean cosine over all cross-pairs of the two industries; diagonal = within-industry mean.</text>
+<text x="56" y="916" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Industries with n &gt;= 2 shown (9 of 18). Diagonal = mean correlation within that industry; off-diagonal = between the two industries.</text>
+<text x="56" y="936" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Pearson correlation across the 30 US loadings. Two random profiles would give 0.00 with SD 0.19, so +0.58 is far from chance.</text>
 </svg>

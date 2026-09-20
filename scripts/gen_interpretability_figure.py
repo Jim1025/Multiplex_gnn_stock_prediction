@@ -75,7 +75,14 @@ def tone(en: str) -> str:
 
 
 def heat(v: float, vmax: float = 0.6) -> str:
-    """−vmax..vmax -> 暖橘 / 白 / 冷藍。0 附近是白的，讓對角線跳出來。"""
+    """−vmax..vmax -> 暖橘 / 白 / 冷藍。0 附近是白的，讓對角線跳出來。
+
+    圖上標的是**相關係數**。`beta_industry_clustering.separation()` 先把每一欄
+    跨 30 檔美股去均值再單位化才做內積——**去均值後的餘弦在代數上就是 Pearson
+    相關**（對 s42 實測 max|diff| = 3.6e-07，那是 float32 的捨入）。
+    §55 的內文一律稱「餘弦」，指的是同一個數；圖上改標 correlation 是因為
+    讀者不必再自行換算成夾角。
+    """
     t = max(-1.0, min(1.0, v / vmax))
     a = np.array([255, 255, 255])
     b = np.array([31, 111, 139]) if t >= 0 else np.array([180, 83, 9])
@@ -101,7 +108,7 @@ def txt(s, x, y, t, sz=14, col=INK, anc="start", wt="400", extra=""):
 # ─────────────────────────────────────────────────────────────────────
 def fig_b(M, fine_en, n_seed, out: Path) -> None:
     """① 產業 x 產業的區塊均值 + 色標尺。"""
-    W, H = 1180, 900
+    W, H = 1180, 960     # 兩張圖同高，投影片並排或連放時視覺一致
     groups = sorted({g for g in fine_en if fine_en.count(g) >= 2},
                     key=lambda g: ({"Electronics": 0, "Financials": 1, "Other": 2}[coarse(g)], g))
     gi = {g: np.array([f == g for f in fine_en]) for g in groups}
@@ -111,8 +118,10 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
     s = svg(W, H)
 
     txt(s, 56, 52, "Industry structure emerges in B without any industry label", 24, INK, "start", "600")
-    txt(s, 56, 82, "Columns of the cross-layer weight matrix B, averaged into industry x industry blocks.", 15, MUTE)
-    txt(s, 56, 106, "Each column is one Taiwanese stock's loading on the 30 US stocks.", 15, MUTE)
+    txt(s, 56, 82, "Each column of the cross-layer weight matrix B is one Taiwanese stock's "
+                   "loading profile over the 30 US stocks.", 15, MUTE)
+    txt(s, 56, 106, "Cells are the correlation between two such profiles, averaged over all "
+                    "cross-pairs of the two industries.", 15, MUTE)
 
     Mn = M.copy()
     np.fill_diagonal(Mn, np.nan)
@@ -137,7 +146,7 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
 
     # 色標尺
     bx, by, bw, bh = x0, y0 + side + 150, side, 20
-    txt(s, bx, by - 14, "Mean cosine similarity between columns of B", 14, INK, "start", "600")
+    txt(s, bx, by - 14, "Mean correlation between loading profiles", 14, INK, "start", "600")
     for k in range(240):
         v = -0.6 + 1.2 * k / 239
         s.append(f'<rect x="{bx+bw*k/240:.2f}" y="{by}" width="{bw/240+0.6:.2f}" '
@@ -149,7 +158,7 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
         s.append(f'<line x1="{cx:.1f}" y1="{by+bh}" x2="{cx:.1f}" y2="{by+bh+5}" '
                  f'stroke="{MUTE}" stroke-width="1"/>')
         txt(s, cx, by + bh + 20, f"{v:+.1f}", 13, MUTE, "middle")
-    txt(s, bx - 8, by + bh / 2 + 5, "opposite", 12.5, MUTE, "end")
+    txt(s, bx - 8, by + bh / 2 + 5, "opposed", 12.5, MUTE, "end")
     txt(s, bx + bw + 8, by + bh / 2 + 5, "aligned", 12.5, MUTE, "start")
 
     y = by + bh + 58
@@ -158,8 +167,10 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
     txt(s, 56, y + 26, f"Positive in {n_seed}/{n_seed} seeds. "
                        "Permutation test (industry labels shuffled 1000x): p <= 0.001.", 15, MUTE)
     txt(s, 56, y + 50, "The diagonal is uniformly warm (+0.20 to +0.58); off-diagonal cells are near zero.", 15, MUTE)
-    txt(s, 56, H - 26, "Industries with n >= 2 shown (9 of 18). Cell = mean cosine over all "
-                       "cross-pairs of the two industries; diagonal = within-industry mean.", 13, MUTE)
+    txt(s, 56, H - 44, "Industries with n >= 2 shown (9 of 18). Diagonal = mean correlation "
+                       "within that industry; off-diagonal = between the two industries.", 13, MUTE)
+    txt(s, 56, H - 24, "Pearson correlation across the 30 US loadings. Two random profiles "
+                       "would give 0.00 with SD 0.19, so +0.58 is far from chance.", 13, MUTE)
     s.append("</svg>")
     out.write_text("\n".join(s), encoding="utf-8")
     print(f"-> {out.relative_to(ROOT)}  ({W}x{H}, {W/H:.2f}:1)")
