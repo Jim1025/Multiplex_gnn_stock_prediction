@@ -30,7 +30,17 @@ RUNS = ROOT / "runs"
 RULES: list[tuple[str, str]] = [
     (r"_(ridge|fvg)_",              "linear"),
     (r"_bipartite_",                "linear"),
+    # 第二折的 P8 / P9 要先於通用的 _f2_，否則會被一起倒進 fold2/
+    (r"_f2_p8",                     "fold2/p8"),
+    (r"_f2_a2on",                   "fold2/p9"),
     (r"_f2_",                       "fold2"),
+    # P8（mse_target，§52.3 / §60.2a(i)(j)）與 P9（A₂ 介入，§60.2a(l)）。
+    # 沒有這兩條會掉進 legacy——那個桶子是給已證偽或已停用的東西，
+    # 這兩組是現行結論的依據，混進去會誤導。
+    (r"_tw50_p8",                   "tw50/p8"),
+    (r"_tw50_a2on",                 "tw50/p9"),
+    # 單市場消融是 results_table.md 主表在引用的活資料，同樣不該進 legacy
+    (r"_tw50_smkt",                 "tw50/singlemarket"),
     (r"_tw50_beta",                 "tw50/beta"),
     (r"_tw50_(inbn|plnorm)",        "tw50/inputnorm"),
     (r"_tw50_bl_",                  "tw50/baselines"),
