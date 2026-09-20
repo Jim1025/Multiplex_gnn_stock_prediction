@@ -34,8 +34,15 @@ import static_tilt as stl                # noqa: E402
 from src.dataset.config import load_universe   # noqa: E402
 
 INK, MUTE, LINE = "#1a1a1a", "#8a8a8a", "#d8d8d8"
-# 三個粗分組的顏色。避開紅綠，色盲可分。
-GC = {"Electronics": "#1f6f8b", "Financials": "#b45309", "Other": "#9aa0a6"}
+# 配色。避開紅綠，色盲可分。
+#
+# **半導體與電信各自給一個顏色，不與其他電子業共用。** 圖②的結論是
+# 「多半導體、空電信」，而這兩群在粗分組下都是 Electronics——共用一個藍色
+# 會讓長條圖的兩端同色，配色反過來蓋掉結論。
+TONE = {"Semiconductors": "#1f6f8b", "Telecom": "#6b3fa0",
+        "Electronics": "#8fb8c9", "Financials": "#b45309", "Other": "#9aa0a6"}
+LEG = [("Semiconductors", "Semiconductors"), ("Electronics", "Other electronics"),
+       ("Telecom", "Telecom"), ("Financials", "Financials"), ("Other", "Other")]
 
 # 台股的產業別是中文，投影片要英文。只列 universe 實際用到的。
 IND_EN = {
@@ -56,6 +63,15 @@ def coarse(en: str) -> str:
               "Other Electronics", "Optoelectronics", "Telecom & Networking"):
         return "Electronics"
     return "Financials" if en == "Financials" else "Other"
+
+
+def tone(en: str) -> str:
+    """上色用的分組（五類）。半導體與電信各自獨立，見 TONE 的說明。"""
+    if en == "Semiconductors":
+        return "Semiconductors"
+    if en == "Telecom & Networking":
+        return "Telecom"
+    return coarse(en)
 
 
 def heat(v: float, vmax: float = 0.6) -> str:
@@ -110,10 +126,10 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
                 txt(s, x0 + c_ * cell + cell / 2, y0 + r * cell + cell / 2 + 5,
                     f"{v:+.2f}", 13, "#ffffff", "middle", "700")
         txt(s, x0 - 12, y0 + r * cell + cell / 2 + 5,
-            f"{ga} ({int(gi[ga].sum())})", 13, GC[coarse(ga)], "end", "600")
+            f"{ga} ({int(gi[ga].sum())})", 13, TONE[tone(ga)], "end", "600")
     for c_, gb in enumerate(groups):
         cx = x0 + c_ * cell + cell / 2
-        s.append(f'<text x="{cx}" y="{y0+side+14}" font-size="12" fill="{GC[coarse(gb)]}" '
+        s.append(f'<text x="{cx}" y="{y0+side+14}" font-size="12" fill="{TONE[tone(gb)]}" '
                  f'text-anchor="end" font-weight="600" '
                  f'transform="rotate(-40 {cx} {y0+side+14})">{esc(gb)}</text>')
     s.append(f'<rect x="{x0}" y="{y0}" width="{side}" height="{side}" '
@@ -169,19 +185,19 @@ def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
     txt(s, 56, 106, "Long semiconductors, short telecom. Same sign in both folds.", 15, MUTE)
 
     # 圖例
-    lx = 640
-    for k, g in enumerate(("Electronics", "Financials", "Other")):
-        s.append(f'<rect x="{lx+k*128}" y="{ry-38}" width="12" height="12" fill="{GC[g]}"/>')
-        txt(s, lx + k * 128 + 18, ry - 28, g, 13, MUTE)
+    lx = 330
+    for k, (key, lab) in enumerate(LEG):
+        s.append(f'<rect x="{lx+k*136}" y="{ry-38}" width="12" height="12" fill="{TONE[key]}"/>')
+        txt(s, lx + k * 136 + 18, ry - 28, lab, 13, MUTE)
 
     s.append(f'<line x1="{X(0):.1f}" y1="{ry}" x2="{X(0):.1f}" y2="{ry+rh}" '
              f'stroke="{LINE}" stroke-width="1.2"/>')
     for k, j in enumerate(o):
         yy = ry + k * bh
-        g = coarse(fine_en[j])
+        g = tone(fine_en[j])
         xa, xb = (X(0), X(w1[j])) if w1[j] >= 0 else (X(w1[j]), X(0))
         s.append(f'<rect x="{xa:.1f}" y="{yy+0.9:.1f}" width="{max(xb-xa,0.6):.1f}" '
-                 f'height="{bh-1.8:.1f}" fill="{GC[g]}" opacity="0.88"/>')
+                 f'height="{bh-1.8:.1f}" fill="{TONE[g]}" opacity="0.88"/>')
         s.append(f'<line x1="{X(w1[j]-e1[j]):.1f}" y1="{yy+bh/2:.1f}" '
                  f'x2="{X(w1[j]+e1[j]):.1f}" y2="{yy+bh/2:.1f}" '
                  f'stroke="{INK}" stroke-width="1.0" opacity="0.45"/>')
@@ -210,7 +226,7 @@ def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
     # 圖例樣本：橫線 = ±1 跨種子 sd
     ex, ey = 56, ry + 40
     txt(s, ex, ey - 22, "How to read one row", 14, INK, "start", "600")
-    s.append(f'<rect x="{ex}" y="{ey+4}" width="86" height="11" fill="{GC["Electronics"]}" opacity="0.88"/>')
+    s.append(f'<rect x="{ex}" y="{ey+4}" width="86" height="11" fill="{TONE["Semiconductors"]}" opacity="0.88"/>')
     txt(s, ex + 96, ey + 13, "bar: fold-1 mean", 12.5, MUTE)
     s.append(f'<line x1="{ex+18}" y1="{ey+44}" x2="{ex+104}" y2="{ey+44}" '
              f'stroke="{INK}" stroke-width="1.0" opacity="0.45"/>')

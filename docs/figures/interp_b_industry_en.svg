@@ -13,7 +13,7 @@
 <rect x="676.7" y="150.0" width="47.8" height="47.8" fill="rgb(218,170,134)" stroke="#ffffff" stroke-width="1"/>
 <rect x="724.4" y="150.0" width="47.8" height="47.8" fill="rgb(211,227,232)" stroke="#ffffff" stroke-width="1"/>
 <rect x="772.2" y="150.0" width="47.8" height="47.8" fill="rgb(188,103,37)" stroke="#ffffff" stroke-width="1"/>
-<text x="378" y="178.88888888888889" font-size="13" fill="#1f6f8b" text-anchor="end" font-weight="600">Computers &amp; Peripherals (5)</text>
+<text x="378" y="178.88888888888889" font-size="13" fill="#8fb8c9" text-anchor="end" font-weight="600">Computers &amp; Peripherals (5)</text>
 <rect x="390.0" y="197.8" width="47.8" height="47.8" fill="rgb(104,158,177)" stroke="#ffffff" stroke-width="1"/>
 <rect x="437.8" y="197.8" width="47.8" height="47.8" fill="rgb(77,140,162)" stroke="#ffffff" stroke-width="1"/>
 <text x="461.6666666666667" y="226.66666666666666" font-size="13" fill="#ffffff" text-anchor="middle" font-weight="700">+0.43</text>
@@ -24,7 +24,7 @@
 <rect x="676.7" y="197.8" width="47.8" height="47.8" fill="rgb(210,153,109)" stroke="#ffffff" stroke-width="1"/>
 <rect x="724.4" y="197.8" width="47.8" height="47.8" fill="rgb(221,178,145)" stroke="#ffffff" stroke-width="1"/>
 <rect x="772.2" y="197.8" width="47.8" height="47.8" fill="rgb(203,135,84)" stroke="#ffffff" stroke-width="1"/>
-<text x="378" y="226.66666666666666" font-size="13" fill="#1f6f8b" text-anchor="end" font-weight="600">Electronic Components (2)</text>
+<text x="378" y="226.66666666666666" font-size="13" fill="#8fb8c9" text-anchor="end" font-weight="600">Electronic Components (2)</text>
 <rect x="390.0" y="245.6" width="47.8" height="47.8" fill="rgb(202,221,227)" stroke="#ffffff" stroke-width="1"/>
 <rect x="437.8" y="245.6" width="47.8" height="47.8" fill="rgb(164,196,208)" stroke="#ffffff" stroke-width="1"/>
 <rect x="485.6" y="245.6" width="47.8" height="47.8" fill="rgb(78,141,163)" stroke="#ffffff" stroke-width="1"/>
@@ -35,7 +35,7 @@
 <rect x="676.7" y="245.6" width="47.8" height="47.8" fill="rgb(223,183,153)" stroke="#ffffff" stroke-width="1"/>
 <rect x="724.4" y="245.6" width="47.8" height="47.8" fill="rgb(210,153,110)" stroke="#ffffff" stroke-width="1"/>
 <rect x="772.2" y="245.6" width="47.8" height="47.8" fill="rgb(227,191,164)" stroke="#ffffff" stroke-width="1"/>
-<text x="378" y="274.44444444444446" font-size="13" fill="#1f6f8b" text-anchor="end" font-weight="600">Optoelectronics (3)</text>
+<text x="378" y="274.44444444444446" font-size="13" fill="#8fb8c9" text-anchor="end" font-weight="600">Optoelectronics (3)</text>
 <rect x="390.0" y="293.3" width="47.8" height="47.8" fill="rgb(164,196,208)" stroke="#ffffff" stroke-width="1"/>
 <rect x="437.8" y="293.3" width="47.8" height="47.8" fill="rgb(166,198,209)" stroke="#ffffff" stroke-width="1"/>
 <rect x="485.6" y="293.3" width="47.8" height="47.8" fill="rgb(173,202,212)" stroke="#ffffff" stroke-width="1"/>
@@ -46,7 +46,7 @@
 <rect x="676.7" y="293.3" width="47.8" height="47.8" fill="rgb(222,180,149)" stroke="#ffffff" stroke-width="1"/>
 <rect x="724.4" y="293.3" width="47.8" height="47.8" fill="rgb(233,205,183)" stroke="#ffffff" stroke-width="1"/>
 <rect x="772.2" y="293.3" width="47.8" height="47.8" fill="rgb(222,179,147)" stroke="#ffffff" stroke-width="1"/>
-<text x="378" y="322.2222222222223" font-size="13" fill="#1f6f8b" text-anchor="end" font-weight="600">Other Electronics (3)</text>
+<text x="378" y="322.2222222222223" font-size="13" fill="#8fb8c9" text-anchor="end" font-weight="600">Other Electronics (3)</text>
 <rect x="390.0" y="341.1" width="47.8" height="47.8" fill="rgb(133,177,192)" stroke="#ffffff" stroke-width="1"/>
 <rect x="437.8" y="341.1" width="47.8" height="47.8" fill="rgb(98,154,173)" stroke="#ffffff" stroke-width="1"/>
 <rect x="485.6" y="341.1" width="47.8" height="47.8" fill="rgb(165,197,208)" stroke="#ffffff" stroke-width="1"/>
@@ -68,7 +68,7 @@
 <rect x="676.7" y="388.9" width="47.8" height="47.8" fill="rgb(191,214,222)" stroke="#ffffff" stroke-width="1"/>
 <rect x="724.4" y="388.9" width="47.8" height="47.8" fill="rgb(132,176,191)" stroke="#ffffff" stroke-width="1"/>
 <rect x="772.2" y="388.9" width="47.8" height="47.8" fill="rgb(246,236,228)" stroke="#ffffff" stroke-width="1"/>
-<text x="378" y="417.7777777777778" font-size="13" fill="#1f6f8b" text-anchor="end" font-weight="600">Telecom &amp; Networking (3)</text>
+<text x="378" y="417.7777777777778" font-size="13" fill="#6b3fa0" text-anchor="end" font-weight="600">Telecom &amp; Networking (3)</text>
 <rect x="390.0" y="436.7" width="47.8" height="47.8" fill="rgb(218,170,134)" stroke="#ffffff" stroke-width="1"/>
 <rect x="437.8" y="436.7" width="47.8" height="47.8" fill="rgb(210,153,109)" stroke="#ffffff" stroke-width="1"/>
 <rect x="485.6" y="436.7" width="47.8" height="47.8" fill="rgb(223,183,153)" stroke="#ffffff" stroke-width="1"/>
@@ -102,12 +102,12 @@
 <rect x="772.2" y="532.2" width="47.8" height="47.8" fill="rgb(35,114,141)" stroke="#ffffff" stroke-width="1"/>
 <text x="796.1111111111111" y="561.1111111111111" font-size="13" fill="#ffffff" text-anchor="middle" font-weight="700">+0.58</text>
 <text x="378" y="561.1111111111111" font-size="13" fill="#9aa0a6" text-anchor="end" font-weight="600">Plastics (3)</text>
-<text x="413.8888888888889" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 413.8888888888889 594)">Computers &amp; Peripherals</text>
-<text x="461.6666666666667" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 461.6666666666667 594)">Electronic Components</text>
-<text x="509.44444444444446" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 509.44444444444446 594)">Optoelectronics</text>
-<text x="557.2222222222223" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 557.2222222222223 594)">Other Electronics</text>
+<text x="413.8888888888889" y="594" font-size="12" fill="#8fb8c9" text-anchor="end" font-weight="600" transform="rotate(-40 413.8888888888889 594)">Computers &amp; Peripherals</text>
+<text x="461.6666666666667" y="594" font-size="12" fill="#8fb8c9" text-anchor="end" font-weight="600" transform="rotate(-40 461.6666666666667 594)">Electronic Components</text>
+<text x="509.44444444444446" y="594" font-size="12" fill="#8fb8c9" text-anchor="end" font-weight="600" transform="rotate(-40 509.44444444444446 594)">Optoelectronics</text>
+<text x="557.2222222222223" y="594" font-size="12" fill="#8fb8c9" text-anchor="end" font-weight="600" transform="rotate(-40 557.2222222222223 594)">Other Electronics</text>
 <text x="605.0" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 605.0 594)">Semiconductors</text>
-<text x="652.7777777777778" y="594" font-size="12" fill="#1f6f8b" text-anchor="end" font-weight="600" transform="rotate(-40 652.7777777777778 594)">Telecom &amp; Networking</text>
+<text x="652.7777777777778" y="594" font-size="12" fill="#6b3fa0" text-anchor="end" font-weight="600" transform="rotate(-40 652.7777777777778 594)">Telecom &amp; Networking</text>
 <text x="700.5555555555557" y="594" font-size="12" fill="#b45309" text-anchor="end" font-weight="600" transform="rotate(-40 700.5555555555557 594)">Financials</text>
 <text x="748.3333333333334" y="594" font-size="12" fill="#9aa0a6" text-anchor="end" font-weight="600" transform="rotate(-40 748.3333333333334 594)">Cement</text>
 <text x="796.1111111111111" y="594" font-size="12" fill="#9aa0a6" text-anchor="end" font-weight="600" transform="rotate(-40 796.1111111111111 594)">Plastics</text>
