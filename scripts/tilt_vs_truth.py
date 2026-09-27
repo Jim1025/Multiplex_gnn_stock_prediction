@@ -97,7 +97,10 @@ def partial(a, b, c) -> float:
 def main() -> None:
     ap = argparse.ArgumentParser(description="w̄ 對不對得上真實報酬（§55.7(g)）")
     ap.add_argument("--universe", default="tw50")
+    ap.add_argument("--strict", action="store_true",
+                    help="敏感度：另外排除 2021-08-17（佔位列）與 4 個兩日報酬日（§55.9(h)）")
     a = ap.parse_args()
+    drop = sorted(rf.PLACEHOLDER | rf.TWO_DAY) if a.strict else []
     warnings.filterwarnings("ignore")
 
     u = load_universe(a.universe)
@@ -109,7 +112,8 @@ def main() -> None:
     P = pd.DataFrame({c: (lambda d: d.set_index(d.Date.astype(str).str[:10])["log_return"])(
         pd.read_csv(ROOT / "data" / "processed" / "tw" / f"{c}.csv",
                     usecols=["Date", "log_return"])) for c in tw}).sort_index()
-    print(f"真實報酬面板  {P.shape[0]} 天 x {P.shape[1]} 檔   {P.index[0]} .. {P.index[-1]}")
+    print(f"規則：{'嚴格（敏感度）' if a.strict else '現行'}   "
+          f"真實報酬面板  {P.shape[0]} 天 x {P.shape[1]} 檔   {P.index[0]} .. {P.index[-1]}")
 
     idx_all = np.asarray(P.index)
 
@@ -117,8 +121,10 @@ def main() -> None:
         lo, hi = w[key]
         m = ((idx_all >= lo) & (idx_all < hi)) if key == "訓練窗" else \
             ((idx_all >= lo) & (idx_all <= hi))
+        m &= ~np.isin(idx_all, drop)
         Z = zrow(P.loc[m].to_numpy(float))
-        # 休市日（50 檔報酬全為 0）的 z 是 NaN，nanmean 本來就會略過；T 也不算它
+        # 50 檔報酬全為 0 的日子（3 天休市、3 天資料商缺漏，§55.9(h)）z 是 NaN，
+        # nanmean 本來就會略過；T 也不算它
         return np.nanmean(Z, 0), int(np.isfinite(Z).any(1).sum())
 
     for cfg in FOLDS.values():
@@ -164,6 +170,7 @@ def main() -> None:
         Zh = np.mean([Z for Z, _, _ in runs], axis=0)[:, idx]
         # 用預測檔自己的日期去對真實報酬，不靠兩邊長度剛好一樣
         Yv = P.reindex(dates)[tw].to_numpy(float)
+        Yv[np.isin(np.asarray(dates), drop)] = np.nan      # --strict 才有作用
         D = Zh - w[None, :]
         tot = np.array([nc(Zh[t], Yv[t]) for t in range(len(Yv))])
         sta = np.array([nc(w, Yv[t]) for t in range(len(Yv))])

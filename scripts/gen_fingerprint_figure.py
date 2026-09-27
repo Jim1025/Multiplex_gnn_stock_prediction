@@ -94,7 +94,7 @@ def main() -> None:
     # 這是為了擋「模型當然會複製訓練資料」的質疑，代價是 Mantel r 同時混了
     # 「B 學得準不準」與「結構跨年持不持久」兩件事——所以圖下要並列同期的數字
     # 與資料自身跨期的一致性當參考，讀者才拆得開。
-    W, H = 1180, 1090
+    W, H = 1180, 1108
     s = gif.svg(W, H)
     gif.txt(s, 56, 52, f"What B learned from {tr1[0][:4]}-{tr1[1][:4]} is still measurable in later "
                        "returns", 24, INK, "start", "600")
@@ -166,8 +166,11 @@ def main() -> None:
     gif.txt(s, 56, fy + 18, "Right: columns of B, which starts at zero; industry labels never enter "
                             "training. Cells average over all cross-pairs of the two industries.", 12.5, MUTE)
     gif.txt(s, 56, fy + 36, "Industries with n >= 2 shown (9 of 18); Cement and Electronic Components "
-                            "are one pair each. Zero-volume Taiwan non-trading days are excluded.",
-            12.5, MUTE)
+                            "are one pair each.", 12.5, MUTE)
+    # 原寫「Zero-volume Taiwan non-trading days」——6 天裡只有 3 天休市，另 3 天有交易、
+    # 只是資料商缺資料（證交所 FMTQIK 查證，§55.9(h)）。
+    gif.txt(s, 56, fy + 54, "Days on which all 50 Taiwanese returns are zero (market closures or missing "
+                            "vendor data) are excluded.", 12.5, MUTE)
     s.append("</svg>")
     out = ROOT / "docs" / "figures" / "interp_fingerprint_en.svg"
     out.write_text("\n".join(s), encoding="utf-8")

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1090" width="1180" height="1090" font-family="Helvetica, Arial, sans-serif">
-<rect width="1180" height="1090" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1108" width="1180" height="1108" font-family="Helvetica, Arial, sans-serif">
+<rect width="1180" height="1108" fill="#ffffff"/>
 <text x="56" y="52" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="600">What B learned from 2019-2023 is still measurable in later returns</text>
 <text x="56" y="82" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">How similarly two Taiwanese stocks respond to the residual moves of the 30 US stocks.</text>
 <text x="56" y="106" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Left: measured from returns after the model was fixed. Right: read off the trained model. Same layout, same colour scale.</text>
@@ -478,5 +478,6 @@
 <text x="56" y="978" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Estimator check: a multivariate ridge instead of pairwise correlations gives the same structure (r = +0.90 / +0.91, training window).</text>
 <text x="56" y="1020" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">Left: correlation of each Taiwanese stock's return on day t with each US stock's return on the previous shared trading day, both net of their market's daily mean.</text>
 <text x="56" y="1038" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">Right: columns of B, which starts at zero; industry labels never enter training. Cells average over all cross-pairs of the two industries.</text>
-<text x="56" y="1056" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">Industries with n &gt;= 2 shown (9 of 18); Cement and Electronic Components are one pair each. Zero-volume Taiwan non-trading days are excluded.</text>
+<text x="56" y="1056" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">Industries with n &gt;= 2 shown (9 of 18); Cement and Electronic Components are one pair each.</text>
+<text x="56" y="1074" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">Days on which all 50 Taiwanese returns are zero (market closures or missing vendor data) are excluded.</text>
 </svg>

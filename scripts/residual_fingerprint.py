@@ -55,6 +55,13 @@ N_PERM_MANTEL = 2000
 R_MIN = 0.17                # 主判準的量級門檻：第一折 +0.3369 的一半
 FOLDS = {"第一折": ("tw50_betaF1nA2r1", False), "第二折": ("f2_best", True)}
 
+# data/processed/tw 的全零／近全零日期（2026-09-27 稽核；每一天都對照證交所
+# FMTQIK 每日市場成交資訊查證過）。資料層不動，只在分析端處理，見 proposal §55.9(h)。
+CLOSURES = {"2022-02-04", "2023-01-18", "2024-10-31"}     # 真的休市，但交易日曆不知道
+VENDOR_GAP = {"2019-09-09", "2021-04-06", "2025-08-01"}   # 有交易，yfinance 50 檔全缺，補成報酬 0
+PLACEHOLDER = {"2021-08-17"}                              # 有交易，47/50 檔是佔位列（成交量 0、價格不變）
+TWO_DAY = {"2019-09-10", "2021-04-07", "2021-08-18", "2025-08-04"}  # 前一日缺漏，y 其實是兩日報酬
+
 
 def universe():
     u = load_universe("tw50")
@@ -63,7 +70,9 @@ def universe():
     return tw, us, [u.industry.get(c, "其他") for c in tw]
 
 
-def returns_panel(tw, us, residual: bool = True):
+def returns_panel(tw, us, residual: bool = True, strict: bool = False):
+    """現行規則：排除 50 檔報酬全為 0 的日子（= CLOSURES ∪ VENDOR_GAP）。
+    strict=True 另外排除 PLACEHOLDER 與 TWO_DAY——只當敏感度分析用（§55.9(h)）。"""
     def panel(codes, sub):
         d = {}
         for c in codes:
@@ -81,10 +90,16 @@ def returns_panel(tw, us, residual: bool = True):
     Ur = U - np.nanmean(U, 1, keepdims=True) if residual else U
     Y, X, D = Ar[1:], Ur[:-1], np.array(dates[1:])    # 美股 t−1 -> 台股 t
     ok = np.isfinite(X).all(1) & np.isfinite(Y).all(1)
-    # data/processed/tw 裡有 6 天 50 檔成交量全為 0、報酬全為 0，且 is_imputed 標為
-    # False（2019-09-09、2021-04-06、2022-02-04、2023-01-18、2024-10-31、2025-08-01）。
-    # 那是休市日，不是市場觀測值。資料層不動，只在分析端排除。
+    # 50 檔報酬全為 0 的日子（成交量也全為 0、is_imputed 卻是 False）不是市場觀測值：
+    # 其中 3 天真的休市，另 3 天有交易但資料商缺資料、被補成報酬 0（真實報酬未觀測到）。
+    # 若資料變動使這份清單對不上，停下來而不是悄悄改變樣本。
+    zero = set(np.array(dates)[np.nanstd(A, 1) < 1e-12])
+    if zero != CLOSURES | VENDOR_GAP:
+        raise SystemExit(f"全零日與查證清單不符：多 {sorted(zero - CLOSURES - VENDOR_GAP)}"
+                         f"，少 {sorted(CLOSURES | VENDOR_GAP - zero)}")
     ok &= np.nanstd(A[1:], 1) > 1e-12
+    if strict:
+        ok &= ~np.isin(D, sorted(PLACEHOLDER | TWO_DAY))
     return Y, X, D, ok
 
 
@@ -222,7 +237,7 @@ def per_seed(arm: str, fine: list[str]) -> list[np.ndarray]:
     return [bic.separation(B, fine)[3] for B in b_similarity(arm, fine)[1]]
 
 
-def detail(res: dict, Y, X, D, ok, tw, us, fine) -> None:
+def detail(res: dict, Y, X, D, ok, tw, us, fine, strict: bool = False) -> None:
     """圖①的讀法（§55.9(g)）：三個概念的區別、兩個偏低格子的成因、非對角格的分布。
 
     全部用第一折、對齊後的訓練窗（與模型實際的訓練樣本同一段）；8150 另附第二折。
@@ -265,7 +280,7 @@ def detail(res: dict, Y, X, D, ok, tw, us, fine) -> None:
           f"   ①vs③ {spearmanr(h, b)[0]:+.2f}   |   Pearson ②vs③ {np.corrcoef(f_, b)[0, 1]:+.3f}")
     print(f"  逐檔 B↔指紋 對齊：全 50 檔中位數 {np.median(align):+.3f}")
 
-    Yr, Xr, _, okr = returns_panel(tw, us, residual=False)
+    Yr, Xr, _, okr = returns_panel(tw, us, residual=False, strict=strict)
     Fr = fingerprint(Yr, Xr, in_window(D, r1["w"], "訓練窗") & okr)
     Mr = similarity(Fr)
     alr = np.array([np.corrcoef(PB[:, j], unit_cols(Fr)[:, j])[0, 1] for j in range(n)])
@@ -369,11 +384,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="跨市場殘差領先指紋 vs B（兩折）")
     ap.add_argument("--detail", action="store_true",
                     help="另印圖①的讀法：三個概念、半導體與金融兩格的成因、非對角格（§55.9(g)）")
+    ap.add_argument("--strict", action="store_true",
+                    help="敏感度：另外排除 2021-08-17（佔位列）與 4 個兩日報酬日（§55.9(h)）")
     args = ap.parse_args()
     warnings.filterwarnings("ignore")
     tw, us, fine = universe()
-    Y, X, D, ok = returns_panel(tw, us)
-    print(f"報酬面板  {len(D)} 個台股交易日 x {len(tw)} 檔台股 / {len(us)} 檔美股"
+    Y, X, D, ok = returns_panel(tw, us, strict=args.strict)
+    print(f"規則：{'嚴格（敏感度）' if args.strict else '現行'}   報酬面板  {len(D)} 個台股交易日 x {len(tw)} 檔台股 / {len(us)} 檔美股"
           f"   {D[0]} .. {D[-1]}")
     res = {}
     for fold, (arm, f2) in FOLDS.items():
@@ -409,7 +426,7 @@ def main() -> None:
         print(f"  {fold}  主判準 Mantel(B, 測試窗指紋) r {m:+.4f}  p {p:.4f}  ->  {verdict(m, p)}"
               f"   |   次判準 {'通過' if ok2 else '未通過'}")
     if args.detail:
-        detail(res, Y, X, D, ok, tw, us, fine)
+        detail(res, Y, X, D, ok, tw, us, fine, strict=args.strict)
 
 
 if __name__ == "__main__":
