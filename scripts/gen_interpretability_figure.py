@@ -113,14 +113,19 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
                     key=lambda g: ({"Electronics": 0, "Financials": 1, "Other": 2}[coarse(g)], g))
     gi = {g: np.array([f == g for f in fine_en]) for g in groups}
     K = len(groups)
-    x0, y0, side = 390, 150, 430
+    x0, y0, side = 390, 170, 430          # 副標三行，整張往下 20
     cell = side / K
     s = svg(W, H)
 
     txt(s, 56, 52, "Industry structure emerges in B without any industry label", 24, INK, "start", "600")
+    # 副標寫明 residual（2026-09-27）：B 只接項 ③ 的 h₁ᵢ − h̄₁，大盤由另一項（γ）承擔。
+    # 沒寫的話，讀者會把欄讀成「對美股的曝險」，進而把格子讀成產業同質度——
+    # 那是另一個概念，兩者跨產業的排名相關只有 +0.20（§55.9(a)）。
     txt(s, 56, 82, "Each column of the cross-layer weight matrix B is one Taiwanese stock's "
-                   "loading profile over the 30 US stocks.", 15, MUTE)
-    txt(s, 56, 106, "Cells are the correlation between two such profiles, averaged over all "
+                   "loading on the residual moves of the 30 US stocks,", 15, MUTE)
+    txt(s, 56, 106, "that is, each US stock net of the 30-stock daily mean "
+                    "(the common part is carried by a separate term).", 15, MUTE)
+    txt(s, 56, 130, "Cells are the correlation between two such profiles, averaged over all "
                     "cross-pairs of the two industries.", 15, MUTE)
 
     Mn = M.copy()
