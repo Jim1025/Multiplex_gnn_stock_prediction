@@ -108,7 +108,7 @@ def txt(s, x, y, t, sz=14, col=INK, anc="start", wt="400", extra=""):
 # ─────────────────────────────────────────────────────────────────────
 def fig_b(M, fine_en, n_seed, out: Path) -> None:
     """① 產業 x 產業的區塊均值 + 色標尺。"""
-    W, H = 1180, 960     # 兩張圖同高，投影片並排或連放時視覺一致
+    W, H = 1180, 1040    # 兩張圖同高，投影片並排或連放時視覺一致（圖② 在 5975961 已是 1040）
     groups = sorted({g for g in fine_en if fine_en.count(g) >= 2},
                     key=lambda g: ({"Electronics": 0, "Financials": 1, "Other": 2}[coarse(g)], g))
     gi = {g: np.array([f == g for f in fine_en]) for g in groups}
@@ -162,11 +162,40 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
     txt(s, bx + bw + 8, by + bh / 2 + 5, "aligned", 12.5, MUTE, "start")
 
     y = by + bh + 58
-    txt(s, 56, y, "Same industry +0.2610     Different industry -0.0378     "
-                  "Separation +0.2988", 16, INK, "start", "600")
+    # 原本用多個空格分隔三個數字，但 SVG 會把連續空白壓成一格，三段黏在一起；
+    # 數字也原本寫死。改成分號分隔、即時算——同/異產業均值對 M 是線性的，
+    # 所以對種子平均後的 M 算，等於逐種子算完再平均（§55.2 的 +0.2610 / −0.0378）。
+    iu = np.triu_indices(len(fine_en), 1)
+    same = np.array([[a == b for b in fine_en] for a in fine_en])[iu]
+    m_s, m_d = float(M[iu][same].mean()), float(M[iu][~same].mean())
+    txt(s, 56, y, f"Same industry {m_s:+.4f}; different industry {m_d:+.4f}; "
+                  f"separation {m_s - m_d:+.4f}", 16, INK, "start", "600")
     txt(s, 56, y + 26, f"Positive in {n_seed}/{n_seed} seeds. "
                        "Permutation test (industry labels shuffled 1000x): p <= 0.001.", 15, MUTE)
-    txt(s, 56, y + 50, "The diagonal is uniformly warm (+0.20 to +0.58); off-diagonal cells are near zero.", 15, MUTE)
+    # 2026-09-27 更正：原句「The diagonal is uniformly warm; off-diagonal cells are near zero」
+    # 兩處不對——正值在這張圖是藍色（warm 與配色相反），而 36 個非對角格裡有 14 格
+    # |v| >= 0.20。實際的非對角結構是兩個陣營：電子五業彼此同向、電子對其餘四業反向。
+    # 數字即時算；方向若不再是多數（換 arm 時可能發生），停下來而不是印出錯的句子。
+    Mn = M.copy()
+    np.fill_diagonal(Mn, np.nan)
+    blk = lambda a, b: float(np.nanmean(Mn[np.ix_(gi[a], gi[b])]))
+    elec = [g for g in groups if coarse(g) == "Electronics" and tone(g) != "Telecom"]
+    rest = [g for g in groups if g not in elec]
+    dia = [blk(g, g) for g in groups]
+    within = [blk(a, b) for i, a in enumerate(elec) for b in elec[i + 1:]]
+    across = [blk(a, b) for a in elec for b in rest]
+    n_pos, n_neg = sum(v > 0 for v in within), sum(v < 0 for v in across)
+    if min(dia) <= 0 or n_pos < 0.8 * len(within) or n_neg < 0.8 * len(across):
+        raise SystemExit("圖①註腳的陣營敘述不再成立（對角有非正值，或同向/反向不到八成），"
+                         "請改寫註腳而不是沿用")
+    word = lambda k: "zero one two three four five six seven eight nine ten".split()[k] if k <= 10 else str(k)
+    txt(s, 56, y + 50, f"All {word(len(groups))} diagonal cells are positive ({min(dia):+.2f} to "
+                       f"{max(dia):+.2f}). Off-diagonal cells are not near zero:", 15, MUTE)
+    txt(s, 56, y + 74, f"the {word(len(elec))} electronics industries align with one another "
+                       f"({n_pos} of {len(within)} cells positive) and are opposed to", 15, MUTE)
+    txt(s, 56, y + 98, ", ".join(g.split(" &")[0].lower() for g in rest[:-1])
+                       + f" and {rest[-1].split(' &')[0].lower()} ({n_neg} of {len(across)} cells "
+                       f"negative, as low as {min(across):+.2f}).", 15, MUTE)
     txt(s, 56, H - 44, "Industries with n >= 2 shown (9 of 18). Diagonal = mean correlation "
                        "within that industry; off-diagonal = between the two industries.", 13, MUTE)
     txt(s, 56, H - 24, "Pearson correlation across the 30 US loadings. Two random profiles "
