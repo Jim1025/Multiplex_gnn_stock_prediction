@@ -78,6 +78,18 @@ model:
     dropout: 0.2
     per_target: false     # false（預設，全體共用讀出）| true（每檔台股一條
                           # 讀出向量）。缺口見 proposal §34.2 缺陷 2
+  tw_lag_channel:         # ④ 台股層內的線性領先落後通道（P10，proposal §62）：
+                          #   ŷ_j += w·sd_t(ŷ^GNN)·z_t(ĉ)_j，ĉ_j = Σ_k C[k,j]·z_k(t−1)
+                          # C 在訓練開始前以 per-target ridge 封閉解出後凍結
+                          # （src/models/tw_lag_channel.py）。預設 false，既有 run 逐位元不變；
+                          # 以 train.py 的 --tw-lag-w 開啟，其餘選項從這裡讀。
+    enabled: false
+    target: zscore        # C 的擬合目標：逐日橫截面 z-score 的 y（§60.2a(h) 的 P8-pre）
+    intercept: false      # 不帶逐檔截距：④ 只承載領先落後動態（靜態傾斜無樣本外價值，§55.7(g)）
+    diagonal: true        # 含自身昨日報酬（KTW+ 原本的台股區塊）
+    ridge_log10_alpha: [-2, 9, 23]   # alpha 網格 logspace(-2, 9, 23)，以 val 平均 IC 選
+    blend_w: 0.3          # ④ 相對 GNN 輸出的權重（逐日 z 分數口徑）。兩折各自依 §62.7 的規則
+                          # 在 val 上選定並事前登記：第一折 0.3、第二折 0.2（以 --tw-lag-w 傳入）
   weak_links:
     mode: free            # 1,493 條候選邊（30x50 扣掉 7 條恆等邊）
     lambda_sparse: 0.0    # 見檔頭第 2 點；與 tw50chk_wl0_* 一致

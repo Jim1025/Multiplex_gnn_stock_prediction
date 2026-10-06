@@ -1235,3 +1235,70 @@ def test_aggregate_ic_unchanged_for_healthy_run():
     out = aggregate_ic(yh, ys)
     assert out["n_valid_IC"] == out["n_days"] == 60
     assert not np.isnan(out["IC"]) and not np.isnan(out["RankIC"])
+
+
+# ---------------------------------------------------------------------------
+# ④ 台股層內的線性領先落後通道（P10，proposal §62）
+# ---------------------------------------------------------------------------
+
+def _magnet_tw_lag(config: dict, enabled: bool | None, w: float = 0.3) -> MAGNET:
+    """enabled=None 表示設定裡完全沒有 tw_lag_channel 這一段。"""
+    cfg = copy.deepcopy(config)
+    if enabled is None:
+        cfg["model"].pop("tw_lag_channel", None)
+    else:
+        cfg["model"]["tw_lag_channel"] = {**cfg["model"]["tw_lag_channel"],
+                                          "enabled": enabled, "blend_w": w}
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return MAGNET(cfg)
+
+
+def test_tw_lag_channel_off_matches_baseline(config: dict, small_batch: dict) -> None:
+    """未啟用時，與設定裡沒有這一段的模型逐位元相同（既有 run 不受影響）。"""
+    m_off = _magnet_tw_lag(config, enabled=False).eval()
+    m_base = _magnet_tw_lag(config, enabled=None).eval()
+    with torch.no_grad():
+        assert torch.equal(m_off(small_batch)[0], m_base(small_batch)[0])
+
+
+def test_tw_lag_channel_zero_coef_matches_baseline(config: dict, small_batch: dict) -> None:
+    """啟用但還沒寫入封閉解（C、b 為 0）時 ĉ 恆為 0，輸出必須等於基準。
+
+    同時確認 ④ 的 buffer 不消耗 RNG：開 / 關兩個模型的參數逐位元相同，
+    P10b 與主 arm 的同種子配對才乾淨（proposal §62.7）。
+    """
+    m_on = _magnet_tw_lag(config, enabled=True).eval()
+    m_off = _magnet_tw_lag(config, enabled=False).eval()
+    p_on, p_off = dict(m_on.named_parameters()), dict(m_off.named_parameters())
+    assert p_on.keys() == p_off.keys()
+    assert all(torch.equal(p_on[k], p_off[k]) for k in p_on)
+    with torch.no_grad():
+        assert torch.equal(m_on(small_batch)[0], m_off(small_batch)[0])
+
+
+def test_tw_lag_channel_formula(config: dict, small_batch: dict) -> None:
+    """寫入任意係數後 ŷ = ŷ^GNN + w·sd_t(ŷ^GNN)·z_t(ĉ)，且逐日 IC 與 z(ŷ^GNN) + w·z(ĉ) 相同。"""
+    w = 0.3
+    m_on = _magnet_tw_lag(config, enabled=True, w=w).eval()
+    m_off = _magnet_tw_lag(config, enabled=False).eval()
+    n = m_on.n_l2
+    g = np.random.default_rng(0)
+    mu = g.normal(0.0, 0.01, n)
+    sd = np.abs(g.normal(0.02, 0.005, n)) + 1e-3
+    C, b = g.normal(0.0, 0.1, (n, n)), np.zeros(n)
+    m_on.set_tw_lag_channel(mu, sd, C, b)
+    with torch.no_grad():
+        y_on, ex = m_on(small_batch)
+        y_gnn, _ = m_off(small_batch)
+    assert "tw_lag_c" in ex
+    x = small_batch["x_seq_L2"][:, -1, :, m_on.tw_lag_ret_idx].double().numpy()
+    c = ((x - mu) / sd) @ C + b
+    cz = (c - c.mean(1, keepdims=True)) / c.std(1, keepdims=True)
+    yg = y_gnn.double().numpy()
+    expect = yg + w * yg.std(1, keepdims=True) * cz
+    np.testing.assert_allclose(y_on.double().numpy(), expect, rtol=1e-4, atol=1e-6)
+    zg = (yg - yg.mean(1, keepdims=True)) / yg.std(1, keepdims=True)
+    for t in range(len(yg)):
+        r = np.corrcoef(y_on[t].double().numpy(), zg[t] + w * cz[t])[0, 1]
+        assert r > 1 - 1e-6, f"第 {t} 天的組合與 z(ŷ^GNN) + w·z(ĉ) 不等價（corr {r}）"

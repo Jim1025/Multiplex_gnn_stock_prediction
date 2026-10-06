@@ -15,6 +15,8 @@
   F. 登記的通道        P10 的 C、alpha 與 w（兩折各自，規則見 §62.6）
   G. P10a             逐種子事後組合（不重訓）的事前判準檢驗——**登記並 commit 之後才跑**
   H. P10b             重訓版（④ 內建、凍結）的事前判準檢驗——run 完成後才跑
+  I. P10b 補充         判定之後才加，不計入判準：§62.8「一併報」裡區塊 H 漏印的離散比、
+                      健全性檢查、把 P10b 拆回 GNN 部分的事後分析
 
 通道的定義（登記版本，§62.5）：
     z_k   = (r_{k,t−1} − μ_k) / σ_k          50 檔台股昨日 log return，μ、σ 取訓練窗
@@ -28,12 +30,14 @@
     .venv/bin/python scripts/tw_lag_channel.py --blocks A B C D E F
     .venv/bin/python scripts/tw_lag_channel.py --blocks G        # 登記之後
     .venv/bin/python scripts/tw_lag_channel.py --blocks H        # P10b 的 run 完成之後
+    .venv/bin/python scripts/tw_lag_channel.py --blocks I        # P10b 判定之後的補充
 """
 
 from __future__ import annotations
 
 import argparse
 import glob
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -67,7 +71,7 @@ FOLDS = {
 }
 PAIRED = {"2330", "2303", "3711", "2412", "8150", "2409", "2317"}
 ELEC = {"半導體業", "電腦及週邊設備業", "其他電子業", "光電業", "通信網路業", "電子零組件業"}
-BLOCKS = "ABCDEFGH"
+BLOCKS = "ABCDEFGHI"
 
 
 # ---------------------------------------------------------------- 資料
@@ -357,6 +361,80 @@ def block_h(D, M, seeds, K, pattern):
     return evaluate(D, M["test"], P, seeds, s_b, K, "P10b")
 
 
+# ---------------------------------------------------------------- P10b 補充（判定之後，不計入判準）
+def _mean_corr(A, B) -> float:
+    return float(np.nanmean([np.corrcoef(a, b)[0, 1] for a, b in zip(A, B)
+                             if np.std(a) > 1e-12 and np.std(b) > 1e-12]))
+
+
+def disp(P, Y) -> float:
+    """離散比 mean_t[std(ŷ_t) / std(y_t)]，逐日算完再平均（與 results_table.py 的 calib_stats 同定義）。"""
+    sh, sy = P.std(1), Y.std(1)
+    ok = sy > 1e-15
+    return float((sh[ok] / sy[ok]).mean())
+
+
+def gnn_part(P, zc, w):
+    """由 ŷ = g + w·sd_t(g)·z_t(ĉ) 逐日反解 g 的去均值部分（母體 sd）。
+
+    令 y = ŷ − 均值、s = sd_t(g)：mean((y − w·s·z)²) = s² 是 s 的二次式，取正根。
+    """
+    U = np.empty_like(P)
+    for t in range(len(P)):
+        y = P[t] - P[t].mean()
+        v, cv = y @ y / len(y), y @ zc[t] / len(y)
+        s = (-w * cv + np.sqrt((w * cv) ** 2 + (1 - w * w) * v)) / (1 - w * w)
+        U[t] = y - w * s * zc[t]
+    return U
+
+
+def _pair(lab, a, b):
+    d = b - a
+    print(f"      {lab:22s} {a.mean():+.4f} -> {b.mean():+.4f}  差 {d.mean():+.4f}"
+          f"（配對 p {stats.ttest_rel(b, a).pvalue:.4f}，{int((d > 0).sum())}/{len(d)} 為正）")
+
+
+def block_i(D, M, seeds, pattern, w):
+    files = sorted(glob.glob(str(ROOT / pattern.format("test")), recursive=True))
+    P, s_b = preds(pattern, "test", D["d_test"], D["codes"])
+    print(f"[I] P10b 補充（事後，不計入判準），找到 {len(s_b)} 顆種子")
+    if len(s_b) == 0:
+        return
+    common = sorted(set(seeds) & set(s_b))
+    A = M["test"][[seeds.index(s) for s in common]]
+    P = P[[s_b.index(s) for s in common]]
+    Y, c = D["y_test"], channel(D)
+    zc = zrow(c["test"])
+
+    metas = [json.load(open(Path(f).parents[1] / "meta.json")).get("tw_lag_channel") or {} for f in files]
+    same = all(np.isclose(m.get("alpha", np.nan), c["alpha"]) and np.isclose(m.get("val_ic", np.nan), c["val_IC"])
+               and np.isclose(m.get("blend_w", np.nan), w) for m in metas)
+    print(f"    健全性：{len(metas)} 個 run 的 alpha / 通道 val IC / w 與登記值相同：{'是' if same else '否'}")
+    print(f"    健全性：逐日 corr(預測, ĉ) 主 arm {np.mean([_mean_corr(a, c['test']) for a in A]):+.4f}，"
+          f"P10b {np.mean([_mean_corr(p, c['test']) for p in P]):+.4f}（④ 在輸出裡，後者應明顯較高）")
+    print("    一併報（§62.8，區塊 H 漏印）：離散比 mean_t[std(ŷ_t)/std(y_t)]")
+    _pair("離散比（主 arm -> P10b）", np.array([disp(a, Y) for a in A]), np.array([disp(p, Y) for p in P]))
+
+    U = np.stack([gnn_part(p, zc, w) for p in P])
+    ra = [summ(a, Y) for a in A]
+    ru = [summ(u, Y) for u in U]
+    rp = [summ(p, Y) for p in P]
+    print("    探索：P10b 的 GNN 部分（由 ŷ = g + w·sd(g)·z(ĉ) 反解）對主 arm")
+    for k, lab in (("IC", "IC"), ("ICIR", "ICIR"), ("sd", "sd(IC)")):
+        _pair(lab, np.array([r[k] for r in ra]), np.array([r[k] for r in ru]))
+    _pair("離散比", np.array([disp(a, Y) for a in A]), np.array([disp(u, Y) for u in U]))
+    print(f"      corr(GNN 部分, ĉ)：主 arm {np.mean([_mean_corr(a, c['test']) for a in A]):+.4f}，"
+          f"P10b {np.mean([_mean_corr(u, c['test']) for u in U]):+.4f}")
+
+    rb = [summ(zrow(a) + w * zc, Y) for a in A]
+    print("    探索：P10b（內建）對 P10a（事後組合）")
+    for k, lab in (("ICIR", "ICIR"), ("IC", "IC"), ("sd", "sd(IC)")):
+        _pair(lab, np.array([r[k] for r in rb]), np.array([r[k] for r in rp]))
+    sc = summ(c["test"], Y)
+    print(f"    §62.9：通道單獨 IC {sc['IC']:+.4f} / ICIR {sc['ICIR']:.4f}；完整模型（P10b，種子平均）"
+          f"IC {np.mean([r['IC'] for r in rp]):+.4f} / ICIR {np.mean([r['ICIR'] for r in rp]):.4f}")
+
+
 def verdict(res: dict, label: str):
     """事前判準：兩折 ICIR 配對 p < 0.05 且同為正；兩折 IC 平均差不低於 −MDE。"""
     if len(res) < 2 or any(v is None for v in res.values()):
@@ -390,11 +468,13 @@ def main() -> None:
             block_d(D)
         if "E" in args.blocks:
             block_e(D, M, K)
-        w = block_f(D, M) if any(b in args.blocks for b in "FG") else None
+        w = block_f(D, M) if any(b in args.blocks for b in "FGI") else None
         if "G" in args.blocks:
             res_g[fold] = block_g(D, M, seeds, K, w)
         if "H" in args.blocks:
             res_h[fold] = block_h(D, M, seeds, K, f["p10b"])
+        if "I" in args.blocks:
+            block_i(D, M, seeds, f["p10b"], w)
     if res_g:
         verdict(res_g, "P10a")
     if res_h:

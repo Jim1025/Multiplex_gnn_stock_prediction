@@ -222,6 +222,7 @@ def train(
     lambda_sparse:     Optional[float] = None,
     t_history:         Optional[int]   = None,
     features:          Optional[list]  = None,
+    tw_lag_w:          Optional[float] = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -439,6 +440,19 @@ def train(
             )
         cfg.setdefault("model", {})["architecture"] = architecture
         _overrides.append(f"architecture={architecture}")
+    if tw_lag_w is not None:
+        # ④ 台股層內線性領先落後通道（P10，proposal §62）。--config 常是舊 run 的
+        # config_snapshot（裡面沒有這一段），所以其餘選項一律從 configs/base.yaml 的
+        # model.tw_lag_channel 合併進來；覆寫在快照之前，快照記得到完整設定。
+        with open("configs/base.yaml", "r") as f:
+            base_tlc = ((yaml.safe_load(f) or {}).get("model") or {}).get("tw_lag_channel")
+        if not base_tlc:
+            raise ValueError("configs/base.yaml 缺少 model.tw_lag_channel")
+        tlc = {**base_tlc, **(cfg["model"].get("tw_lag_channel") or {})}
+        tlc["enabled"] = True
+        tlc["blend_w"] = float(tw_lag_w)
+        cfg["model"]["tw_lag_channel"] = tlc
+        _overrides.append(f"tw_lag_w={tw_lag_w}")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -518,6 +532,25 @@ def train(
     eval_criterion = build_criterion(cfg).to(eval_device)
     print(f"[eval] eval_device={eval_device} (metrics 由此產生，須可重現)")
 
+    # ── ④ 的封閉解（P10，proposal §62）：訓練開始前解一次，之後凍結 ────
+    # 只用 train / val 兩個 split（alpha 在 val 上選，與早停用的是同一段）。
+    # numpy 運算，不消耗 torch / numpy 的隨機數，GNN 的初始化與不開 ④ 時相同。
+    tlc = cfg["model"].get("tw_lag_channel") or {}
+    tw_lag_info = None
+    if tlc.get("enabled", False):
+        from src.dataset.features import TECH_FEATURE_COLS
+        from src.models.tw_lag_channel import collect_lag_xy, fit_closed_form
+        ret_idx = TECH_FEATURE_COLS.index("log_return")
+        x_tr, y_tr = collect_lag_xy(train_ds, ret_idx)
+        x_va, y_va = collect_lag_xy(val_ds, ret_idx)
+        fit = fit_closed_form(x_tr, y_tr, x_va, y_va, tlc)
+        for m in (model, eval_model):
+            m.set_tw_lag_channel(fit["mu"], fit["sd"], fit["C"], fit["b"])
+        tw_lag_info = {"alpha": fit["alpha"], "val_ic": fit["val_ic"],
+                       "blend_w": float(tlc["blend_w"])}
+        print(f"[tw-lag] ④ 封閉解：alpha={fit['alpha']:.4g} | 通道 val IC={fit['val_ic']:+.4f} | "
+              f"w={tlc['blend_w']}")
+
     def _eval_ready() -> torch.nn.Module:
         """把訓練中的權重同步到 eval_model，回傳可直接評估的模型。"""
         eval_model.load_state_dict(model.state_dict())
@@ -586,6 +619,8 @@ def train(
         params_flat["tag"] = tag
         # mlflow 限制 value 長度，整批 log
         mlflow.log_params({k: str(v) for k, v in params_flat.items()})
+        if tw_lag_info is not None:
+            mlflow.log_params({f"tw_lag.fit.{k}": str(v) for k, v in tw_lag_info.items()})
 
         # ── 訓練迴圈 ───────────────────────────────────────────────
         best_monitor  = -float("inf")   # monitor 值（依 es_metric 為 IC 或 ICIR；smooth_w>1 時為其移動平均）
@@ -803,6 +838,8 @@ def train(
                 "RMSE":   float(test_stats["RMSE"]),
             },
         }
+        if tw_lag_info is not None:
+            meta["tw_lag_channel"] = tw_lag_info
         with open(run_dir / "meta.json", "w") as f:
             json.dump(meta, f, indent=2)
 
@@ -952,6 +989,9 @@ def _parse_args() -> argparse.Namespace:
                         "每檔台股一條讀出向量；缺口見 proposal §34.2 缺陷 2。")
     p.add_argument("--save-every-epoch", action="store_true",
                    help="逐 epoch 存 checkpoint（M8 Figure 1 軌跡分析用）")
+    p.add_argument("--tw-lag-w", type=float, default=None,
+                   help="開啟 ④ 台股層內線性領先落後通道（P10，proposal §62）並設定其權重 w；"
+                        "其餘選項從 configs/base.yaml 的 model.tw_lag_channel 讀")
     return p.parse_args()
 
 
@@ -994,6 +1034,7 @@ if __name__ == "__main__":
         lambda_sparse=args.lambda_sparse,
         t_history=args.t_history,
         features=args.features,
+        tw_lag_w=args.tw_lag_w,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")
