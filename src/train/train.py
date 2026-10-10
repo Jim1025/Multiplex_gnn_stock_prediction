@@ -223,6 +223,7 @@ def train(
     t_history:         Optional[int]   = None,
     features:          Optional[list]  = None,
     tw_lag_w:          Optional[float] = None,
+    tw_lag_inputs:     Optional[str] = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -451,8 +452,14 @@ def train(
         tlc = {**base_tlc, **(cfg["model"].get("tw_lag_channel") or {})}
         tlc["enabled"] = True
         tlc["blend_w"] = float(tw_lag_w)
+        if tw_lag_inputs is not None:
+            # P12 的寬路徑（proposal §63）：l1_l2 = 美股 30 + 台股 50 的昨日報酬
+            tlc["inputs"] = tw_lag_inputs
+            _overrides.append(f"tw_lag_inputs={tw_lag_inputs}")
         cfg["model"]["tw_lag_channel"] = tlc
         _overrides.append(f"tw_lag_w={tw_lag_w}")
+    elif tw_lag_inputs is not None:
+        raise ValueError("--tw-lag-inputs 必須與 --tw-lag-w 一起用（通道要有權重才會開啟）")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -541,15 +548,16 @@ def train(
         from src.dataset.features import TECH_FEATURE_COLS
         from src.models.tw_lag_channel import collect_lag_xy, fit_closed_form
         ret_idx = TECH_FEATURE_COLS.index("log_return")
-        x_tr, y_tr = collect_lag_xy(train_ds, ret_idx)
-        x_va, y_va = collect_lag_xy(val_ds, ret_idx)
+        inputs = str(tlc.get("inputs", "l2"))       # 缺鍵視為 l2，理由見 MAGNET.__init__
+        x_tr, y_tr = collect_lag_xy(train_ds, ret_idx, inputs)
+        x_va, y_va = collect_lag_xy(val_ds, ret_idx, inputs)
         fit = fit_closed_form(x_tr, y_tr, x_va, y_va, tlc)
         for m in (model, eval_model):
             m.set_tw_lag_channel(fit["mu"], fit["sd"], fit["C"], fit["b"])
         tw_lag_info = {"alpha": fit["alpha"], "val_ic": fit["val_ic"],
-                       "blend_w": float(tlc["blend_w"])}
-        print(f"[tw-lag] ④ 封閉解：alpha={fit['alpha']:.4g} | 通道 val IC={fit['val_ic']:+.4f} | "
-              f"w={tlc['blend_w']}")
+                       "blend_w": float(tlc["blend_w"]), "inputs": inputs}
+        print(f"[tw-lag] 線性通道封閉解（inputs={inputs}）：alpha={fit['alpha']:.4g} | "
+              f"通道 val IC={fit['val_ic']:+.4f} | w={tlc['blend_w']}")
 
     def _eval_ready() -> torch.nn.Module:
         """把訓練中的權重同步到 eval_model，回傳可直接評估的模型。"""
@@ -992,6 +1000,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--tw-lag-w", type=float, default=None,
                    help="開啟 ④ 台股層內線性領先落後通道（P10，proposal §62）並設定其權重 w；"
                         "其餘選項從 configs/base.yaml 的 model.tw_lag_channel 讀")
+    p.add_argument("--tw-lag-inputs", choices=["l2", "l1_l2"], default=None,
+                   help="通道的輸入：l2（④，台股 50 檔）| l1_l2（P12 的寬路徑，美股 30 + 台股 50，"
+                        "proposal §63）。需與 --tw-lag-w 一起用")
     return p.parse_args()
 
 
@@ -1035,6 +1046,7 @@ if __name__ == "__main__":
         t_history=args.t_history,
         features=args.features,
         tw_lag_w=args.tw_lag_w,
+        tw_lag_inputs=args.tw_lag_inputs,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

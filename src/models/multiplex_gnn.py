@@ -498,21 +498,28 @@ class MAGNET(nn.Module):
         # 所以註冊成持久 buffer：checkpoint 與 eval_model 的 load_state_dict 都會帶著走。
         # 放在 __init__ 最後的理由同上段；buffer 是 zeros / ones，不消耗 RNG。
         # 未啟用時完全不建立，既有 run 逐位元不變。
+        # inputs = l1_l2 是 P12 的寬路徑（proposal §63）：同一個式子，輸入改成美股 30 + 台股 50
+        # 的昨日報酬（與 KTW+ 的設計矩陣相同），C 為 [n1 + n2, n2]。設定裡沒有 inputs 視為 l2——
+        # P10b 的快照早於這個鍵，④ 原本就只吃台股層。
         tlc = m_cfg.get("tw_lag_channel") or {}
         self.tw_lag_enabled = bool(tlc.get("enabled", False))
         if self.tw_lag_enabled:
             if "blend_w" not in tlc:
                 raise ValueError("model.tw_lag_channel.blend_w 未設定（見 configs/base.yaml）")
             self.tw_lag_w = float(tlc["blend_w"])
+            self.tw_lag_inputs = str(tlc.get("inputs", "l2"))
+            if self.tw_lag_inputs not in ("l2", "l1_l2"):
+                raise ValueError(f"model.tw_lag_channel.inputs 需為 l2 或 l1_l2，得到 {self.tw_lag_inputs!r}")
             from src.dataset.features import TECH_FEATURE_COLS
             self.tw_lag_ret_idx = TECH_FEATURE_COLS.index("log_return")
-            self.register_buffer("tw_lag_mu", torch.zeros(self.n_l2))
-            self.register_buffer("tw_lag_sd", torch.ones(self.n_l2))
-            self.register_buffer("tw_lag_C", torch.zeros(self.n_l2, self.n_l2))
+            n_in = self.n_l2 + (self.n_l1 if self.tw_lag_inputs == "l1_l2" else 0)
+            self.register_buffer("tw_lag_mu", torch.zeros(n_in))
+            self.register_buffer("tw_lag_sd", torch.ones(n_in))
+            self.register_buffer("tw_lag_C", torch.zeros(n_in, self.n_l2))
             self.register_buffer("tw_lag_b", torch.zeros(self.n_l2))
 
     def set_tw_lag_channel(self, mu, sd, C, b) -> None:
-        """寫入 ④ 的封閉解。訓練開始前呼叫一次，之後不再更動（凍結）。"""
+        """寫入通道（④ 或 P12 的寬路徑）的封閉解。訓練開始前呼叫一次，之後不再更動（凍結）。"""
         if not self.tw_lag_enabled:
             raise RuntimeError("model.tw_lag_channel 未啟用，不能寫入 ④ 的係數")
         with torch.no_grad():
@@ -612,11 +619,13 @@ class MAGNET(nn.Module):
         # Corresponds to IMPLEMENTATION_SPEC §5.1
         y_hat = self.head(h_fused)  # [B, n2]
 
-        # ④ 台股層內的線性領先落後通道（P10）。梯度只經過 ŷ^GNN：sd_t 取 detach、
-        # ĉ 由凍結的 buffer 算出，所以 GNN 是在 ④ 已存在的情況下學殘差。
+        # ④ 台股層內的線性領先落後通道（P10）／P12 的寬路徑。梯度只經過 ŷ^GNN：sd_t 取 detach、
+        # ĉ 由凍結的 buffer 算出，所以 GNN 是在通道已存在的情況下學殘差。
         # 兩者都用母體標準差，IC(ŷ) 與 z(ŷ^GNN) + w·z(ĉ) 逐日等價（proposal §62.7）。
         if self.tw_lag_enabled:
             x_lag = x_L2[:, -1, :, self.tw_lag_ret_idx]                       # [B, n2]
+            if self.tw_lag_inputs == "l1_l2":                                 # [B, n1 + n2]
+                x_lag = torch.cat([x_L1[:, -1, :, self.tw_lag_ret_idx], x_lag], dim=1)
             c = ((x_lag - self.tw_lag_mu) / self.tw_lag_sd) @ self.tw_lag_C + self.tw_lag_b
             c_dm = c - c.mean(dim=1, keepdim=True)
             c_sd = c_dm.pow(2).mean(dim=1, keepdim=True).sqrt()

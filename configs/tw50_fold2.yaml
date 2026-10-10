@@ -112,6 +112,8 @@ model:
                           # （src/models/tw_lag_channel.py）。預設 false，既有 run 逐位元不變；
                           # 以 train.py 的 --tw-lag-w 開啟，其餘選項從這裡讀。
     enabled: false
+    inputs: l2            # l2（④，台股 50 檔昨日報酬）| l1_l2（P12 的寬路徑，美股 30 + 台股 50，
+                          # proposal §63；以 --tw-lag-inputs 切換）
     target: zscore        # C 的擬合目標：逐日橫截面 z-score 的 y（§60.2a(h) 的 P8-pre）
     intercept: false      # 不帶逐檔截距：④ 只承載領先落後動態（靜態傾斜無樣本外價值，§55.7(g)）
     diagonal: true        # 含自身昨日報酬（KTW+ 原本的台股區塊）

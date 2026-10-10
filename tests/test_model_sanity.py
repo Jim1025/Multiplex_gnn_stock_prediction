@@ -1302,3 +1302,68 @@ def test_tw_lag_channel_formula(config: dict, small_batch: dict) -> None:
     for t in range(len(yg)):
         r = np.corrcoef(y_on[t].double().numpy(), zg[t] + w * cz[t])[0, 1]
         assert r > 1 - 1e-6, f"第 {t} 天的組合與 z(ŷ^GNN) + w·z(ĉ) 不等價（corr {r}）"
+
+
+# ---------------------------------------------------------------------------
+# P12 的寬路徑：同一個通道，輸入改成美股 30 + 台股 50（proposal §63）
+# ---------------------------------------------------------------------------
+
+def _magnet_wide(config: dict, enabled: bool, w: float = 0.7) -> MAGNET:
+    cfg = copy.deepcopy(config)
+    cfg["model"]["tw_lag_channel"] = {**cfg["model"]["tw_lag_channel"],
+                                      "enabled": enabled, "blend_w": w, "inputs": "l1_l2"}
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return MAGNET(cfg)
+
+
+def test_wide_channel_zero_coef_matches_baseline(config: dict, small_batch: dict) -> None:
+    """l1_l2 啟用但係數為 0：輸出等於基準，參數逐位元相同（P12b 與主 arm 的同種子配對）。"""
+    m_on = _magnet_wide(config, enabled=True).eval()
+    m_off = _magnet_tw_lag(config, enabled=False).eval()
+    assert m_on.tw_lag_C.shape == (m_on.n_l1 + m_on.n_l2, m_on.n_l2)
+    p_on, p_off = dict(m_on.named_parameters()), dict(m_off.named_parameters())
+    assert p_on.keys() == p_off.keys()
+    assert all(torch.equal(p_on[k], p_off[k]) for k in p_on)
+    with torch.no_grad():
+        assert torch.equal(m_on(small_batch)[0], m_off(small_batch)[0])
+
+
+def test_wide_channel_formula(config: dict, small_batch: dict) -> None:
+    """寫入 [n1 + n2, n2] 的係數後，ĉ 的輸入是 [美股昨日報酬, 台股昨日報酬]（美股在前）。"""
+    w = 0.7
+    m_on = _magnet_wide(config, enabled=True, w=w).eval()
+    m_off = _magnet_tw_lag(config, enabled=False).eval()
+    n1, n2 = m_on.n_l1, m_on.n_l2
+    g = np.random.default_rng(1)
+    mu = g.normal(0.0, 0.01, n1 + n2)
+    sd = np.abs(g.normal(0.02, 0.005, n1 + n2)) + 1e-3
+    C, b = g.normal(0.0, 0.1, (n1 + n2, n2)), np.zeros(n2)
+    m_on.set_tw_lag_channel(mu, sd, C, b)
+    with torch.no_grad():
+        y_on, _ = m_on(small_batch)
+        y_gnn, _ = m_off(small_batch)
+    i = m_on.tw_lag_ret_idx
+    x = np.concatenate([small_batch["x_seq_L1"][:, -1, :, i].double().numpy(),
+                        small_batch["x_seq_L2"][:, -1, :, i].double().numpy()], axis=1)
+    c = ((x - mu) / sd) @ C + b
+    cz = (c - c.mean(1, keepdims=True)) / c.std(1, keepdims=True)
+    yg = y_gnn.double().numpy()
+    np.testing.assert_allclose(y_on.double().numpy(), yg + w * yg.std(1, keepdims=True) * cz,
+                               rtol=1e-4, atol=1e-6)
+
+
+def test_fit_closed_form_rectangular() -> None:
+    """80 個輸入 -> 50 個目標：C 為 [80, 50]；不含對角時拿掉的是台股自身那一欄（第 30 + j 欄）。"""
+    from src.models.tw_lag_channel import fit_closed_form
+    g = np.random.default_rng(2)
+    n1, n2, T = 30, 50, 200
+    x_tr, x_va = g.normal(size=(T, n1 + n2)), g.normal(size=(60, n1 + n2))
+    y_tr, y_va = g.normal(size=(T, n2)), g.normal(size=(60, n2))
+    cfg = {"target": "zscore", "intercept": False, "diagonal": True, "ridge_log10_alpha": [-2, 9, 23]}
+    fit = fit_closed_form(x_tr, y_tr, x_va, y_va, cfg)
+    assert fit["C"].shape == (n1 + n2, n2) and fit["mu"].shape == (n1 + n2,) and fit["b"].shape == (n2,)
+    fit_nd = fit_closed_form(x_tr, y_tr, x_va, y_va, {**cfg, "diagonal": False})
+    own = fit_nd["C"][n1 + np.arange(n2), np.arange(n2)]
+    assert np.all(own == 0.0)
+    assert np.count_nonzero(fit_nd["C"][:n1]) == n1 * n2       # 美股區塊不受影響
