@@ -103,6 +103,13 @@ NONNEURAL = [
     ("R2（30 檔美股報酬）",    "*_fvg_R2",                            "線性", "per-target ridge"),
     ("RC 常數對照",           "*_ridge_RC",                          "空模型", "0 特徵"),
 ]
+# 種子集成列（2026-10-11 加）：主結果 arm 的全部種子先逐 (日, 檔) 平均 y_hat、再算所有欄位，
+# 與 §43 (A) 的「先平均預測再算 IC」是同一個數字。n 記平均了幾顆種子，但只有一條序列，
+# 所以沒有 ± sd、跨種子欄為「—」；逐日 p 是它對統計基準（同一個 arm 逐 seed 平均）的
+# 配對檢定，也就是集成增益本身的顯著性。統計基準仍是逐 seed 平均那一列（BEST）。
+ENSEMBLE = [
+    ("MAGNET 本版（10 顆集成）", BEST, "本專案", "同上 10 顆先平均預測再算 IC，§43 (A)"),
+]
 
 
 # 預測檔來源。reeval = CPU 重評版（scripts/reeval_checkpoints.py 產生），
@@ -273,13 +280,23 @@ def cal_mean_sd(cals):
              for k, v in A.items()})
 
 
-def daily_series(run_dir: str):
+def _pred_file(run_dir: str) -> str | None:
+    """該 run 的 test 預測檔：預設走 CPU 重評版，沒有時回退到 run 當下寫的 CSV。"""
     f = os.path.join(run_dir, "predictions", "test_predictions_reeval.csv")
     if PREDICTIONS != "reeval" or not os.path.exists(f):
         f = os.path.join(run_dir, "predictions", "test_predictions.csv")
-    if not os.path.exists(f):
+    return f if os.path.exists(f) else None
+
+
+def daily_series(run_dir: str):
+    f = _pred_file(run_dir)
+    if f is None:
         return None
-    df = pd.read_csv(f)
+    return _frame_series(pd.read_csv(f))
+
+
+def _frame_series(df: pd.DataFrame):
+    """預測表（target_date, ticker, y_hat, y）-> (日期, 逐日 IC, 逐日 RankIC, 逐日 Top-K 報酬, 校準)。"""
     H = df.pivot(index="target_date", columns="ticker", values="y_hat").sort_index()
     Y = df.pivot(index="target_date", columns="ticker", values="y").sort_index()
     Hn, Yn = H.to_numpy(), Y.to_numpy()
@@ -412,6 +429,25 @@ def nonneural_stats(pat: str):
                 dates=dates, seeds=None)
 
 
+def ensemble_stats(arm: str):
+    """種子集成（見 ENSEMBLE）：全部種子的 y_hat 逐 (日, 檔) 平均成一條序列，
+    之後與 nonneural_stats 同算法。n 為種子數；seeds=None，所以跨種子欄印「—」。"""
+    frames = [pd.read_csv(f) for f in (_pred_file(d) for _, d in
+                                       sorted(find_seeds(arm).items(), key=lambda kv: int(kv[0])))
+              if f is not None]
+    if not frames:
+        return None
+    df = (pd.concat(frames).groupby(["target_date", "ticker"])
+          .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
+    dates, ic, ric, rk, cal = _frame_series(df)
+    return dict(n=len(frames), cal=cal, cal_sd=None, ic=float(np.nanmean(ic)), ic_sd=np.nan,
+                ric=float(np.nanmean(ric)), ric_sd=np.nan,
+                icir=icir(ic), icir_sd=np.nan,
+                ricir=icir(ric), ricir_sd=np.nan,
+                daily_ic=ic, daily_ric=ric, pf=portfolio_stats([rk]),
+                dates=dates, seeds=None)
+
+
 def paired_daily(base: dict, other: dict, key: str):
     """回傳 (差, HAC p)。差為正代表 base 較優。"""
     a, b = base["daily_" + key], other["daily_" + key]
@@ -470,10 +506,13 @@ def _fold2_rows():
     CUT = "2024-12-25"
 
     def _load(pat):
+        return _load_frames([pd.read_csv(f) for f in sorted(_g.glob(pat, recursive=True))])
+
+    def _load_frames(frames):
+        """每個 frame 是一個 run 的預測表；集成列傳進來的是已平均好的單一表。"""
         ds = []
         cals = []
-        for f in sorted(_g.glob(pat, recursive=True)):
-            df = pd.read_csv(f)
+        for df in frames:
             o = {}
             hh, yy = [], []          # 校準診斷用：只收進入評估窗的那些天
             for d, g in df.groupby("target_date"):
@@ -525,7 +564,18 @@ def _fold2_rows():
     if b is None:
         return None
     kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF, BESTRIR, BESTRIRS, BESTCAL, BESTCALSD = b
-    rows = [("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None)]
+    # 種子集成列（見 ENSEMBLE）：f2_best 的全部種子先逐 (日, 檔) 平均 y_hat，當成一條序列。
+    # n 印種子數；只有一條序列，sd 為 NaN（pm 只印值）。逐日 p 是集成增益本身的檢定。
+    # IC 高於逐 seed 平均，所以放在第一列，維持依 IC 排序。
+    ens_files = sorted(_g.glob(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"),
+                              recursive=True))
+    ens = None
+    if ens_files:
+        edf = (pd.concat([pd.read_csv(f) for f in ens_files]).groupby(["target_date", "ticker"])
+               .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
+        ens = _load_frames([edf])
+    rows = [(ENSEMBLE[0][0], ens, len(ens_files)),
+            ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
     for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
                      ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
@@ -533,9 +583,9 @@ def _fold2_rows():
                      ("TW+（美股+台股 80 維）", "runs_f2/*fvg_TWp/predictions/*.csv"),
                      ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
                      ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
-        rows.append((lab, _load(str(ROOT / pat))))
+        rows.append((lab, _load(str(ROOT / pat)), None))
     sig, pf_rows, cal_rows = [], [], []   # 訊號層 / 組合讀法 / 校準診斷
-    for lab, r in rows:
+    for lab, r, n_seed in rows:
         if r is None and lab.startswith("**"):
             sig.append(
                 f"| {lab} | {BESTP.shape[0]} "
@@ -550,6 +600,7 @@ def _fold2_rows():
         if r is None:
             continue
         kk, V, IR, P, IRS, PF, RIR, RIRS, CM, CS = r
+        n_col = n_seed if n_seed else P.shape[0]
         ii = [kk.index(d) for d in kk if d in kb]
         jj = [kb.index(d) for d in kk if d in kb]
         cells = []
@@ -559,14 +610,14 @@ def _fold2_rows():
         # IC / RankIC 的 sd 與其點估計取同一組日子（ii）。ICIR 的點估計 IR 是在
         # 完整 kk 上算的，其 sd 因此也用完整 kk，兩者口徑一致。
         sig.append(
-            f"| {lab} | {P.shape[0]} "
+            f"| {lab} | {n_col} "
             f"| {pm(V[0][ii].mean(), _sd(P[:, 0][:, ii].mean(axis=1)))} "
             f"| {pm(V[1][ii].mean(), _sd(P[:, 1][:, ii].mean(axis=1)))} "
             f"| {pm(IR, _sd(IRS), signed=False)} "
             f"| {pm(RIR, _sd(RIRS), signed=False)} "
             f"| {cells[1]} | {cells[3]} |")
-        pf_rows.append(f"| {lab} | {P.shape[0]} " + pf_cells(PF) + "|")
-        cal_rows.append(f"| {lab} | {P.shape[0]} " + cal_cells(CM, CS) + "|")
+        pf_rows.append(f"| {lab} | {n_col} " + pf_cells(PF) + "|")
+        cal_rows.append(f"| {lab} | {n_col} " + cal_cells(CM, CS) + "|")
     return sig, pf_rows, cal_rows
 
 
@@ -777,6 +828,11 @@ def main() -> None:
         if st is None:
             print(f"[skip] {label}（找不到 {pat}）"); continue
         rows.append((label, cat, note, st, pat))
+    for label, arm, cat, note in ENSEMBLE:
+        st = ensemble_stats(arm)
+        if st is None:
+            print(f"[skip] {label}（找不到 {arm}）"); continue
+        rows.append((label, cat, note, st, "ens:" + arm))   # 鍵與 BEST 不同，不會被當成基準
 
     base = next(st for _, _, _, st, arm in rows if arm == BEST)
     out = []
@@ -839,23 +895,34 @@ def main() -> None:
     _anchor = (f"`Var(y) = {_bc['var_y']:.3e}`（在本欄的單位下是 "
                f"**{_bc['var_y'] * 1e3:.3f}**），`std(y) = {_bc['sd_y'] * 100:.3f}%`"
                if _bc else "（基準列缺預測檔，錨值無法計算）")
+    # 下面三段文字裡的列數、Spearman、「幾列在錨之上」、KTW+ 的 IC 名次原本是寫死的
+    # （34 列 / +0.90 / 30 列 / 第二高）；2026-10-11 加了集成列之後改成計算值。
+    # 計算值在加列之前逐字重現原本的四個數字。「在錨之上」以表上顯示的三位小數比較——
+    # RC 的 MSE 與 Var(y) 在這個精度相同，算「恰好落在」，不計入。
+    _cals = [st["cal"] for _, _, _, st, _ in ordered if st.get("cal")]
+    _rho = (stats.spearmanr([c["mse"] for c in _cals], [c["disp"] for c in _cals]).statistic
+            if len(_cals) > 2 else float("nan"))
+    _above = (sum(round(c["mse"] * 1e3, 3) > round(_bc["var_y"] * 1e3, 3) for c in _cals)
+              if _bc else 0)
+    _k = next((i for i, r in enumerate(ordered, 1) if r[0].startswith("KTW+")), 0)
+    _krank = "零一二三四五六七八九十"[_k] if 0 < _k <= 10 else f" {_k} "
     out.append("**這一組不是準度，讀法和上面兩張表相反。** §60.1 宣告 `y_hat` 是"
                "**基數分數、尺度未校正**，所以 MSE / RMSE 量到的主要是**尺度誤差**，"
                "不是排序品質。列序仍照 IC 排，於是本表最重要的一件事直接看得到："
                "**MSE 由小到大幾乎就是離散比由小到大**"
-               "（34 列的 Spearman = **+0.90**），**與 IC 無關**。")
+               f"（{len(_cals)} 列的 Spearman = **{_rho:+.2f}**），**與 IC 無關**。")
     out.append("")
     out.append(f"錨：{_anchor}。`R² = 1 − MSE / Var(y)`，所以 **`MSE (1e-3)` 超過"
                "那個值就代表 level R² 是負的**。關鍵是誰沒超過：`RC 常數對照` "
                "（離散比 0.026）**恰好落在 0.405**——一個永遠猜均值的模型正是 "
                "`MSE = Var(y)` 的定義。少數低於它的列（`[24]` 0.297、"
                "`R2 ridge` 0.373）靠的是**比常數還往均值縮**，不是靠預測得準——"
-               "34 列裡有 30 列在 0.405 之上。"
+               f"{len(_cals)} 列裡有 {_above} 列在 0.405 之上。"
                "`src/train/metrics.py:regression_metrics` 的 docstring 早就記了"
                "這件事：**MSE 獎勵塌縮**。")
     out.append("")
     out.append("另一頭同樣說明問題：`KTW+` 的 MSE 是 **37.181**（Var(y) 的 92 倍）、"
-               "離散比 **11.49**。它是本表 IC 第二高的方法。**沒有任何一個方法的 "
+               f"離散比 **11.49**。它是本表 IC 第{_krank}高的方法。**沒有任何一個方法的 "
                "`y_hat` 是校準過的**，所以 MSE 在這張表上不是一個可以排名次的軸。")
     out.append("")
     out.append("後兩欄把負 R² 拆開：`離散比` 說 `y_hat` 的橫截面比 `y` 寬幾倍"
@@ -1201,6 +1268,12 @@ def main() -> None:
                "（變異數分解獨立給出 17.7%）。理論 IC(S) = IC(1)·sqrt(S·SNR/(1+S·SNR))，"
                "SNR=4.54，預測 S=1->10 增益 +0.0101，實測 +0.0088。"
                "**論文兩個都要報。**")
+    out.append("- **主表的「MAGNET 本版（10 顆集成）」列**（2026-10-11 加）就是 §43 (A) 的"
+               "「先平均預測再算 IC」：10 顆種子的 `y_hat` 逐 (日, 檔) 平均成一條序列，"
+               "再照其他列的算法算每一欄。`n` 記平均了幾顆種子，但只有一條序列，"
+               "所以沒有 `± sd`、跨種子欄為「—」；`逐日 p` 是它對統計基準"
+               "（同一個 arm 的逐 seed 平均）的配對檢定，也就是**集成增益本身**的顯著性。"
+               "統計基準不變，仍是逐 seed 平均那一列。它與其他列不是對等的算力比較（見下兩條）。")
     out.append("- **集成不是挑最好的種子。** 事後每天挑最佳種子可得 RankIC +0.2161，"
                "那是 cherry-picking、不可實現；集成用的是全部 10 顆、事先固定的規則，"
                "得到 +0.1202。另：邊際報酬在 **k=5 就飽和**"
