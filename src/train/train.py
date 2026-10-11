@@ -195,6 +195,7 @@ def train(
     rank_normalize_detach: Optional[bool] = None,
     variance_weight:   Optional[float] = None,
     mse_target:        Optional[str]   = None,
+    ic_weight:         Optional[float] = None,
     lr_override:       Optional[float] = None,
     early_stop_metric: Optional[str]   = None,
     use_scheduler:     bool            = True,
@@ -244,6 +245,7 @@ def train(
                            IC / RankIC 對齊。
         variance_weight:   若提供，覆寫 cfg.loss_weights.variance
         mse_target:        若提供，覆寫 cfg.loss_weights.mse_target
+        ic_weight:         若提供，覆寫 cfg.loss_weights.ic（ℒ_ic 的權重，proposal §64 區塊 L）
                            （raw|zscore|rank，見 base.yaml 的說明）
         lr_override:       若提供，覆寫 cfg.training.lr
         early_stop_metric: 若提供（"IC"|"ICIR"），覆寫 cfg.training.early_stop_metric
@@ -300,6 +302,9 @@ def train(
     if mse_target is not None:
         cfg["loss_weights"]["mse_target"] = str(mse_target)
         _overrides.append(f"mse_target={mse_target}")
+    if ic_weight is not None:
+        cfg["loss_weights"]["ic"] = float(ic_weight)
+        _overrides.append(f"ic={ic_weight}")
     if lr_override is not None:
         cfg["training"]["lr"] = float(lr_override)
         _overrides.append(f"lr={lr_override}")
@@ -901,6 +906,9 @@ def _parse_args() -> argparse.Namespace:
                         "ℒ_var 的目標先做逐日橫截面正規化（proposal §52.3 P8）")
     p.add_argument("--variance-weight", type=float, default=None,
                    help="覆寫 cfg.loss_weights.variance")
+    p.add_argument("--ic-weight", type=float, default=None,
+                   help="覆寫 cfg.loss_weights.ic：ℒ_ic = 1 − 逐日橫截面 Pearson 相關的權重"
+                        "（預設 0，不計算；proposal §64 區塊 L）")
     p.add_argument("--lr",              type=float, default=None,
                    help="覆寫 cfg.training.lr")
     p.add_argument("--early-stop-metric", choices=["IC", "ICIR"], default=None,
@@ -1018,6 +1026,7 @@ if __name__ == "__main__":
         rank_normalize_detach=args.rank_normalize_detach,
         variance_weight=args.variance_weight,
         mse_target=args.mse_target,
+        ic_weight=args.ic_weight,
         lr_override=args.lr,
         early_stop_metric=args.early_stop_metric,
         use_scheduler=not args.no_scheduler,

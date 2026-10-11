@@ -184,6 +184,19 @@ class CombinedLoss(nn.Module):
             raise ValueError(
                 f"loss_weights.mse_target 必須是 raw/zscore/rank，得到 {self.mse_target!r}")
 
+        # ℒ_ic：1 − 逐日橫截面 Pearson 相關的平均（proposal §64，區塊 L）。
+        #
+        # 動機：評估指標就是逐日 Pearson IC；ℒ_rank 在原始 ŷ 上處於 softplus 的線性區
+        # （見上面 rank_normalize 的說明），ℒ_MSE 則讓離散度大的日子主導。ℒ_ic 等價於
+        # z(ŷ) 與 z(y) 的 MSE 的一半，每天權重相同、對 ŷ 的尺度不變。
+        #
+        # 與 rank_normalize 的塌縮（§44）不同：相關係數對 ŷ 的尺度完全不變，
+        # 把 ŷ 的 std 縮小不會降低損失，所以沒有往塌縮走的誘因；std 掉到 eps 以下時
+        # 相關記為 0（損失 1），比任何正相關都差。
+        #
+        # 預設 0.0：不計算、不加總，既有 run 逐位元不變。
+        self.lambda_ic = float(loss_cfg.get("ic", 0.0))
+
     # ------------------------------------------------------------------
     # ℒ_rank : RankNet pairwise loss
     # ------------------------------------------------------------------
@@ -322,6 +335,38 @@ class CombinedLoss(nn.Module):
         return ((std_yh - std_y) ** 2).mean()
 
     # ------------------------------------------------------------------
+    # ℒ_ic : 1 − 逐日橫截面 Pearson 相關（proposal §64，區塊 L）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ic_loss(y_hat: Tensor, y: Tensor, eps: float = 1e-12) -> Tensor:
+        """
+        ℒ_ic = 1 − E_b[ corr_n(ŷ_b, y_b) ]，corr 為跨 n 檔的 Pearson 相關，
+        只對有效的日子平均。
+
+        有效 = ŷ 與 y 的橫截面變異都大於 eps。資料裡有 y 全為 0 的日子（補值日，
+        見 memory 的 TW filled dates），那幾天的相關無定義、不參與平均。
+        sqrt 只吃有效日的值（其餘換成 1），否則 sqrt 在 0 的梯度是 inf，
+        即使被 torch.where 遮掉也會以 inf x 0 = NaN 汙染整個 batch。
+
+        Shapes:
+            y_hat, y : [n] 或 [B, n]
+
+        Returns:
+            scalar loss（沒有有效日時為 1）
+        """
+        if y_hat.dim() == 1:
+            y_hat = y_hat.unsqueeze(0)
+            y     = y.unsqueeze(0)
+        a = y_hat - y_hat.mean(dim=-1, keepdim=True)
+        b = y - y.mean(dim=-1, keepdim=True)
+        num = (a * b).sum(dim=-1)
+        saa, sbb = (a * a).sum(dim=-1), (b * b).sum(dim=-1)
+        valid = (saa > eps) & (sbb > eps)
+        den = torch.sqrt(torch.where(valid, saa * sbb, torch.ones_like(saa)))
+        corr = torch.where(valid, num / den, torch.zeros_like(num))
+        return 1.0 - corr.sum() / valid.sum().clamp(min=1)
+
+    # ------------------------------------------------------------------
     # forward
     # ------------------------------------------------------------------
     def forward(
@@ -358,9 +403,16 @@ class CombinedLoss(nn.Module):
             + self.lambda_align    * l_align
             + self.lambda_variance * l_var
         )
+        # ℒ_ic 只在權重非零時計算與加總（預設 0，既有 run 逐位元不變）
+        l_ic = 0.0
+        if self.lambda_ic != 0.0:
+            l_ic_t = self._ic_loss(y_hat, y)
+            total = total + self.lambda_ic * l_ic_t
+            l_ic = l_ic_t.item()
         return total, {
             "mse":      l_mse.item(),
             "rank":     l_rank.item(),
             "align":    l_align.item(),
             "variance": l_var.item(),
+            "ic":       l_ic,
         }

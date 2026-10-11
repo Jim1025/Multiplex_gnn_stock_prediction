@@ -107,6 +107,7 @@ loss_weights:
   rank: 0.5             # M4.5 Phase 1: 0.1 → 0.5（強迫學排序）
   align: 0.0            # M4.5 Phase 1: 0.1 → 0.0（關掉反向學的 align loss）
   variance: 0.1         # M4.5 Phase 2: 新增，對抗 prediction collapse（std(ŷ)→std(y)）
+  ic: 0.0               # ℒ_ic 的權重（proposal §64 區塊 L）；0 = 不計算，說明見 base.yaml
 
 align_loss:
   enabled: false        # 不對稱 universe 下必須維持 false：align loss 的正樣本

@@ -1367,3 +1367,39 @@ def test_fit_closed_form_rectangular() -> None:
     own = fit_nd["C"][n1 + np.arange(n2), np.arange(n2)]
     assert np.all(own == 0.0)
     assert np.count_nonzero(fit_nd["C"][:n1]) == n1 * n2       # 美股區塊不受影響
+
+
+def test_ic_loss_off_is_bit_identical() -> None:
+    """loss_weights.ic 預設 0：總損失與不設這個鍵時逐位元相同（proposal §64 區塊 L）。"""
+    from src.models.prediction_head import CombinedLoss
+    g = torch.Generator().manual_seed(0)
+    y_hat, y = torch.randn(4, 50, generator=g) * 0.01, torch.randn(4, 50, generator=g) * 0.02
+    base = {"mse": 1.0, "rank": 1.0, "align": 0.0, "variance": 0.1}
+    a, _ = CombinedLoss(base, {"enabled": False})(y_hat, y)
+    b, comps = CombinedLoss({**base, "ic": 0.0}, {"enabled": False})(y_hat, y)
+    assert torch.equal(a, b) and comps["ic"] == 0.0
+
+
+def test_ic_loss_formula_and_scale_invariance() -> None:
+    """ℒ_ic = 1 − 逐日 Pearson 相關的平均；對 ŷ 的正向仿射變換不變；常數 ŷ 記為相關 0。"""
+    from src.models.prediction_head import CombinedLoss
+    g = np.random.default_rng(3)
+    y_hat, y = g.normal(size=(5, 50)), g.normal(size=(5, 50))
+    want = 1.0 - np.mean([np.corrcoef(a, b)[0, 1] for a, b in zip(y_hat, y)])
+    f = CombinedLoss._ic_loss
+    got = f(torch.tensor(y_hat), torch.tensor(y)).item()
+    assert abs(got - want) < 1e-10
+    assert abs(f(torch.tensor(3.0 * y_hat + 7.0), torch.tensor(y)).item() - want) < 1e-10
+    const = torch.ones(1, 50, dtype=torch.float64)
+    assert f(const, torch.tensor(y[:1])).item() == 1.0
+    # y 全為 0 的日子（補值日）不參與平均，且梯度不可為 NaN
+    yh = torch.tensor(y_hat, requires_grad=True)
+    yy = torch.tensor(y).clone(); yy[2] = 0.0
+    loss = f(yh, yy)
+    loss.backward()
+    keep = [0, 1, 3, 4]
+    want4 = 1.0 - np.mean([np.corrcoef(y_hat[i], y[i])[0, 1] for i in keep])
+    assert abs(loss.item() - want4) < 1e-10 and torch.isfinite(yh.grad).all() and (yh.grad[2] == 0).all()
+    crit = CombinedLoss({"mse": 0.0, "rank": 0.0, "align": 0.0, "variance": 0.0, "ic": 2.0}, {"enabled": False})
+    tot, comps = crit(torch.tensor(y_hat), torch.tensor(y))
+    assert abs(tot.item() - 2.0 * want) < 1e-10 and abs(comps["ic"] - want) < 1e-10

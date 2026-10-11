@@ -114,6 +114,9 @@ loss_weights:
                         # 對原始 y 的 IC 與 ICIR 都是 4/4 勝，rank 只有 3/4，
                         # 且 zscore 與 §60.1「基數、尺度未校正」的宣告一致。
                         # ℒ_rank 不受影響——它的遮罩是 diff_y > 0，對遞增變換不變。
+  ic: 0.0               # ℒ_ic = 1 − 逐日橫截面 Pearson 相關的平均（proposal §64，區塊 L）。
+                        # 0（預設）= 不計算、不加總，既有 run 逐位元不變。
+                        # 對 ŷ 的尺度不變、每天權重相同；等價於 z(ŷ) 與 z(y) 的 MSE 的一半。
 
 align_loss:
   enabled: false        # M4.5 Phase 1: 同步停用
