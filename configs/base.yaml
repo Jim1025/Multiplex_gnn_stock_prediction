@@ -160,6 +160,17 @@ evaluation:
     periods_per_year: 252  # Sharpe 年化因子
     # 無交易成本、無流動性限制 → 屬 pre-cost 診斷，不是可實作 alpha
 
+baselines:
+  relational_linear:      # 兩個線性 baseline（proposal §67，scripts/relational_linear.py）：
+                          #   關係型：美股 30 檔係數每檔自由（ridge λ）+ 台股昨日報酬只用
+                          #           3 個共用權重（自身、同產業平均、其他產業平均，不懲罰）
+                          #   兩區塊：80 維 ridge，美股 30 欄、台股 50 欄各自一個強度
+                          # 兩者都是逐日橫截面 z 目標、無截距，超參以 val 平均 IC 選。
+                          # 網格是 2026-10-13 登記的值（§67.4），改了就不是登記的模型。
+                          # 只有上面那支腳本讀，訓練不讀，既有 run 逐位元不變。
+    relational_lambda: [100.0, 316.0, 1000.0, 3160.0, 10000.0, 31600.0, 100000.0, 1000000.0]
+    twoblock_alpha: [100.0, 316.0, 1000.0, 3160.0, 10000.0, 31600.0, 100000.0, 316000.0, 1000000.0, 10000000.0]
+
 mlflow:
   experiment_name: MAGNET_M4_baseline
   tracking_uri: file:./mlruns

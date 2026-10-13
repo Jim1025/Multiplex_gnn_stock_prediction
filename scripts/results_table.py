@@ -3,7 +3,7 @@ results_table.py — 產出跨方法的總結果表（docs/results_table.md）
 
 收三類方法，全部在同一個 tw50 walk-forward test（246 天）上：
   1. 神經模型：本專案的 MAGNET 各版本 + 六個文獻 baseline，逐 seed 平均
-  2. 線性/樹模型：ridge 階梯、factor_vs_graph、[24] 二部圖重現，單一預測檔
+  2. 線性/樹模型：ridge 階梯、factor_vs_graph、relational_linear（§67）、[24] 二部圖重現，單一預測檔
   3. 空模型：RC 常數對照
 
 統計一律以目前最佳的 MAGNET（tw50_T1F3bnl1）為基準：
@@ -100,6 +100,11 @@ NONNEURAL = [
     ("[24] 二部圖 ens-avg",  "*_bipartite_walkforward_t2_ens-avg", "文獻", "t 檢定篩邊 + 集成"),
     ("[24] 二部圖 LASSO",    "*_bipartite_walkforward_t2_LASSO",   "文獻", ""),
     ("KTW+（rank 目標）",     "*_fvg_KTWp",                          "線性", "美股+台股 80 維"),
+    # §67（2026-10-13 加，scripts/relational_linear.py）。登記的確認未通過，
+    # 依登記的規則仍列入：關係型的 IC 兩折都高於 KTW+、ICIR 只有第二折較高，兩者並列最高標；
+    # 兩區塊的 IC 兩折也都高於 KTW+，依同一個公平原則列入。
+    ("關係型線性（z 目標）",   "*_lin_relational",                    "線性", "美股自由 + 台股 3 個關係權重，§67"),
+    ("兩區塊 ridge（z 目標）", "*_lin_twoblock",                      "線性", "美股、台股各自一個 alpha，§67"),
     ("R2（30 檔美股報酬）",    "*_fvg_R2",                            "線性", "per-target ridge"),
     ("RC 常數對照",           "*_ridge_RC",                          "空模型", "0 特徵"),
 ]
@@ -574,9 +579,14 @@ def _fold2_rows():
         edf = (pd.concat([pd.read_csv(f) for f in ens_files]).groupby(["target_date", "ticker"])
                .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
         ens = _load_frames([edf])
+    # §67 的兩個線性 baseline（2026-10-13 加）依第二折 IC 插入：關係型 +0.1625 高於主 arm 的
+    # 種子平均，排在它前面；兩區塊 +0.1513 排在主 arm 與 KTW+ 之間。
     rows = [(ENSEMBLE[0][0], ens, len(ens_files)),
+            ("關係型線性（z 目標）",
+             _load(str(ROOT / "runs_f2/*_lin_relational/predictions/test_predictions.csv")), None),
             ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
-    for lab, pat in (("KTW+（最高標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
+    for lab, pat in (("兩區塊 ridge（z 目標）", "runs_f2/*_lin_twoblock/predictions/test_predictions.csv"),
+                     ("KTW+（rank 目標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
                      ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
                      ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
                      ("[24] 二部圖 ens-avg", "runs_f2/*bipartite*t2_ens-avg/predictions/*.csv"),
@@ -735,7 +745,8 @@ def _ens_block():
     if not ok:
         return None
 
-    BLS = (("KTW+（最高標）", "*_fvg_KTWp"), ("[24] 二部圖 LASSO", "*bipartite*t2_LASSO"),
+    NEW_BLS = (("關係型線性（z 目標）", "*_lin_relational"), ("兩區塊 ridge（z 目標）", "*_lin_twoblock"))
+    BLS = (("KTW+（rank 目標）", "*_fvg_KTWp"), *NEW_BLS, ("[24] 二部圖 LASSO", "*bipartite*t2_LASSO"),
            ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
@@ -760,6 +771,7 @@ def _ens_block():
                        f"| {pv[0]:.4f} | {pv[1]:.4f} "
                        + pf_cells(portfolio_stats(list(Qb[:, 3, :]))) + "|")
 
+    mix = {}
     out += ["", "### (C) 與 KTW+ 等權混合（w=0.5，逐日橫截面 z 分數，未調參）", "",
             "| 折 | 方法 | IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
             "| 逐日 p (IC) | 逐日 p (RankIC) " + PF_HEAD + "|",
@@ -795,6 +807,8 @@ def _ens_block():
             V = np.array([[m[d][i] for d in k] for i in (0, 1, 3)])
             pf = pf_cells(portfolio_stats([V[2]]))
             ir4 = f"| {icir(V[0]):.4f} | {icir(V[1]):.4f} "
+            if w == 0.5:
+                mix[lab] = (k, V, cut)
             if w == 0.0:
                 base = V
                 out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
@@ -803,6 +817,27 @@ def _ens_block():
             d0, d1 = V[0] - base[0], V[1] - base[1]
             out.append(f"| {lab} | {nm} | {V[0].mean():+.4f} | {V[1].mean():+.4f} "
                        + ir4 + f"| {_hac(d0):.4f} | {_hac(d1):.4f} " + pf + "|")
+
+    # (C2)（2026-10-13 加）：§67 之後最高標不只 KTW+，混合模型對另外兩個線性 baseline 也要報。
+    # 混合仍只混 KTW+、w 仍是 0.5，沒有因為新的 baseline 改動。差 = 混合 − 對照。
+    out += ["", "### (C2) 等權混合對 §67 兩個線性 baseline 的逐日檢定", "",
+            "§67 之後最高標不只 KTW+。混合仍只混 KTW+、w 仍是 0.5，沒有因為新的 baseline 改動；"
+            "差 = 混合 − 對照。", "",
+            "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 混合 − 對照 IC | 逐日 p (IC) "
+            "| 混合 − 對照 RankIC | 逐日 p (RankIC) |",
+            "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for lab, _, _, _ in FOLDS:
+        if lab not in mix:
+            continue
+        k, V, cut = mix[lab]
+        root = "runs/linear" if lab == "第一折" else "runs_f2"
+        for bl, bp in NEW_BLS:
+            b = _per_seed(f"{root}/{bp}", cut)
+            if b is None:
+                continue
+            d, pv = _cmp((k, V), b)
+            out.append(f"| {lab} | {bl} | {b[1][0].mean():+.4f} | {b[1][1].mean():+.4f} "
+                       f"| {d[0]:+.4f} | {pv[0]:.4f} | {d[1]:+.4f} | {pv[1]:.4f} |")
     return out
 
 
@@ -843,7 +878,7 @@ def main() -> None:
     out.append("")
     out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。"
                "**已移除「類別」、`dIC`、`dRankIC` 三種欄位**"
-               "（類別看得出來：`[n]` 是文獻、`KTW+`/`R2`/`[24]` 是線性、"
+               "（類別看得出來：`[n]` 是文獻、`KTW+`/`R2`/`[24]`/`關係型`/`兩區塊` 是線性、"
                "`RC` 是空模型；兩個差值欄自己減得出來），改放組合讀法的八欄。"
                "差值的**顯著性**仍在——就是 `逐日 p (IC)` 與 `逐日 p (RankIC)` 兩欄。")
     out.append("")
@@ -978,16 +1013,20 @@ def main() -> None:
                "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
                "本專案第一次有架構改動在逐日層級對自家基準顯著。")
     out.append("")
-    out.append("**但（§40）**：對線性 baseline **不成立**。IC 名目領先每一個"
+    out.append("**但（§40）**：對線性 baseline **不成立**。§40 當時 IC 名目領先每一個"
                "（+0.0055 ~ +0.0203）卻無一顯著；RankIC 與 R2 ridge 恰好打平"
                "（+0.0000），並輸給 KTW+（−0.0115）。"
+               "§67 加入兩個線性 baseline 之後（2026-10-13），IC 輸關係型線性（−0.0088，p 0.32）、"
+               "贏兩區塊 ridge（+0.0024，p 0.82），RankIC 兩者都輸（−0.0153 / −0.0026，p 0.11 / 0.82），"
+               "仍無一顯著。"
                "**兩折合看，相對最佳線性 baseline 是打平，不是超越。**")
     out.append("")
     out.append("## 種子集成與混合（proposal §43）")
     out.append("")
     out.append("以下三塊**不需要重訓任何模型**，全部由既有預測檔重算。"
                "(A) 改變聚合方式，(B) 是它對 baseline 的後果，"
-               "(C) 是與最強線性 baseline 的等權混合。")
+               "(C) 是與 KTW+（§43 當時的最強線性 baseline）的等權混合，"
+               "(C2) 是混合模型對 §67 兩個線性 baseline 的檢定。")
     out.append("")
     eb = _ens_block()
     if eb is None:
@@ -1009,7 +1048,7 @@ def main() -> None:
     out.append("| 欄 | 算式 | 出處 |")
     out.append("|---|---|---|")
     out.append("| `n` | 種子數。線性／樹模型是確定性擬合（固定設計矩陣上的 "
-               "`Ridge.fit`），**沒有 seed 可補**，一律 n=1 | `find_seeds` |")
+               "`Ridge.fit` 或封閉解），**沒有 seed 可補**，一律 n=1 | `find_seeds` |")
     out.append("| `test IC` | 逐日 `corr(y_hat_t, y_t)`（Pearson）對 T 天取平均，"
                "再跨 seed 取平均。**逐 seed 的值讀自 `meta.json`**"
                "（`--predictions reeval` 時改讀 `meta_reeval.json`） | `neural_stats` |")
@@ -1220,7 +1259,19 @@ def main() -> None:
                "**對自家前一版的架構改善**（第二折逐日 p 0.0004 / 0.0036）。"
                "**此條指的是純 MAGNET；種子集成後仍成立**（對 KTW+ 兩折兩指標皆不顯著）。"
                "唯一在兩折上都顯著超越 KTW+ 的是 §43 (C) 的**等權混合**，"
-               "但那是混合模型的主張，不是本架構單獨的主張。")
+               "但那是混合模型的主張，不是本架構單獨的主張。"
+               "§67 加入的兩個線性 baseline 讓這條更明確：關係型線性的 IC 兩折都高於主 arm 的"
+               "種子平均（+0.0011 / +0.0088，p 0.92 / 0.32），兩區塊 ridge 第一折也較高"
+               "（+0.0073，p 0.63），全部不顯著。")
+    out.append("- **`關係型線性` 與 `兩區塊 ridge`（2026-10-13 加，proposal §67）。** "
+               "兩者都是線性-z 協定（逐日橫截面 z 目標、無截距、超參以 val 平均 IC 選），"
+               "差在台股昨日報酬那一塊：兩區塊讓美股、台股各自收縮，台股 50x50 係數自由；"
+               "關係型只用 3 個共用權重（自身、同產業平均、其他產業平均）。"
+               "關係型是在 val 上事後找到的，登記後在 test 只算一次，對兩區塊的主判準**未通過**"
+               "（−0.0063 / +0.0113，串接 p 0.65）。依登記的規則，關係型的 IC 兩折都高於 KTW+、"
+               "ICIR 只有第二折較高，**與 KTW+ 並列最高標**；兩區塊的 IC 兩折也都高於 KTW+，"
+               "依同一個公平原則列入。兩者的 `y_hat` 是 z 尺度，校準欄與 KTW+ 一樣不能拿來排名。"
+               "重現：`scripts/relational_linear.py --save`。")
     out.append("- **單折排名會翻轉。** 第一折的優勢集中在測試期前半"
                "（IC 差前半 +0.0300、後半 −0.0141），第二折則相反（後半更好）。"
                "任何只根據單一測試期的排名都不可靠——這是本表最重要的保留條款。")
@@ -1287,14 +1338,22 @@ def main() -> None:
                "全部不顯著；表中 p 0.032 / 0.044 / 0.046 **通不過 Holm**"
                "（5 個對照時門檻 0.010）。集成改變的是：第二折 RankIC 對 KTW+ "
                "由 **−0.0115（輸）變成 +0.0006（平）**，且 20 個比較"
-               "（2 折 x 5 對照 x 2 指標）**第一次全部同號為正**。")
-    out.append("- **(C) 等權混合是目前唯一在兩折上都顯著超越最高標的設定**"
+               "（2 折 x 5 對照 x 2 指標）**第一次全部同號為正**。"
+               "§67 加入兩個線性 baseline 之後是 7 個對照、28 個比較，Holm 門檻變成 0.0071："
+               "集成對它們的 8 個檢定全部不顯著（p 0.17 ~ 1.00），而且不再全部同號為正——"
+               "第二折 RankIC 輸關係型線性（−0.0033），第一折 IC 與兩區塊 ridge 打平（+0.0000）。")
+    out.append("- **(C) 等權混合在兩折上都顯著超越 KTW+**"
                "（四個檢定 p 0.0233 / 0.0041 / 0.0002 / 0.0177 全部 < 0.05，"
                "且兩折 ΔIC 都在逐日 MDE +0.0156 之上）。"
                "**w=0.5 是事先可指定的等權，沒有在測試集上調參**"
                "（附帶事實：兩折最佳 w 落在 0.55 與 0.6，等權接近最優）。"
                "機制：MAGNET 與 KTW+ 的逐日預測相關只有 **+0.472 / +0.490**，"
-               "一半以上的橫截面資訊不重疊——這與 §37.2「優勢集中在最安靜的 20% 日子」一致。")
+               "一半以上的橫截面資訊不重疊——這與 §37.2「優勢集中在最安靜的 20% 日子」一致。"
+               "**但 §67 之後最高標不只 KTW+，原本寫的「唯一在兩折上都顯著超越最高標的設定」"
+               "不再成立**（(C2)）：對關係型線性，IC 兩折都不顯著（+0.0180 / +0.0126，"
+               "p 0.090 / 0.122），RankIC 只有第二折過 0.05（p 0.079 / 0.049）；對兩區塊 ridge，"
+               "第二折兩個指標都顯著，第一折只有 RankIC 顯著（IC p 0.31）。"
+               "能寫的是「混合模型兩折都顯著勝過它所混的 KTW+」。")
     out.append("- **(C) 的代價：主張形式改變。** 由「MAGNET 比線性準」變成"
                "**「MAGNET 提供線性模型抓不到的增量資訊」**。"
                "後者是可量測的科學陳述（相關 0.48），但**不是**「我們的架構單獨最好」。"
@@ -1320,7 +1379,7 @@ def main() -> None:
                "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"
                "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。")
     out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。")
-    out.append("- 線性/樹模型（[24]、KTW+、R2、RC）無隨機種子，sd 欄為「—」。")
+    out.append("- 線性/樹模型（[24]、KTW+、關係型、兩區塊、R2、RC）無隨機種子，sd 欄為「—」。")
     txt = "\n".join(out)
     print(txt)
     if not args.no_write:
