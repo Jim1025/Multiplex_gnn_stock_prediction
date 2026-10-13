@@ -33,6 +33,13 @@ RULES: list[tuple[str, str]] = [
     # 第二折的 P8 / P9 要先於通用的 _f2_，否則會被一起倒進 fold2/
     (r"_f2_p8",                     "fold2/p8"),
     (r"_f2_a2on",                   "fold2/p9"),
+    # P10b（§62.11–62.12）、P12（§63）與 §64 各區塊，兩折對稱歸檔；
+    # beta_init_std 敏感度（f2_bis*）與 f2_best 同屬 beta 家族，留在 fold2/ 根層
+    (r"_f2_p10",                    "fold2/p10"),
+    (r"_f2_p12",                    "fold2/p12"),
+    (r"_f2_ef(D3)?_",               "fold2/earlyfusion"),
+    (r"_f2_icl",                    "fold2/icloss"),
+    (r"_f2_smkt",                   "fold2/singlemarket"),
     (r"_f2_",                       "fold2"),
     # P8（mse_target，§52.3 / §60.2a(i)(j)）與 P9（A₂ 介入，§60.2a(l)）。
     # 沒有這兩條會掉進 legacy——那個桶子是給已證偽或已停用的東西，
@@ -41,6 +48,11 @@ RULES: list[tuple[str, str]] = [
     (r"_tw50_a2on",                 "tw50/p9"),
     # 單市場消融是 results_table.md 主表在引用的活資料，同樣不該進 legacy
     (r"_tw50_smkt",                 "tw50/singlemarket"),
+    (r"_tw50_p10",                  "tw50/p10"),
+    (r"_tw50_p12",                  "tw50/p12"),
+    (r"_tw50_efD3",                 "tw50/earlyfusion"),
+    (r"_tw50_icl",                  "tw50/icloss"),
+    (r"_tw50_bis",                  "tw50/beta"),
     (r"_tw50_beta",                 "tw50/beta"),
     (r"_tw50_(inbn|plnorm)",        "tw50/inputnorm"),
     (r"_tw50_bl_",                  "tw50/baselines"),

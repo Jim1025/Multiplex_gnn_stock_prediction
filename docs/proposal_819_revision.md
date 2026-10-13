@@ -11594,11 +11594,13 @@ early fusion 的持續性、兩折合併檢定。
 
 整併版的輸出與當晚 scratchpad 探針逐位元相同（2026-10-11 04:00 核對過 N、R、A、S、E、POOL）。
 
-**訓練 run**（`runs/20261011_*`，種子 42 7 123 11 99 314 555 777 888 2026）：
+**訓練 run**（`20261011_*`，種子 42 7 123 11 99 314 555 777 888 2026；
+2026-10-13 以 `scripts/organize_runs.py` 歸檔到 `runs/tw50/{earlyfusion,icloss,beta}/` 與
+`runs/fold2/{earlyfusion,icloss,singlemarket}/`、`runs/fold2/`）：
 
 | 標籤 | 指令 |
 |---|---|
-| `f2_ef_s{S}` | `tw50chk_ef` 的 snapshot，split 改成 903 / 1150（設定見 `runs/20261011_0129_f2_ef_s42/config_snapshot.yaml`） |
+| `f2_ef_s{S}` | `tw50chk_ef` 的 snapshot，split 改成 903 / 1150（設定見 `runs/fold2/earlyfusion/20261011_0129_f2_ef_s42/config_snapshot.yaml`） |
 | `tw50_efD3_s{S}` / `f2_efD3_s{S}` | 同上兩折的設定 + `--input-norm batchnorm --optimizer adamw` |
 | `tw50_icl_s{S}` / `f2_icl_s{S}` | 主 arm 的 snapshot + `--ic-weight 1.0` |
 | `f2_smktA_s{S}` | `f2_best` 的 snapshot + `--disable-a12` |
