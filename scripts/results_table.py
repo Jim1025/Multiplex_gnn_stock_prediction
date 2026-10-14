@@ -6,6 +6,10 @@ results_table.py — 產出跨方法的總結果表（docs/results_table.md）
   2. 線性/樹模型：ridge 階梯、factor_vs_graph、relational_linear（§67）、[24] 二部圖重現，單一預測檔
   3. 空模型：RC 常數對照
 
+另有一節準度小表（2026-10-13 加，_acc_block）：每個模型先在 val 上定尺度，再比 test 的
+RMSE / R²_oos / 命中率。線性 baseline 的 val 預測由 tw_lag_channel / relational_linear 重算，
+所以這一節需要資料快照；缺的時候只跳過這一節。
+
 統計一律以目前最佳的 MAGNET（tw50_T1F3bnl1）為基準：
   - 神經 arm：取共同 seed，逐日 IC 序列先跨 seed 平均再配對檢定，
     另報跨 seed 的 Welch 與 Mann-Whitney（後者在 n<5 時無法達到 p<0.05）
@@ -841,6 +845,152 @@ def _ens_block():
     return out
 
 
+# 準度小表（2026-10-13 加，描述性，未登記）。y_hat 是「基數分數、尺度未校正」（§60.1），
+# 校準診斷的 MSE 量的是尺度，不能拿來比準度。這裡讓每個模型先在 val 上定一個尺度：
+# 逐日扣掉橫截面平均後，以最小平方擬合 y ≈ b·y_hat，b 固定後套到 test，再算 RMSE、R²_oos 與命中率。
+# 乘一個倍數不改相關係數，所以 IC / RankIC 不受影響。
+# 線性 baseline 的 runs/ 只存 test 預測，val 預測由 tw_lag_channel / relational_linear 重算；
+# 重算的 test 預測與存檔的最大差 ≤ ACC_TOL x 存檔的最大絕對值才採用，否則該列跳過。
+# 存檔只有約 8 位有效數字：KTW+、R2、RC 實測相對差最大 1.2e-6，關係型與兩區塊約 1e-16。
+# ACC_TOL 是重現閘門的數值容忍度，不是模型超參，故不放 config。
+ACC_TOL = 1e-5
+# (顯示名稱, val 預測的重算方式, 第一折存檔, 第二折存檔)。存檔與主表兩折各自讀的是同一份；
+# R2 兩折的檔名不同（fvg / ridge），但都等於 tw_lag_channel.ridge(D, "US30", "raw")。
+ACC_LINEAR = (
+    ("KTW+（rank 目標）", "ktw", "runs/linear/*_fvg_KTWp/predictions/test_predictions.csv",
+     "runs_f2/*_fvg_KTWp/predictions/test_predictions.csv"),
+    ("關係型線性（z 目標）", "relational", "runs/linear/*_lin_relational/predictions/test_predictions.csv",
+     "runs_f2/*_lin_relational/predictions/test_predictions.csv"),
+    ("兩區塊 ridge（z 目標）", "twoblock", "runs/linear/*_lin_twoblock/predictions/test_predictions.csv",
+     "runs_f2/*_lin_twoblock/predictions/test_predictions.csv"),
+    ("R2（30 檔美股報酬）", "r2", "runs/linear/*_fvg_R2/predictions/test_predictions.csv",
+     "runs_f2/*_ridge_R2/predictions/test_predictions.csv"),
+    ("RC 常數對照", "rc", "runs/linear/*_ridge_RC/predictions/test_predictions.csv",
+     "runs_f2/*_ridge_RC/predictions/test_predictions.csv"),
+)
+ANCHOR = "不選股（每檔猜當天平均）"
+
+
+def _acc_block():
+    """準度小表（說明見 ACC_TOL 上方）。缺資料時回傳 None。
+
+    主 arm 讀 run 當下寫的 val / test 預測檔。它沒有 CPU 重評檔（2026-10-13 檢查），
+    所以與訊號層讀的是同一份。
+    """
+    try:
+        import relational_linear as RL
+        import tw_lag_channel as T
+    except Exception as e:                      # 例如沒有資料快照的環境
+        print(f"[skip] 準度小表（{e}）")
+        return None
+
+    def dm(P):
+        return P - np.nanmean(P, 1, keepdims=True)
+
+    def evaluate(Hva, Yva, Hte, Yte):
+        """val 定尺度 -> test 的逐日橫截面 MSE、不選股的 MSE、命中率。只用 std(y) > 0 的日子。"""
+        okv, okt = np.nanstd(Yva, 1) > 1e-12, np.nanstd(Yte, 1) > 1e-12
+        hv, yv = dm(Hva[okv]), dm(Yva[okv])
+        den = np.nansum(hv * hv)
+        b = float(np.nansum(hv * yv) / den) if den > 1e-24 else 0.0
+        ht, yt = dm(Hte[okt]), dm(Yte[okt])
+        sh = np.sign(Hte[okt] - np.nanmedian(Hte[okt], 1, keepdims=True))
+        sy = np.sign(Yte[okt] - np.nanmedian(Yte[okt], 1, keepdims=True))
+        m = (sh != 0) & (sy != 0)               # 剛好等於中位數的不計
+        hit = np.array([np.mean(a[k] == c[k]) if k.any() else np.nan for a, c, k in zip(sh, sy, m)])
+        return dict(loss=np.nanmean((yt - b * ht) ** 2, 1), base=np.nanmean(yt ** 2, 1), hit=hit)
+
+    def summ(ev):
+        return (1 - np.nansum(ev["loss"]) / np.nansum(ev["base"]),
+                float(np.sqrt(np.nanmean(ev["loss"])) * 100), float(np.nanmean(ev["hit"]) * 100))
+
+    folds = {}
+    for fi, (f, c) in enumerate(T.FOLDS.items()):
+        D = T.load_fold(c["cfg"], c["f2"])
+        Yv, Yt = D["y_val"], D["y_test"]
+        Mv, sv = T.preds(c["main"], "val", D["d_val"], D["codes"])
+        Mt, st = T.preds(c["main"], "test", D["d_test"], D["codes"])
+        if not len(sv) or sv != st:
+            print(f"[skip] 準度小表 {f}（主 arm 的 val / test 預測檔對不上）")
+            continue
+        rows = [(f"**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", len(sv),
+                 [evaluate(Mv[i], Yv, Mt[i], Yt) for i in range(len(sv))]),
+                (ENSEMBLE[0][0], len(sv), [evaluate(Mv.mean(0), Yv, Mt.mean(0), Yt)])]
+        g = RL.grids(c["cfg"])
+        peers, others = RL.relations(D["codes"])
+        nu = D["us_train"].shape[1]
+        X = {sp: np.hstack([D[f"us_{sp}"], D[f"tw_{sp}"]]) for sp in ("train", "val", "test")}
+        Z = dict(zip(("train", "val", "test"), RL.standardize(X["train"], X["val"], X["test"])))
+        Tz = T.zrow(D["y_train"])
+        k, r2 = T.ridge(D, "US30+TW50", "rank"), T.ridge(D, "US30", "raw")
+        rel = RL.relational(Z, Tz, Yv, nu, g["relational_lambda"], peers, others)[2]
+        tb = RL.twoblock(Z, Tz, Yv, nu, g["twoblock_alpha"])[2]
+        mu = D["y_train"].mean(0)
+        fit = {"ktw": (k["val"], k["test"]), "r2": (r2["val"], r2["test"]),
+               "relational": (rel["val"], rel["test"]), "twoblock": (tb["val"], tb["test"]),
+               "rc": (np.tile(mu, (len(Yv), 1)), np.tile(mu, (len(Yt), 1)))}
+        for lab, key, *pats in ACC_LINEAR:
+            S, _ = T.preds(pats[fi], "test", D["d_test"], D["codes"])
+            if not len(S):
+                print(f"[skip] 準度小表 {f} {lab}（找不到預測檔）")
+                continue
+            S, (hv, ht) = S[-1], fit[key]
+            ok = np.isfinite(S) & np.isfinite(ht)
+            err = float(np.abs(S[ok] - ht[ok]).max() / max(np.nanmax(np.abs(S)), 1e-12))
+            print(f"[準度] {f} {lab}：重算與存檔 test 預測的相對差 {err:.1e}")
+            if err > ACC_TOL:
+                print(f"[skip] 準度小表 {f} {lab}（相對差超過 {ACC_TOL:g}，不是同一個模型）")
+                continue
+            rows.append((lab, 1, [evaluate(hv, Yv, S, Yt)]))
+        evs = rows[0][2]
+        folds[f] = dict(rows=rows, base=evs[0]["base"],
+                        loss=np.mean([e["loss"] for e in evs], 0), hit=np.mean([e["hit"] for e in evs], 0))
+    if not folds:
+        return None
+
+    def cell(vals, fmt_v, fmt_sd):
+        v = np.asarray(vals, float)
+        return fmt_v.format(v.mean()) + (f" ± {fmt_sd.format(v.std(ddof=1))}" if v.size > 1 else "")
+
+    out = ["| 折 | 方法 | n | RMSE (%) ↓ | R²_oos ↑ | 命中率 ↑ | 逐日 p（R²_oos） | 逐日 p（命中率） |",
+           "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for f, F in folds.items():
+        out.append(f"| {f} | {ANCHOR} | — | {np.sqrt(np.nanmean(F['base'])) * 100:.4f} | 0（依定義） "
+                   f"| 50%（依定義） | {T.hac_p(F['loss'] - F['base']):.4f} | {T.hac_p(F['hit'] - 0.5):.4f} |")
+        for i, (lab, n, evs) in enumerate(F["rows"]):
+            S = np.array([summ(e) for e in evs])
+            if i == 0:
+                p1 = p2 = "—"
+            else:
+                p1 = f"{T.hac_p(np.mean([e['loss'] for e in evs], 0) - F['loss']):.4f}"
+                p2 = f"{T.hac_p(np.mean([e['hit'] for e in evs], 0) - F['hit']):.4f}"
+            out.append(f"| {f} | {lab} | {n} | {cell(S[:, 1], '{:.4f}', '{:.4f}')} "
+                       f"| {cell(S[:, 0], '{:+.4f}', '{:.4f}')} | {cell(S[:, 2], '{:.2f}%', '{:.2f}')} "
+                       f"| {p1} | {p2} |")
+
+    base = np.concatenate([F["base"] for F in folds.values()])
+    mloss = np.concatenate([F["loss"] for F in folds.values()])
+    mhit = np.concatenate([F["hit"] for F in folds.values()])
+    out += ["", f"### 兩折合併（{len(base)} 天，對 MAGNET 本版的種子平均）", "",
+            f"MAGNET 本版兩折合併：`R²_oos` {1 - mloss.sum() / base.sum():+.4f}、"
+            f"命中率 {np.nanmean(mhit) * 100:.2f}%。差 = 該列 − MAGNET 本版，**正值代表該列較好**。", "",
+            "| 方法 | R²_oos 差 ↑ | 逐日 p | 命中率差（百分點）↑ | 逐日 p |",
+            "|---|---:|---:|---:|---:|"]
+    labs = [lab for lab, _, _ in next(iter(folds.values()))["rows"][1:]]
+    pooled = [(ANCHOR, base, np.full(len(base), 0.5))]
+    for lab in labs:
+        got = [next((evs for l2, _, evs in F["rows"] if l2 == lab), None) for F in folds.values()]
+        if any(x is None for x in got):
+            continue
+        pooled.append((lab, np.concatenate([np.mean([e["loss"] for e in evs], 0) for evs in got]),
+                       np.concatenate([np.mean([e["hit"] for e in evs], 0) for evs in got])))
+    for lab, loss, hit in pooled:
+        dl, dh = loss - mloss, hit - mhit
+        out.append(f"| {lab} | {-dl.sum() / base.sum():+.4f} | {T.hac_p(dl):.4f} "
+                   f"| {np.nanmean(dh) * 100:+.2f} | {T.hac_p(dh):.4f} |")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="產出跨方法總結果表")
     ap.add_argument("--no-write", action="store_true")
@@ -1034,6 +1184,33 @@ def main() -> None:
     else:
         out += eb
     out.append("")
+    out.append("## 準度指標：先在 val 定尺度（2026-10-13 加）")
+    out.append("")
+    out.append("**為什麼要這一節。** `y_hat` 是「基數分數、尺度未校正」（proposal §60.1），"
+               "上面校準診斷的 MSE 量到的是尺度，不能拿來比準度。這一節讓每個模型先站上同一個報酬尺度，再比準度：")
+    out.append("")
+    out.append("1. 每天先扣掉 50 檔的橫截面平均。任務只比相對強弱，沒有模型在預測大盤當天的漲跌。")
+    out.append("2. 每個模型在 **val** 上以最小平方擬合一個倍數 `b`（`y ≈ b·y_hat`），固定後套到 test。"
+               "test 不參與定尺度。")
+    out.append("3. test 上算 `RMSE` 與 `R²_oos`，基準是「不選股」：每檔都猜當天平均，`R²_oos = 0`。"
+               "`命中率` 只用名次，不需要定尺度。")
+    out.append("")
+    out.append("乘一個倍數不改相關係數，所以本節不影響任何 IC / RankIC。"
+               "**本節是看過示範結果之後才加的，屬描述性，p 值未校正多重比較。**"
+               "只列主結果、它的集成與主表的線性 baseline。線性 baseline 的 `runs/` 只存 test 預測，"
+               "val 預測由 `tw_lag_channel.py` / `relational_linear.py` 重算，"
+               f"重算的 test 預測與存檔一致才採用（相對差 ≤ {ACC_TOL:g}）。")
+    out.append("")
+    out.append("**箭頭：↑ 越高越好，↓ 越低越好。** p 值是雙尾、沒有方向，誰比較好看合併表的差值欄。"
+               f"`{ANCHOR}` 列的兩個 p 是 MAGNET 本版對它的檢定（`R²_oos` 是否大於 0、命中率是否大於 50%），"
+               "其餘列的 p 都是該列對 MAGNET 本版。")
+    out.append("")
+    ab = _acc_block()
+    if ab is None:
+        out.append("_（準度小表所需的資料或預測檔尚未齊備）_")
+    else:
+        out += ab
+    out.append("")
     out.append("## 每一欄怎麼算")
     out.append("")
     out.append("記號：某一天的橫截面有 `n` 檔台股，`y_hat` 是預測、`y` 是**實際次日 "
@@ -1155,10 +1332,31 @@ def main() -> None:
     out.append("| `增益`（A 表） | 「先平均預測再算 IC」減「先算 IC 再平均」。"
                "它是兩列相減，**沒有對應的日報酬序列**，故組合欄留空 |")
     out.append("")
+    out.append("### 準度小表的欄")
+    out.append("")
+    out.append("下標 `d` 表示扣掉當天 50 檔的橫截面平均；`b` 只用 val 擬合（`b = Σ y_d·y_hat_d / Σ y_hat_d²`）。"
+               "MAGNET 本版逐 seed 算完再平均（`± sd` 為跨 seed），檢定用跨 seed 平均後的逐日序列；"
+               "集成列先平均 10 顆的預測再定尺度。日子的取捨同訊號層（`std(y)=0` 的日子跳過）。")
+    out.append("")
+    out.append("| 欄 | 算式 | 方向 |")
+    out.append("|---|---|---|")
+    out.append("| `RMSE (%)` | test 上 `sqrt(mean_t mean_j (y_d − b·y_hat_d)²)`，再 x100。"
+               "`不選股` 列就是當天報酬的橫截面標準差（平方平均） | **↓ 越低越好** |")
+    out.append("| `R²_oos` | `1 − Σ_t Σ_j (y_d − b·y_hat_d)² / Σ_t Σ_j y_d²`。"
+               "分母是「不選股」的誤差，所以 0 = 與不選股一樣，負值 = 比不選股差。"
+               "與校準診斷的 `校正後 R²` 不同：那一欄的倍數是在 test 上擬合的，只能當上限 | **↑ 越高越好** |")
+    out.append("| `命中率` | 每天把 `y_hat` 與 `y` 各自和當天中位數比，落在同一側的比例；"
+               "剛好等於中位數的不計。50% = 亂猜；常態假設下約為 `50% + arcsin(IC)/π` | **↑ 越高越好** |")
+    out.append("| `逐日 p（R²_oos）` | 逐日橫截面 MSE 差的 HAC 雙尾檢定（Diebold–Mariano 檢定），"
+               "lag 同訊號層 | 無方向 |")
+    out.append("| `逐日 p（命中率）` | 逐日命中率差的 HAC 雙尾檢定 | 無方向 |")
+    out.append("| `R²_oos 差` / `命中率差`（合併表） | 該列 − MAGNET 本版，兩折的日子一起算；"
+               "正值代表該列較好 | **↑ 越高越好**（站在該列的立場） |")
+    out.append("")
     out.append("## 讀表注意")
     out.append("")
     out.append("- **欄名的 ↑ / ↓ 是「其他條件相同下哪個方向較好」**，"
-               "**不是說該欄可以單獨拿來排名**。有三類欄位**刻意沒有箭頭**：<br>"
+               "**不是說該欄可以單獨拿來排名**。有四類欄位**刻意沒有箭頭**：<br>"
                "(1) **`sd` 各欄**（跨 seed 離散度）——離散度小只代表結果比較不挑種子，"
                "一個爛模型的 sd 小並不好，它不是績效；<br>"
                "(2) **`逐日 p (IC)` / `逐日 p (RankIC)` / `Welch p` / `MW p`**——這些是"
@@ -1167,7 +1365,10 @@ def main() -> None:
                "(3) **`離散比 std(y_hat)/std(y)`**（§43 A 表）——在 ŷ 宣告為"
                "「基數分數、尺度未校正」之下，IC 與 RankIC 對仿射變換不變、"
                "**兩者都看不到這個比值**，所以它是規範選擇不是缺陷"
-               "（proposal §57.11、§60.7）。")
+               "（proposal §57.11、§60.7）；<br>"
+               "(4) **準度小表的 `逐日 p（R²_oos）` / `逐日 p（命中率）`**——雙尾檢定，"
+               "**方向看合併表的差值欄**。那裡有線性 baseline 贏過 MAGNET 本版的格子，"
+               "不能套用 (2) 的「基準贏過該列」。")
     out.append("- **`MDD ↓` 的箭頭尤其不等於可以拿來排名**（見下方 MDD 那條）："
                "它兩折的名次會翻轉。箭頭只說明方向，不背書該欄的可靠度。")
     out.append("- **n 是種子數。** sigma_seed = 0.0062，n=3 的最小可偵測差異為 0.0188、"
