@@ -119,6 +119,14 @@ NONNEURAL = [
 ENSEMBLE = [
     ("MAGNET 本版（10 顆集成）", BEST, "本專案", "同上 10 顆先平均預測再算 IC，§43 (A)"),
 ]
+# 主表 / 附表（2026-10-16，依教授建議）：主表只放 MAGNET 自身的各版本與消融，以及文獻方法；
+# 我們另外建構、又不是出自文獻的對照（同輸入的線性模型與空模型）移到附表。
+# 單市場消融、LSTM only、Early fusion 對照是拿掉或替換 MAGNET 元件的消融，留在主表。
+# 統計基準與所有檢定不變（附表的 p 仍是對 MAGNET 本版）；附表另列 MAGNET 本版與集成當參照。
+# 以顯示名稱比對，兩折的名稱都列在這裡（第二折的 R2 / TW+ 名稱不同）。
+SUPPLEMENT = frozenset({"KTW+（rank 目標）", "關係型線性（z 目標）", "兩區塊 ridge（z 目標）",
+                        "R2（30 檔美股報酬）", "R2 per-target ridge", "TW+（美股+台股 80 維）",
+                        "RC 常數對照"})
 
 
 # 預測檔來源。reeval = CPU 重評版（scripts/reeval_checkpoints.py 產生），
@@ -143,6 +151,10 @@ PF_BLANK = "| — | — | — | — | — | — "
 CAL_HEAD = ("| MSE (1e-3) ↓ | RMSE (%) ↓ | 離散比 (->1.0) | 校正後 R² ↑ ")
 CAL_SEP = "|---:|---:|---:|---:"
 CAL_BLANK = "| — | — | — | — "
+# 第二折訊號層的表頭（主表與附表共用）
+F2_SIG_HEAD = ["| 方法 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
+               "| 逐日 p (IC) | 逐日 p (RankIC) |",
+               "|---|---:|---:|---:|---:|---:|---:|---:|"]
 
 
 def topk_ret(p_hat, y, k: int = TOPK) -> float:
@@ -598,9 +610,11 @@ def _fold2_rows():
                      ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
                      ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
         rows.append((lab, _load(str(ROOT / pat)), None))
-    sig, pf_rows, cal_rows = [], [], []   # 訊號層 / 組合讀法 / 校準診斷
+    # 訊號層 / 組合讀法 / 校準診斷；labs 與三者逐列對齊，回傳時配成 (名稱, 列) 供 main() 分主表與附表
+    sig, pf_rows, cal_rows, labs = [], [], [], []
     for lab, r, n_seed in rows:
         if r is None and lab.startswith("**"):
+            labs.append(lab)
             sig.append(
                 f"| {lab} | {BESTP.shape[0]} "
                 f"| {pm(BESTV[0].mean(), _sd(BESTP[:, 0].mean(axis=1)))} "
@@ -613,6 +627,7 @@ def _fold2_rows():
             continue
         if r is None:
             continue
+        labs.append(lab)
         kk, V, IR, P, IRS, PF, RIR, RIRS, CM, CS = r
         n_col = n_seed if n_seed else P.shape[0]
         ii = [kk.index(d) for d in kk if d in kb]
@@ -632,7 +647,7 @@ def _fold2_rows():
             f"| {cells[1]} | {cells[3]} |")
         pf_rows.append(f"| {lab} | {n_col} " + pf_cells(PF) + "|")
         cal_rows.append(f"| {lab} | {n_col} " + cal_cells(CM, CS) + "|")
-    return sig, pf_rows, cal_rows
+    return tuple(list(zip(labs, x)) for x in (sig, pf_rows, cal_rows))
 
 
 def _ens_block():
@@ -1032,28 +1047,56 @@ def main() -> None:
                "`RC` 是空模型；兩個差值欄自己減得出來），改放組合讀法的八欄。"
                "差值的**顯著性**仍在——就是 `逐日 p (IC)` 與 `逐日 p (RankIC)` 兩欄。")
     out.append("")
+    out.append("**主表與附表（2026-10-16，依教授建議）**：兩折的主表只放 MAGNET 自身的各版本與消融，"
+               "以及文獻方法（`[n]` 與 `[24]`）。我們另外建構、又不是出自文獻的對照"
+               "（同輸入的線性模型 KTW+、R2、TW+、關係型、兩區塊，以及空模型 RC）移到"
+               "「附表：同輸入的對照」一節。統計基準與所有檢定不變。")
+    out.append("")
     ordered = sorted(rows, key=lambda r: -r[3]["ic"])
+    main_rows = [r for r in ordered if r[0] not in SUPPLEMENT]
+    # 附表：移出主表的列，加上 MAGNET 本版與集成兩列當參照（數字與主表相同）
+    app_rows = [r for r in ordered if r[0] in SUPPLEMENT or r[4] in (BEST, "ens:" + BEST)]
+
+    def sig_table(rs):
+        o = ["| 方法 | 設定 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
+             "| 逐日 p | 跨種子 Welch p | MW p |",
+             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        for label, cat, note, st, arm in rs:
+            _, p_pd = paired_daily(base, st, "ic")
+            pw, pu, _ = across_seed(base, st, "ic")
+            is_base = (arm == BEST)
+            star = " **" if is_base else " "
+            o.append(
+                f"|{star}{label}{star.strip()} | {note} | {st['n']} | "
+                f"{pm(st['ic'], st['ic_sd'])} | "
+                f"{pm(st['ric'], st['ric_sd'])} | "
+                f"{pm(st.get('icir'), st.get('icir_sd'), signed=False)} | "
+                f"{pm(st.get('ricir'), st.get('ricir_sd'), signed=False)} | "
+                f"{'—' if is_base else fmt(p_pd, signed=False)} | "
+                f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
+        return o
+
+    def pf_table(rs):
+        o = ["| 方法 | n " + PF_HEAD + "|", "|---|---:" + PF_SEP + "|"]
+        for label, cat, note, st, arm in rs:
+            star = " **" if arm == BEST else " "
+            o.append(f"|{star}{label}{star.strip()} | {st['n']} "
+                     + pf_cells(st.get("pf")) + "|")
+        return o
+
+    def cal_table(rs):
+        o = ["| 方法 | n " + CAL_HEAD + "|", "|---|---:" + CAL_SEP + "|"]
+        for label, cat, note, st, arm in rs:
+            star = " **" if arm == BEST else " "
+            o.append(f"|{star}{label}{star.strip()} | {st['n']} "
+                     + cal_cells(st.get("cal"), st.get("cal_sd")) + "|")
+        return o
 
     out.append("## 第一折（主結果）")
     out.append("")
     out.append("### 訊號層")
     out.append("")
-    out.append("| 方法 | 設定 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
-               "| 逐日 p | 跨種子 Welch p | MW p |")
-    out.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
-    for label, cat, note, st, arm in ordered:
-        _, p_pd = paired_daily(base, st, "ic")
-        pw, pu, _ = across_seed(base, st, "ic")
-        is_base = (arm == BEST)
-        star = " **" if is_base else " "
-        out.append(
-            f"|{star}{label}{star.strip()} | {note} | {st['n']} | "
-            f"{pm(st['ic'], st['ic_sd'])} | "
-            f"{pm(st['ric'], st['ric_sd'])} | "
-            f"{pm(st.get('icir'), st.get('icir_sd'), signed=False)} | "
-            f"{pm(st.get('ricir'), st.get('ricir_sd'), signed=False)} | "
-            f"{'—' if is_base else fmt(p_pd, signed=False)} | "
-            f"{fmt(pw, signed=False)} | {fmt(pu, signed=False)} |")
+    out += sig_table(main_rows)
 
     out.append("")
     out.append("### 組合讀法")
@@ -1067,12 +1110,7 @@ def main() -> None:
                "本專案最佳 arm 的**打平來回成本是 33 bp，而台灣證交稅單項就 30 bp**"
                "（§60.4、`scripts/portfolio_readout.py`）。列序與上表相同。")
     out.append("")
-    out.append("| 方法 | n " + PF_HEAD + "|")
-    out.append("|---|---:" + PF_SEP + "|")
-    for label, cat, note, st, arm in ordered:
-        star = " **" if arm == BEST else " "
-        out.append(f"|{star}{label}{star.strip()} | {st['n']} "
-                   + pf_cells(st.get("pf")) + "|")
+    out += pf_table(main_rows)
     out.append("")
     out.append("### 校準診斷")
     out.append("")
@@ -1084,7 +1122,8 @@ def main() -> None:
     # （34 列 / +0.90 / 30 列 / 第二高）；2026-10-11 加了集成列之後改成計算值。
     # 計算值在加列之前逐字重現原本的四個數字。「在錨之上」以表上顯示的三位小數比較——
     # RC 的 MSE 與 Var(y) 在這個精度相同，算「恰好落在」，不計入。
-    _cals = [st["cal"] for _, _, _, st, _ in ordered if st.get("cal")]
+    # 2026-10-16 分出附表之後：列數、Spearman、錨之上的列數只算主表；KTW+ 的名次算主表加附表。
+    _cals = [st["cal"] for _, _, _, st, _ in main_rows if st.get("cal")]
     _rho = (stats.spearmanr([c["mse"] for c in _cals], [c["disp"] for c in _cals]).statistic
             if len(_cals) > 2 else float("nan"))
     _above = (sum(round(c["mse"] * 1e3, 3) > round(_bc["var_y"] * 1e3, 3) for c in _cals)
@@ -1098,17 +1137,17 @@ def main() -> None:
                f"（{len(_cals)} 列的 Spearman = **{_rho:+.2f}**），**與 IC 無關**。")
     out.append("")
     out.append(f"錨：{_anchor}。`R² = 1 − MSE / Var(y)`，所以 **`MSE (1e-3)` 超過"
-               "那個值就代表 level R² 是負的**。關鍵是誰沒超過：`RC 常數對照` "
+               "那個值就代表 level R² 是負的**。關鍵是誰沒超過：附表的 `RC 常數對照` "
                "（離散比 0.026）**恰好落在 0.405**——一個永遠猜均值的模型正是 "
-               "`MSE = Var(y)` 的定義。少數低於它的列（`[24]` 0.297、"
+               "`MSE = Var(y)` 的定義。少數低於它的列（`[24]` 0.297、附表的 "
                "`R2 ridge` 0.373）靠的是**比常數還往均值縮**，不是靠預測得準——"
-               f"{len(_cals)} 列裡有 {_above} 列在 0.405 之上。"
+               f"本表 {len(_cals)} 列裡有 {_above} 列在 0.405 之上。"
                "`src/train/metrics.py:regression_metrics` 的 docstring 早就記了"
                "這件事：**MSE 獎勵塌縮**。")
     out.append("")
-    out.append("另一頭同樣說明問題：`KTW+` 的 MSE 是 **37.181**（Var(y) 的 92 倍）、"
-               f"離散比 **11.49**。它是本表 IC 第{_krank}高的方法。**沒有任何一個方法的 "
-               "`y_hat` 是校準過的**，所以 MSE 在這張表上不是一個可以排名次的軸。")
+    out.append("另一頭同樣說明問題：附表的 `KTW+` MSE 是 **37.181**（Var(y) 的 92 倍）、"
+               f"離散比 **11.49**，它在主表與附表合計 {len(ordered)} 個方法中 IC 第{_krank}高。"
+               "**沒有任何一個方法的 `y_hat` 是校準過的**，所以 MSE 不是一個可以排名次的軸。")
     out.append("")
     out.append("後兩欄把負 R² 拆開：`離散比` 說 `y_hat` 的橫截面比 `y` 寬幾倍"
                "（1.0 是校準），`校正後 R²` 說**扣掉每日橫截面均值、再把尺度仿射"
@@ -1117,12 +1156,7 @@ def main() -> None:
                "差在攤平的 corr 用橫截面離散度給每天"
                "加權。**這一欄才是與 Gu/Kelly/Xiu 那類 level R² 可比的數字。**")
     out.append("")
-    out.append("| 方法 | n " + CAL_HEAD + "|")
-    out.append("|---|---:" + CAL_SEP + "|")
-    for label, cat, note, st, arm in ordered:
-        star = " **" if arm == BEST else " "
-        out.append(f"|{star}{label}{star.strip()} | {st['n']} "
-                   + cal_cells(st.get("cal"), st.get("cal_sd")) + "|")
+    out += cal_table(main_rows)
     # ── 第二折驗證（proposal §36 事先登記、§38/§40 判定）──────────────
     out.append("")
     out.append("## 第二折驗證（獨立測試期）")
@@ -1138,32 +1172,28 @@ def main() -> None:
         f2_sig, f2_pf, f2_cal = f2
         out.append("### 訊號層（第二折）")
         out.append("")
-        out.append("| 方法 | n | test IC ↑ | RankIC ↑ | **ICIR ↑** | **Rank ICIR ↑** "
-                   "| 逐日 p (IC) | 逐日 p (RankIC) |")
-        out.append("|---|---:|---:|---:|---:|---:|---:|---:|")
-        out += f2_sig
+        out += F2_SIG_HEAD
+        out += [line for lab, line in f2_sig if lab not in SUPPLEMENT]
         out.append("")
         out.append("### 組合讀法（第二折）")
         out.append("")
         out.append("建構與警語同第一折的組合讀法表。列序與上表相同。")
         out.append("")
-        out.append("| 方法 | n " + PF_HEAD + "|")
-        out.append("|---|---:" + PF_SEP + "|")
-        out += f2_pf
+        out += ["| 方法 | n " + PF_HEAD + "|", "|---|---:" + PF_SEP + "|"]
+        out += [line for lab, line in f2_pf if lab not in SUPPLEMENT]
         out.append("")
         out.append("### 校準診斷（第二折）")
         out.append("")
         out.append("定義與警語同第一折。列序與上表相同。")
         out.append("")
-        out.append("| 方法 | n " + CAL_HEAD + "|")
-        out.append("|---|---:" + CAL_SEP + "|")
-        out += f2_cal
+        out += ["| 方法 | n " + CAL_HEAD + "|", "|---|---:" + CAL_SEP + "|"]
+        out += [line for lab, line in f2_cal if lab not in SUPPLEMENT]
     out.append("")
     out.append("**判定（§38）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
                "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
                "本專案第一次有架構改動在逐日層級對自家基準顯著。")
     out.append("")
-    out.append("**但（§40）**：對線性 baseline **不成立**。§40 當時 IC 名目領先每一個"
+    out.append("**但（§40）**：對線性 baseline（見附表）**不成立**。§40 當時 IC 名目領先每一個"
                "（+0.0055 ~ +0.0203）卻無一顯著；RankIC 與 R2 ridge 恰好打平"
                "（+0.0000），並輸給 KTW+（−0.0115）。"
                "§67 加入兩個線性 baseline 之後（2026-10-13），IC 輸關係型線性（−0.0088，p 0.32）、"
@@ -1171,6 +1201,27 @@ def main() -> None:
                "仍無一顯著。"
                "**兩折合看，相對最佳線性 baseline 是打平，不是超越。**")
     out.append("")
+    out.append("## 附表：同輸入的對照（非文獻）")
+    out.append("")
+    out.append("我們另外建構、又不是出自文獻的對照：吃同一組昨日報酬的線性模型"
+               "（KTW+、R2、TW+、關係型、兩區塊）與空模型 RC，2026-10-16 依教授建議由主表移來。"
+               "欄位定義、統計基準與檢定都和主表相同，`逐日 p` 仍是 MAGNET 本版對該列；"
+               "MAGNET 本版與 10 顆集成兩列只是參照，數字與主表相同。")
+    out.append("")
+    for title, lines in (("第一折：訊號層", sig_table(app_rows)),
+                         ("第一折：組合讀法", pf_table(app_rows)),
+                         ("第一折：校準診斷", cal_table(app_rows))):
+        out += [f"### {title}", ""] + lines + [""]
+    if f2 is not None:
+        refs = {"**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", ENSEMBLE[0][0]}
+
+        def app2(xs):
+            return [line for lab, line in xs if lab in SUPPLEMENT or lab in refs]
+        for title, head, xs in (
+                ("第二折：訊號層", F2_SIG_HEAD, f2_sig),
+                ("第二折：組合讀法", ["| 方法 | n " + PF_HEAD + "|", "|---|---:" + PF_SEP + "|"], f2_pf),
+                ("第二折：校準診斷", ["| 方法 | n " + CAL_HEAD + "|", "|---|---:" + CAL_SEP + "|"], f2_cal)):
+            out += [f"### {title}", ""] + head + app2(xs) + [""]
     out.append("## 種子集成與混合（proposal §43）")
     out.append("")
     out.append("以下三塊**不需要重訓任何模型**，全部由既有預測檔重算。"
@@ -1197,7 +1248,7 @@ def main() -> None:
     out.append("")
     out.append("乘一個倍數不改相關係數，所以本節不影響任何 IC / RankIC。"
                "**本節是看過示範結果之後才加的，屬描述性，p 值未校正多重比較。**"
-               "只列主結果、它的集成與主表的線性 baseline。線性 baseline 的 `runs/` 只存 test 預測，"
+               "只列主結果、它的集成與附表的線性 baseline。線性 baseline 的 `runs/` 只存 test 預測，"
                "val 預測由 `tw_lag_channel.py` / `relational_linear.py` 重算，"
                f"重算的 test 預測與存檔一致才採用（相對差 ≤ {ACC_TOL:g}）。")
     out.append("")
