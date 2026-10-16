@@ -26,8 +26,11 @@ Cross-Market Return Forecasting", arXiv:2603.10559
     - 目標：原文是 open-to-close，本研究是 next-day close-to-close
       （由凍結的資料層決定，不改）
     - 指標：原文報 Sharpe / PnL，這裡報 IC / RankIC 以便與其餘 baseline 並列
-    - 模型：xgboost 與 lightgbm 未安裝，故十個取六個
-      （OLS / LASSO / RIDGE / SVM / RF / AdaBoost）+ 兩個 ensemble
+    - 模型：十個全部實作（八個單一模型 + 兩個 ensemble）。XGBoost、LGBM 於 2026-10-16
+      加入（xgboost / lightgbm；macOS 需要 Homebrew 的 libomp），之前只有六個單一模型。
+      原文附錄 Table A.1 只給超參數網格、沒說怎麼選；本重現每個模型取一組固定值，
+      放在 config 的 baselines.bipartite：舊的六個沿用 2026-08-14 的值（AdaBoost 用
+      scikit-learn 預設的深度 3 樹與學習率 1.0，不在原文網格內），XGBoost、LGBM 取網格中間值
     - 特徵：原文用來源市場的日報酬，這裡取快照裡的 log_return，
       與神經模型看到的是同一份張量
     - universe：原文自承用全樣本市值選股、有 look-ahead；本研究在第一個
@@ -41,8 +44,9 @@ Cross-Market Return Forecasting", arXiv:2603.10559
     兩者都要報。rolling 讓模型看到離預測日很近的資料，對它有利；
     只報 rolling 會低估我們，只報 walkforward 會低估原文。
 
-用法：
-    .venv/bin/python scripts/bipartite_screen.py --scheme rolling
+用法（--models 省略時跑 config 裡的全部模型；視窗、重訓間隔、tau、winsorize 也從 config 讀）：
+    .venv/bin/python scripts/bipartite_screen.py --scheme rolling --out runs/linear
+    .venv/bin/python scripts/bipartite_screen.py --config configs/tw50_fold2.yaml --scheme rolling --out runs_f2
     .venv/bin/python scripts/bipartite_screen.py --scheme walkforward --tau 2
 """
 
@@ -66,28 +70,41 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# macOS：torch 先載入時，xgboost 一擬合就 segfault（同一程序裡有兩份 libomp：torch 內附的與
+# Homebrew 的；2026-10-16 實測，lightgbm 不受影響）。先 import xgboost 再 import torch 就正常，
+# 所以在載入資料集（會 import torch）之前先載入。沒裝這兩個套件時略過，其餘六個模型照常可跑。
+try:
+    import lightgbm  # noqa: F401, E402
+    import xgboost  # noqa: F401, E402
+except ImportError:
+    pass
+
 from src.dataset.features import TECH_FEATURE_COLS  # noqa: E402
 from src.dataset.multiplex_dataset import MultiplexDataset  # noqa: E402
 
 RET = TECH_FEATURE_COLS.index("log_return")
 
-W_DEFAULT = 250      # 原文 §5.2
-REFIT_EVERY = 10     # 原文 §5.2
-TAU_DEFAULT = 2.0    # 原文 §4.1
-WINSOR = 0.5         # 原文 §3：0.5 / 99.5 百分位
+# 視窗（原文 §5.2）、重訓間隔（§5.2）、tau（§4.1）、winsorize 百分位（§3）與各模型的超參數
+# 都放在 config 的 baselines.bipartite（2026-10-16 由程式搬過去，值不變）。
+SKLEARN = {"OLS": LinearRegression, "LASSO": Lasso, "RIDGE": Ridge, "SVM": SVR,
+           "RF": RandomForestRegressor, "AdaBoost": AdaBoostRegressor}
 
 
-def models() -> dict:
-    """原文十個模型中本機可用的六個 + 兩個 ensemble（在 predict 端合成）。"""
-    return {
-        "OLS":      LinearRegression(),
-        "LASSO":    Lasso(alpha=1e-4, max_iter=5000),
-        "RIDGE":    Ridge(alpha=1.0),
-        "SVM":      SVR(kernel="rbf", C=1.0, epsilon=1e-3),
-        "RF":       RandomForestRegressor(n_estimators=100, max_depth=5,
-                                          random_state=42, n_jobs=-1),
-        "AdaBoost": AdaBoostRegressor(n_estimators=50, random_state=42),
-    }
+def models(spec: dict, names) -> dict:
+    """依 config 建立 names 裡的估計器，每次呼叫都是新的、未擬合的。兩個 ensemble 在 predict 端合成。
+
+    XGBoost / LGBM 只在被要求時才 import，沒裝這兩個套件時其餘六個照常可跑。
+    """
+    out = {}
+    for name in names:
+        if name == "XGBoost":
+            from xgboost import XGBRegressor as cls
+        elif name == "LGBM":
+            from lightgbm import LGBMRegressor as cls
+        else:
+            cls = SKLEARN[name]
+        out[name] = cls(**(spec[name] or {}))
+    return out
 
 
 def tstats(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -125,7 +142,7 @@ def winsorize_by(a: np.ndarray, ref: np.ndarray, q: float) -> np.ndarray:
     return np.clip(a, lo, hi)
 
 
-def fit_predict(Xtr, Ytr, Xte, tau, mdl_names, standardize=True):
+def fit_predict(Xtr, Ytr, Xte, tau, mdl_names, spec, standardize=True):
     """
     對每個目標股票：t 檢定篩邊 -> 在被選中的來源股票上擬合 -> 預測。
 
@@ -151,9 +168,7 @@ def fit_predict(Xtr, Ytr, Xte, tau, mdl_names, standardize=True):
             mu, sd = xtr.mean(0), xtr.std(0)
             sd = np.where(sd < 1e-12, 1.0, sd)
             xtr, xte = (xtr - mu) / sd, (xte - mu) / sd
-        for m, est in models().items():
-            if m not in mdl_names:
-                continue
+        for m, est in models(spec, mdl_names).items():
             est.fit(xtr, ytr)
             out[m][:, j] = est.predict(xte)
     return out, n_edges
@@ -178,15 +193,26 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="[24] Bipartite screening 重現")
     ap.add_argument("--config", default="configs/tw50.yaml")
     ap.add_argument("--scheme", choices=["rolling", "walkforward"], default="rolling")
-    ap.add_argument("--tau", type=float, default=TAU_DEFAULT)
-    ap.add_argument("--window", type=int, default=W_DEFAULT)
-    ap.add_argument("--models", nargs="*", default=["OLS", "LASSO", "RIDGE", "RF"])
+    ap.add_argument("--tau", type=float, default=None, help="省略時用 config 的 baselines.bipartite.tau")
+    ap.add_argument("--window", type=int, default=None, help="省略時用 config 的 baselines.bipartite.window")
+    ap.add_argument("--models", nargs="*", default=None,
+                    help="省略時跑 config 的 baselines.bipartite.models 全部（依 config 的順序）")
     ap.add_argument("--no-standardize", action="store_true",
                     help="關閉特徵標準化（原文未載明；預設開啟，見 fit_predict 註解）")
     ap.add_argument("--out", default="runs")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(ROOT / args.config))
+    bc = (cfg.get("baselines") or {}).get("bipartite")
+    if not bc or not {"window", "refit_every", "tau", "winsor_pct", "models"} <= set(bc):
+        raise ValueError(f"{args.config} 缺少 baselines.bipartite（請在 configs 設定）")
+    tau = float(bc["tau"]) if args.tau is None else args.tau
+    window = int(bc["window"]) if args.window is None else args.window
+    refit_every, winsor, spec = int(bc["refit_every"]), float(bc["winsor_pct"]), bc["models"]
+    names = list(spec) if args.models is None else list(args.models)
+    unknown = [m for m in names if m not in spec]
+    if unknown:
+        raise ValueError(f"config 的 baselines.bipartite.models 沒有 {unknown}")
     kw = dict(snapshot_dir=cfg["data"]["snapshot_dir"],
               features_dir=cfg["data"]["features_dir"],
               T=cfg["model"]["lstm"]["T_history"],
@@ -211,30 +237,30 @@ def main() -> None:
         dates.append(s["target_date"])
     dates = np.asarray(dates)
     te0 = n_tr + n_va                                  # 測試期第一個索引
-    X = winsorize_by(X, X[:n_tr], WINSOR)              # 百分位只用訓練期
-    Y = winsorize_by(Y, Y[:n_tr], WINSOR)
+    X = winsorize_by(X, X[:n_tr], winsor)              # 百分位只用訓練期
+    Y = winsorize_by(Y, Y[:n_tr], winsor)
     print(f"[24] N={N} 天，train {n_tr} / val {n_va} / test {n_te}，"
           f"來源 {ds_all.n_l1} 檔 -> 目標 {ds_all.n_l2} 檔")
-    print(f"     scheme={args.scheme}  tau={args.tau}  window={args.window}  "
-          f"refit_every={REFIT_EVERY}  models={args.models}")
+    print(f"     scheme={args.scheme}  tau={tau}  window={window}  "
+          f"refit_every={refit_every}  models={names}")
 
-    P = {m: np.empty((n_te, ds_all.n_l2)) for m in args.models}
+    P = {m: np.empty((n_te, ds_all.n_l2)) for m in names}
     edges = []
     t0 = time.time()
     if args.scheme == "rolling":
-        for blk in range(0, n_te, REFIT_EVERY):
+        for blk in range(0, n_te, refit_every):
             t = te0 + blk
-            lo = max(0, t - args.window)
-            out, ne = fit_predict(X[lo:t], Y[lo:t], X[t:t + REFIT_EVERY],
-                                  args.tau, args.models, not args.no_standardize)
+            lo = max(0, t - window)
+            out, ne = fit_predict(X[lo:t], Y[lo:t], X[t:t + refit_every],
+                                  tau, names, spec, not args.no_standardize)
             edges.append(ne)
-            for m in args.models:
+            for m in names:
                 P[m][blk:blk + out[m].shape[0]] = out[m]
     else:
         out, ne = fit_predict(X[:n_tr], Y[:n_tr], X[te0:te0 + n_te],
-                              args.tau, args.models, not args.no_standardize)
+                              tau, names, spec, not args.no_standardize)
         edges.append(ne)
-        for m in args.models:
+        for m in names:
             P[m][:] = out[m]
 
     tot_pairs = ds_all.n_l1 * ds_all.n_l2
@@ -246,18 +272,18 @@ def main() -> None:
     stamp = time.strftime("%Y%m%d_%H%M")
     print(f"\n{'model':10s} {'test IC':>9s} {'RankIC':>9s} {'paired7':>9s} {'unpair43':>9s}")
     preds = {}
-    for m in args.models:
+    for m in names:
         preds[m] = P[m]
-    if len(args.models) > 1:
-        preds["ens-avg"] = np.mean([P[m] for m in args.models], axis=0)
-        preds["ens-med"] = np.median([P[m] for m in args.models], axis=0)
+    if len(names) > 1:
+        preds["ens-avg"] = np.mean([P[m] for m in names], axis=0)
+        preds["ens-med"] = np.median([P[m] for m in names], axis=0)
     for m, Yh in preds.items():
         ic, ric = daily_ic(Yh, Yte)
         icp, _ = daily_ic(Yh, Yte, paired)
         icu, _ = daily_ic(Yh, Yte, unpaired)
         print(f"{m:10s} {ic:+9.4f} {ric:+9.4f} {icp:+9.4f} {icu:+9.4f}")
         # tau 進目錄名：掃 tau 時 stamp 只到分鐘，不帶 tau 會互相覆蓋
-        d = ROOT / args.out / f"{stamp}_bipartite_{args.scheme}_t{args.tau:g}_{m}"
+        d = ROOT / args.out / f"{stamp}_bipartite_{args.scheme}_t{tau:g}_{m}"
         (d / "predictions").mkdir(parents=True, exist_ok=True)
         rows = [(dte[t], tw_codes[j], Yh[t, j], Yte[t, j])
                 for t in range(n_te) for j in range(len(tw_codes))]
@@ -265,7 +291,9 @@ def main() -> None:
             d / "predictions" / "test_predictions.csv", index=False)
         json.dump({"slug": d.name, "tag": f"bipartite_{args.scheme}_{m}",
                    "status": "FINISHED", "scheme": args.scheme, "model": m,
-                   "tau": args.tau, "window": args.window,
+                   "tau": tau, "window": window, "refit_every": refit_every,
+                   "models_in_ensemble": names,
+                   "hyperparameters": spec.get(m) if m in spec else None,
                    "mean_edges": float(np.mean(edges)),
                    "test_metrics": {"IC": ic, "RankIC": ric,
                                     "IC_paired7": icp, "IC_unpaired43": icu}},

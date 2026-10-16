@@ -95,10 +95,11 @@ per-node per-dimension gate meaningfully specializes.
 return prediction (directly tradeable), and focused pair-wise structure
 vs broad market network.
 
-### US-China Bipartite (Zhu et al., 2026)
+### US-China Bipartite (Liu, Grith, Dong & Cucuringu, 2026)
 
-> A Bipartite Graph Approach to U.S.-China Cross-Market Return Forecasting
-> arXiv:2603.10559 (2026).
+> Liu, J., Grith, M., Dong, X., & Cucuringu, M. (2026).
+> **A Bipartite Graph Approach to U.S.-China Cross-Market Return Forecasting.**
+> arXiv:2603.10559.
 > https://arxiv.org/abs/2603.10559
 
 - Directed bipartite graph: US nodes → China nodes
@@ -108,8 +109,9 @@ vs broad market network.
   predict China intraday returns, reverse effect limited
 
 **MAGNET differentiation**: End-to-end neural training vs two-stage
-(statistical edge selection + traditional ML). Stock-level vs
-market-index-level. **Reinforcing evidence**: this paper's finding
+(statistical edge selection + traditional ML). Both work at the stock
+level; this paper predicts open-to-close returns (US -> China), MAGNET
+predicts close-to-close returns (US -> Taiwan). **Reinforcing evidence**: this paper's finding
 of US-leading-Asia asymmetry independently supports MAGNET's ADR-TW
 structural assumption.
 
@@ -328,7 +330,7 @@ Order roughly by citation frequency in the paper text.
 - [CONF][2020][Sawhney-MANSF] Sawhney et al., 2020, EMNLP — MAN-SF
 - [CONF][2024][Li-MASTER] Li et al., 2024, AAAI — MASTER
 - [ARXIV][2024][MDGNN] MDGNN (arxiv 2402.06633)
-- [ARXIV][2026][USChinaBipartite] US-China Bipartite (arxiv 2603.10559)
+- [ARXIV][2026][Liu-USChinaBipartite] Liu et al., 2026 — US-China Bipartite (arxiv 2603.10559)
 - [CONF][2021][Sawhney-STHANSR] Sawhney et al., 2021, AAAI — STHAN-SR
 - [JRN][1990][Lo-MacKinlay] Lo & MacKinlay, 1990 — Lead-lag
 - [JRN][2007][Hou-Lead] Hou, 2007 — Industry lead-lag

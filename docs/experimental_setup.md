@@ -120,6 +120,7 @@ measured Type-M exaggeration on this project's data is 1.41x.
 | PyTorch | 2.11.0 |
 | PyTorch Geometric | 2.7.0 (GATv2Conv) |
 | NumPy / scikit-learn / SciPy | 2.4.3 / 1.9.0 / 1.17.1 |
+| XGBoost / LightGBM | 3.4.1 / 4.7.0 — used only by the [24] reproduction (`scripts/bipartite_screen.py`); on macOS both need Homebrew `libomp` (22.1.7), and `xgboost` must be imported before `torch` |
 | Device | Apple Silicon MPS |
 | Experiment tracking | MLflow, local file store (`./mlruns`) |
 | Reproducibility check | `scripts/freeze_k7.py --verify` — SHA-256 identical on the deterministic path, and \|d\| = 0.0000 on the stochastic path |

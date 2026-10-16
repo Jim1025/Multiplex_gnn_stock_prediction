@@ -101,8 +101,9 @@ NEURAL = [
     ("MAN-SF [11]",                   "tw50_bl_man_sf",    "文獻", "未調參"),
 ]
 NONNEURAL = [
-    ("[24] 二部圖 ens-avg",  "*_bipartite_walkforward_t2_ens-avg", "文獻", "t 檢定篩邊 + 集成"),
-    ("[24] 二部圖 LASSO",    "*_bipartite_walkforward_t2_LASSO",   "文獻", ""),
+    ("[24] 二部圖 ens-avg",  "*_bipartite_rolling_t2_ens-avg", "文獻",
+     "t 檢定篩邊 + 集成；滾動 250 天、每 10 天重訓（原文做法）"),
+    ("[24] 二部圖 LASSO",    "*_bipartite_rolling_t2_LASSO",   "文獻", "滾動（同上）"),
     ("KTW+（rank 目標）",     "*_fvg_KTWp",                          "線性", "美股+台股 80 維"),
     # §67（2026-10-13 加，scripts/relational_linear.py）。登記的確認未通過，
     # 依登記的規則仍列入：關係型的 IC 兩折都高於 KTW+、ICIR 只有第二折較高，兩者並列最高標；
@@ -127,6 +128,17 @@ ENSEMBLE = [
 SUPPLEMENT = frozenset({"KTW+（rank 目標）", "關係型線性（z 目標）", "兩區塊 ridge（z 目標）",
                         "R2（30 檔美股報酬）", "R2 per-target ridge", "TW+（美股+台股 80 維）",
                         "RC 常數對照"})
+# [24] 兩折一律用滾動版（原文做法：250 天視窗、每 10 天重訓；2026-10-16 起統一，之前第一折用同協定版）。
+# runs/ 與 runs_f2/ 裡有多批同名的 [24] run（含 2026-08-14 修正 winsorize 前視之前的舊版），
+# 一律只取最新一批：主表第一折的 nonneural_stats 本來就取最新，第二折與 §43 經 _latest 解析，
+# 避免把多批 run 當成多顆種子平均（§43 (B) 第一折原本就因此混入了 4 批）。
+BIP = "*_bipartite_rolling_t2_{}"
+
+
+def _latest(pattern: str) -> str | None:
+    """glob 到多個目錄時只取最新一批（目錄名以時間戳開頭，排序即時間序），回傳相對 ROOT 的路徑。"""
+    ds = sorted(glob.glob(str(ROOT / pattern), recursive=True))
+    return os.path.relpath(ds[-1], ROOT) if ds else None
 
 
 # 預測檔來源。reeval = CPU 重評版（scripts/reeval_checkpoints.py 產生），
@@ -601,11 +613,13 @@ def _fold2_rows():
             ("關係型線性（z 目標）",
              _load(str(ROOT / "runs_f2/*_lin_relational/predictions/test_predictions.csv")), None),
             ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
+    bip2 = {m: (_latest(f"runs_f2/{BIP.format(m)}") or "runs_f2/__missing__")
+            + "/predictions/test_predictions.csv" for m in ("LASSO", "ens-avg")}
     for lab, pat in (("兩區塊 ridge（z 目標）", "runs_f2/*_lin_twoblock/predictions/test_predictions.csv"),
                      ("KTW+（rank 目標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
-                     ("[24] 二部圖 LASSO", "runs_f2/*bipartite*t2_LASSO/predictions/*.csv"),
+                     ("[24] 二部圖 LASSO", bip2["LASSO"]),
                      ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
-                     ("[24] 二部圖 ens-avg", "runs_f2/*bipartite*t2_ens-avg/predictions/*.csv"),
+                     ("[24] 二部圖 ens-avg", bip2["ens-avg"]),
                      ("TW+（美股+台股 80 維）", "runs_f2/*fvg_TWp/predictions/*.csv"),
                      ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
                      ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")):
@@ -765,8 +779,8 @@ def _ens_block():
         return None
 
     NEW_BLS = (("關係型線性（z 目標）", "*_lin_relational"), ("兩區塊 ridge（z 目標）", "*_lin_twoblock"))
-    BLS = (("KTW+（rank 目標）", "*_fvg_KTWp"), *NEW_BLS, ("[24] 二部圖 LASSO", "*bipartite*t2_LASSO"),
-           ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", "*bipartite*t2_ens-avg"),
+    BLS = (("KTW+（rank 目標）", "*_fvg_KTWp"), *NEW_BLS, ("[24] 二部圖 LASSO", BIP.format("LASSO")),
+           ("R2 per-target ridge", "*_ridge_R2"), ("[24] 二部圖 ens-avg", BIP.format("ens-avg")),
            ("RC 常數對照", "*_ridge_RC"))
     out += ["", "### (B) 集成後對線性 baseline 的逐日檢定", "",
             "| 折 | 對照 | 其 IC ↑ | 其 RankIC ↑ | 其 **ICIR ↑** | 其 **Rank ICIR ↑** "
@@ -778,7 +792,9 @@ def _ens_block():
         en, cut = ens_cache[lab]
         root = "runs/linear" if lab == "第一折" else "runs_f2"
         for bl, bp in BLS:
-            b = _per_seed(f"{root}/{bp}", cut)
+            # [24] 只取最新一批（見 BIP 的說明）；其餘照舊。R2 的三批 ridge_R2 逐位元相同，平均不改數字。
+            pat = _latest(f"{root}/{bp}") if bl.startswith("[24]") else f"{root}/{bp}"
+            b = _per_seed(pat, cut) if pat else None
             if b is None:
                 continue
             d, pv = _cmp(en, b)
@@ -1128,20 +1144,26 @@ def main() -> None:
             if len(_cals) > 2 else float("nan"))
     _above = (sum(round(c["mse"] * 1e3, 3) > round(_bc["var_y"] * 1e3, 3) for c in _cals)
               if _bc else 0)
+    # 「低於錨」的列（主表加附表）原本寫死為 [24] 0.297 與 R2 0.373；
+    # 2026-10-16 [24] 改用滾動版後 MSE 會變，改成計算值。比較精度同 _above（三位小數）。
+    _below = ([(r[0], r[3]["cal"]["mse"] * 1e3) for r in ordered if r[3].get("cal")
+               and round(r[3]["cal"]["mse"] * 1e3, 3) < round(_bc["var_y"] * 1e3, 3)] if _bc else [])
+    _below_txt = ("少數低於它的列（"
+                  + "、".join(f"{'附表的 ' if lab in SUPPLEMENT else ''}`{lab}` {m:.3f}" for lab, m in _below)
+                  + "）靠的是**比常數還往均值縮**，不是靠預測得準——") if _below else ""
     _k = next((i for i, r in enumerate(ordered, 1) if r[0].startswith("KTW+")), 0)
     _krank = "零一二三四五六七八九十"[_k] if 0 < _k <= 10 else f" {_k} "
     out.append("**這一組不是準度，讀法和上面兩張表相反。** §60.1 宣告 `y_hat` 是"
                "**基數分數、尺度未校正**，所以 MSE / RMSE 量到的主要是**尺度誤差**，"
                "不是排序品質。列序仍照 IC 排，於是本表最重要的一件事直接看得到："
-               "**MSE 由小到大幾乎就是離散比由小到大**"
+               "**MSE 由小到大大致就是離散比由小到大**"
                f"（{len(_cals)} 列的 Spearman = **{_rho:+.2f}**），**與 IC 無關**。")
     out.append("")
     out.append(f"錨：{_anchor}。`R² = 1 − MSE / Var(y)`，所以 **`MSE (1e-3)` 超過"
                "那個值就代表 level R² 是負的**。關鍵是誰沒超過：附表的 `RC 常數對照` "
                "（離散比 0.026）**恰好落在 0.405**——一個永遠猜均值的模型正是 "
-               "`MSE = Var(y)` 的定義。少數低於它的列（`[24]` 0.297、附表的 "
-               "`R2 ridge` 0.373）靠的是**比常數還往均值縮**，不是靠預測得準——"
-               f"本表 {len(_cals)} 列裡有 {_above} 列在 0.405 之上。"
+               "`MSE = Var(y)` 的定義。" + _below_txt
+               + f"本表 {len(_cals)} 列裡有 {_above} 列在 0.405 之上。"
                "`src/train/metrics.py:regression_metrics` 的 docstring 早就記了"
                "這件事：**MSE 獎勵塌縮**。")
     out.append("")
@@ -1163,7 +1185,8 @@ def main() -> None:
     out.append("")
     out.append("切法：train 0-902 / val 903-1149，評估窗 **2023-12-20 ~ 2024-12-25**"
                "（246 天），與第一折的測試期完全不重疊，且模型從未在其上做過任何選擇。"
-               "所有線性 baseline 皆以第二折切法重新擬合，非沿用第一折的版本。")
+               "所有線性 baseline 皆以第二折切法重新擬合，非沿用第一折的版本。"
+               "[24] 兩折都用滾動版（原文做法，2026-10-16 統一）。")
     out.append("")
     f2 = _fold2_rows()
     if f2 is None:
