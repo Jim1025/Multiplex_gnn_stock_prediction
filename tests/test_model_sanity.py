@@ -1403,3 +1403,98 @@ def test_ic_loss_formula_and_scale_invariance() -> None:
     crit = CombinedLoss({"mse": 0.0, "rank": 0.0, "align": 0.0, "variance": 0.0, "ic": 2.0}, {"enabled": False})
     tot, comps = crit(torch.tensor(y_hat), torch.tensor(y))
     assert abs(tot.item() - 2.0 * want) < 1e-10 and abs(comps["ic"] - want) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# 關係型台股層傳遞（proposal §71）
+# ---------------------------------------------------------------------------
+
+def _magnet_tw_rel(config: dict, enabled: bool | None, **kw) -> MAGNET:
+    """enabled=None 表示設定裡完全沒有 tw_relational 這一段。"""
+    cfg = copy.deepcopy(config)
+    if enabled is None:
+        cfg["model"].pop("tw_relational", None)
+    else:
+        cfg["model"]["tw_relational"] = {**cfg["model"]["tw_relational"],
+                                         "enabled": enabled, **kw}
+    torch.manual_seed(cfg["training"]["seed"])
+    np.random.seed(cfg["training"]["seed"])
+    return MAGNET(cfg)
+
+
+def test_tw_relational_off_matches_baseline(config: dict, small_batch: dict) -> None:
+    """未啟用時不建立任何參數，輸出與設定裡沒有這一段的模型逐位元相同。"""
+    m_off = _magnet_tw_rel(config, enabled=False).eval()
+    m_base = _magnet_tw_rel(config, enabled=None).eval()
+    assert dict(m_off.named_parameters()).keys() == dict(m_base.named_parameters()).keys()
+    with torch.no_grad():
+        assert torch.equal(m_off(small_batch)[0], m_base(small_batch)[0])
+
+
+def test_tw_relational_zero_init_matches_baseline(config: dict, small_batch: dict) -> None:
+    """零初始化時：其餘參數與不開時逐位元相同（不消耗 RNG），輸出也相同——同種子配對才乾淨。"""
+    m_on = _magnet_tw_rel(config, enabled=True, init_std=0.0).eval()
+    m_off = _magnet_tw_rel(config, enabled=False).eval()
+    p_on, p_off = dict(m_on.named_parameters()), dict(m_off.named_parameters())
+    assert set(p_on) - set(p_off) == {"tw_rel_W"}
+    assert all(torch.equal(p_on[k], p_off[k]) for k in p_off)
+    assert bool((m_on.tw_rel_W == 0).all())
+    with torch.no_grad():
+        assert torch.equal(m_on(small_batch)[0], m_off(small_batch)[0])
+
+
+def test_tw_relational_matrices_tw50() -> None:
+    """tw50：同產業不含自己、沒有同業的 9 檔整列為 0；與 relational_linear.relations() 同定義。"""
+    from src.dataset.config import load_universe
+    u = load_universe("tw50")
+    M = MAGNET._build_tw_relations(["same_industry", "other_industry"], u)
+    assert M.shape == (2, 50, 50)
+    same, other = M[0], M[1]
+    assert bool((same.diagonal() == 0).all()) and bool((other.diagonal() == 0).all())
+    rs = same.sum(1)
+    assert int((rs == 0).sum()) == 9 and torch.allclose(rs[rs > 0], torch.ones(41))
+    assert torch.allclose(other.sum(1), torch.ones(50))
+    lab = [u.industry[c] for c in u.tw_nodes]
+    for j in range(50):
+        peers = {k for k in range(50) if k != j and lab[k] == lab[j]}
+        others = {k for k in range(50) if lab[k] != lab[j]}
+        assert {int(k) for k in torch.nonzero(same[j]).flatten()} == peers
+        assert {int(k) for k in torch.nonzero(other[j]).flatten()} == others
+
+
+def test_tw_relational_formula(config: dict) -> None:
+    """訊息 = Σ_r（關係 r 的鄰居平均）x W_r，逐節點手算對照。"""
+    m = _magnet_tw_rel(config, enabled=True, init_std=0.1).eval()
+    R, d = m.tw_rel_W.shape[0], m.tw_rel_W.shape[1]
+    h = torch.randn(2, m.n_l2, d)
+    got = m._tw_relational(h)
+    want = torch.zeros_like(h)
+    for r in range(R):
+        for j in range(m.n_l2):
+            nb = torch.nonzero(m.tw_rel_M[r, j]).flatten()
+            if len(nb):
+                want[:, j] += h[:, nb].mean(dim=1) @ m.tw_rel_W[r]
+    assert torch.allclose(got, want, atol=1e-6)
+
+
+def test_tw_relational_zero_init_gets_gradient(config: dict, small_batch: dict) -> None:
+    """W 從 0 出發仍拿得到梯度（不會像 P11 的 z_t 正規化那樣卡在 0，§62.12）。"""
+    m = _magnet_tw_rel(config, enabled=True, init_std=0.0).train()
+    y_hat, extras = m(small_batch)
+    loss, _ = m.compute_loss(y_hat, small_batch["y"], extras)
+    loss.backward()
+    assert m.tw_rel_W.grad is not None and torch.isfinite(m.tw_rel_W.grad).all()
+    assert float(m.tw_rel_W.grad.abs().sum()) > 0
+
+
+def test_tw_relational_rejects_bad_config(config: dict) -> None:
+    with pytest.raises(ValueError, match="relations"):
+        _magnet_tw_rel(config, enabled=True, relations=["supply_chain"])
+    with pytest.raises(ValueError, match="relations"):
+        _magnet_tw_rel(config, enabled=True, relations=["same_industry", "same_industry"])
+    with pytest.raises(ValueError, match="init_std"):
+        _magnet_tw_rel(config, enabled=True, init_std=-1.0)
+    cfg = copy.deepcopy(config)
+    cfg["model"]["tw_relational"] = {"enabled": True}
+    with pytest.raises(ValueError, match="缺少"):
+        MAGNET(cfg)

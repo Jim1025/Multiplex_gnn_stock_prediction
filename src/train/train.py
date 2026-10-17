@@ -225,6 +225,7 @@ def train(
     features:          Optional[list]  = None,
     tw_lag_w:          Optional[float] = None,
     tw_lag_inputs:     Optional[str] = None,
+    tw_relational:     Optional[bool]  = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -465,6 +466,18 @@ def train(
         _overrides.append(f"tw_lag_w={tw_lag_w}")
     elif tw_lag_inputs is not None:
         raise ValueError("--tw-lag-inputs 必須與 --tw-lag-w 一起用（通道要有權重才會開啟）")
+    if tw_relational:
+        # 關係型台股層傳遞（proposal §71）。理由同 ④：--config 常是舊 run 的 config_snapshot
+        # （裡面沒有這一段），選項一律從 configs/base.yaml 的 model.tw_relational 合併進來；
+        # 覆寫在快照之前，快照記得到完整設定。
+        with open("configs/base.yaml", "r") as f:
+            base_trc = ((yaml.safe_load(f) or {}).get("model") or {}).get("tw_relational")
+        if not base_trc:
+            raise ValueError("configs/base.yaml 缺少 model.tw_relational")
+        trc = {**base_trc, **(cfg["model"].get("tw_relational") or {})}
+        trc["enabled"] = True
+        cfg["model"]["tw_relational"] = trc
+        _overrides.append("tw_relational=True")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -853,6 +866,13 @@ def train(
         }
         if tw_lag_info is not None:
             meta["tw_lag_channel"] = tw_lag_info
+        if getattr(model, "tw_rel_enabled", False):
+            # 關係型台股層（§71）：best checkpoint 的 W_r 大小，分析用（此時 model 已載入 best）
+            meta["tw_relational"] = {
+                "relations": list(model.tw_rel_names),
+                "W_fro": {nm: float(model.tw_rel_W[r].detach().norm())
+                          for r, nm in enumerate(model.tw_rel_names)},
+            }
         with open(run_dir / "meta.json", "w") as f:
             json.dump(meta, f, indent=2)
 
@@ -1011,6 +1031,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--tw-lag-inputs", choices=["l2", "l1_l2"], default=None,
                    help="通道的輸入：l2（④，台股 50 檔）| l1_l2（P12 的寬路徑，美股 30 + 台股 50，"
                         "proposal §63）。需與 --tw-lag-w 一起用")
+    p.add_argument("--tw-relational", action="store_true", default=None,
+                   help="開啟關係型台股層傳遞（proposal §71）：台股表示在融合前加上同產業、其他產業的"
+                        "鄰居平均 x W_r。其餘選項從 configs/base.yaml 的 model.tw_relational 讀")
     return p.parse_args()
 
 
@@ -1056,6 +1079,7 @@ if __name__ == "__main__":
         features=args.features,
         tw_lag_w=args.tw_lag_w,
         tw_lag_inputs=args.tw_lag_inputs,
+        tw_relational=args.tw_relational,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

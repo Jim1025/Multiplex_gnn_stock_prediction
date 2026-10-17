@@ -62,6 +62,10 @@ NEURAL = [
     # 的分解證偽：三階項是零，F1 與 rank1.0 各有顯著主效應。
     ("MAGNET 本版（F1 + 無A₂ + rank 1.0）", "tw50_betaF1nA2r1", "本專案",
      "2^3 的 (1,1,1)，見 §35.3"),
+    # §71（2026-10-17）：登記外的探索，依登記的主表規則不論結果都列入。登記判準未通過
+    # （兩折 ICIR 同為正，第一折 p 0.056），主結果 arm 不變。
+    ("MAGNET 本版 + 關係型台股層", "tw50_relTW", "本專案",
+     "同產業 / 其他產業的鄰居平均 x W_r；探索性，判準未通過，§71"),
     ("　└ F1 + rank 1.0（保留 A₂）", "tw50_betaF1r1", "本專案",
      "(1,0,1)，2^3 補格"),
     ("　└ 同上，但保留台股層圖與 F3", "tw50_betaR1", "本專案",
@@ -609,9 +613,12 @@ def _fold2_rows():
         ens = _load_frames([edf])
     # §67 的兩個線性 baseline（2026-10-13 加）依第二折 IC 插入：關係型 +0.1625 高於主 arm 的
     # 種子平均，排在它前面；兩區塊 +0.1513 排在主 arm 與 KTW+ 之間。
+    # §71 的關係型台股層（2026-10-17 加）第二折 IC 落在關係型線性與主 arm 之間，依 IC 插在這裡。
     rows = [(ENSEMBLE[0][0], ens, len(ens_files)),
             ("關係型線性（z 目標）",
              _load(str(ROOT / "runs_f2/*_lin_relational/predictions/test_predictions.csv")), None),
+            ("MAGNET 本版 + 關係型台股層",
+             _load(str(ROOT / "runs/**/*f2_relTW_s*/predictions/test_predictions.csv")), None),
             ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
     bip2 = {m: (_latest(f"runs_f2/{BIP.format(m)}") or "runs_f2/__missing__")
             + "/predictions/test_predictions.csv" for m in ("LASSO", "ens-avg")}

@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -55,8 +56,13 @@ KTW_F2 = "runs_f2/*fvg_KTWp/predictions/*.csv"
 
 def load(pat: str, fold2: bool = False) -> list[tuple[np.ndarray, np.ndarray]]:
     """pattern -> 逐 run 的 (ŷ, y)，形狀都是 [T, n]。"""
+    return load_files(sorted(glob.glob(str(ROOT / pat), recursive=True)), fold2)
+
+
+def load_files(files, fold2: bool = False) -> list[tuple[np.ndarray, np.ndarray]]:
+    """預測檔清單 -> 逐 run 的 (ŷ, y)。"""
     out = []
-    for f in sorted(glob.glob(str(ROOT / pat), recursive=True)):
+    for f in files:
         df = pd.read_csv(f)
         df["target_date"] = df["target_date"].astype(str).str[:10]
         if fold2:
@@ -240,30 +246,61 @@ def block_E():
     print("\n  -> KTW+ 自己也一樣掉。極端預測對兩邊都是有資訊的。")
 
 
+SEED_ORDER = (42, 7, 123, 11, 99, 314, 555, 777, 888, 2026)   # 10 顆種子的登記順序
+
+
+def _pick(pat: str, k: int = 5) -> list[str]:
+    """神經 arm 依種子取前 k 顆（SEED_ORDER 的順序），沒有種子的線性 baseline 全取。
+
+    2026-10-17 修正（proposal §72）：原本是 sorted(glob)[:5]，依路徑排序取前 5 個。
+    organize_runs.py 把 run 搬進子資料夾之後排序跟著變，同一個 arm 取到的種子就換了
+    （§60 的「F1 單獨」當時取到 s314–s2026，搬移後變成 s42–s99）。
+    """
+    files = sorted(glob.glob(str(ROOT / pat), recursive=True))
+    by_seed = {}
+    for f in files:
+        m = re.search(r"_s(\d+)$", Path(f).parents[1].name)
+        if m:
+            by_seed[int(m.group(1))] = f
+    if not by_seed:
+        return files
+    return [by_seed[s] for s in SEED_ORDER if s in by_seed][:k]
+
+
+def _latest_run(pat: str) -> str:
+    """[24] 只取最新一批（同 results_table.py 的 _latest，§70）。"""
+    ds = sorted(glob.glob(str(ROOT / pat), recursive=True))
+    return (os.path.relpath(ds[-1], ROOT) if ds else pat) + "/predictions/test_predictions.csv"
+
+
 def block_F():
     print("\n" + "=" * 74)
     print("F. 跨 arm：這不是「神經 vs 線性」")
     print("=" * 74)
+    # [24]：原本的 "runs/**/*bipartite*t2_LASSO/..." 會配到第一折的每一批 run（含修正前的舊程式
+    # 與 walkforward），被當成多顆種子平均（§70、§72）。改為主表用的滾動版最新一批。
     ARMS = [("MAGNET 本版（神經）", "runs/**/*tw50_betaF1nA2r1_s*/predictions/test_predictions.csv"),
             ("F1 + rank1.0（神經）", "runs/**/*tw50_betaF1r1_s*/predictions/test_predictions.csv"),
             ("F1 單獨（神經）", "runs/**/*tw50_betaF1_s*/predictions/test_predictions.csv"),
             ("beta 層前版（神經）", "runs/**/*tw50_beta_s*/predictions/test_predictions.csv"),
             ("KTW+（線性）", KTW_F1),
-            ("[24] LASSO（線性）", "runs/**/*bipartite*t2_LASSO/predictions/*.csv"),
+            ("[24] LASSO（線性）", _latest_run("runs/**/*_bipartite_rolling_t2_LASSO")),
             ("R2 ridge（線性）", "runs/**/*ridge_R2/predictions/*.csv"),
             ("RC 常數對照（線性）", "runs/**/*ridge_RC/predictions/*.csv")]
-    rng = np.random.default_rng(SEED)
     print(f"\n  第一折   {'':22s} {'n':>2s} {'mean IC':>9s} {'抽樣雜訊':>9s} {'押注報酬 sd':>11s} {'ICIR':>8s}")
     rows = []
     for nm, pat in ARMS:
-        rs = load(pat)
+        rs = load_files(_pick(pat))
         if not rs:
             print(f"  {'':9s}{nm:22s} (找不到)")
             continue
-        r = agg(rs[:5], lambda H, Y: decompose(H, Y, rng))
-        ir = agg(rs[:5], lambda H, Y: (icir(ic_series(H, Y)),))[0]
+        # 每個 arm 各自從 SEED 起抽（§72）：原本整個區塊共用一個 rng，前面 arm 的 run 數一變，
+        # 後面 arm 的半樣本抽樣就跟著變，單一列無法獨立重現。
+        rng = np.random.default_rng(SEED)
+        r = agg(rs, lambda H, Y: decompose(H, Y, rng))
+        ir = agg(rs, lambda H, Y: (icir(ic_series(H, Y)),))[0]
         rows.append((nm, r[3]))
-        print(f"  {'':9s}{nm:22s} {min(len(rs),5):2d} {r[0]:+9.4f} {r[2]:9.4f} {r[3]:11.4f} {ir:8.4f}")
+        print(f"  {'':9s}{nm:22s} {len(rs):2d} {r[0]:+9.4f} {r[2]:9.4f} {r[3]:11.4f} {ir:8.4f}")
     if rows:
         rows.sort(key=lambda x: x[1])
         print(f"\n  押注報酬 sd 由小到大：{'  <  '.join(n for n, _ in rows)}")

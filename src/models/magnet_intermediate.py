@@ -77,6 +77,10 @@ class MAGNETIntermediate(MAGNET):
 
     def __init__(self, cfg: dict) -> None:
         super().__init__(cfg)
+        # 關係型台股層（§71）接在 MAGNET.forward 的融合之前；本變體改寫了 forward，
+        # 開了也不會被用到，所以直接擋住，避免「開了卻沒作用」的假 null。
+        if self.tw_rel_enabled:
+            raise ValueError("magnet_intermediate 不支援 model.tw_relational")
 
         m_cfg    = cfg["model"]
         lstm_cfg = m_cfg["lstm"]

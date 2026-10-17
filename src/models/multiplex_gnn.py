@@ -518,6 +518,34 @@ class MAGNET(nn.Module):
             self.register_buffer("tw_lag_C", torch.zeros(n_in, self.n_l2))
             self.register_buffer("tw_lag_b", torch.zeros(self.n_l2))
 
+        # 關係型台股層傳遞（proposal §71）：台股表示在融合前加上依關係類型的訊息
+        #     h2_j <- h2_j + Σ_r mean_{k∈N_r(j)}(h2_k)·W_r
+        # r ∈ {同產業（不含自己）, 其他產業}，W_r 為 d'xd'、50 檔共用。這是 R-GCN
+        # （Schlichtkrull et al., 2018）依關係給權重的作法，自身由殘差保留（其 self-connection）。
+        # 為什麼不用 GAT：注意力是鄰居的非負加權平均，同一個頭裡自己和同業只能同號，
+        # 資料裡卻是「自身反轉、同業延續」（§62.4、§67.3）。依關係各給一個可正可負的轉換才裝得下；
+        # 舊的台股層內圖（A₂，|ρ| 建的同日相關邊）對稱、不分正負號，主 arm 已關閉（empty_l2）。
+        # 關係來自 universe 的 industry 欄，由 cfg 決定、不是學到的狀態，所以是非持久 buffer。
+        # 放在 __init__ 最後，理由同上兩段；init_std = 0 時零初始化、不消耗 RNG，
+        # 同一顆種子下其餘參數與不開時逐位元相同，起點即現行 MAGNET。
+        # 未啟用時完全不建立，既有 run 逐位元不變。
+        trc = m_cfg.get("tw_relational") or {}
+        self.tw_rel_enabled = bool(trc.get("enabled", False))
+        if self.tw_rel_enabled:
+            for k in ("relations", "init_std"):
+                if k not in trc:
+                    raise ValueError(f"model.tw_relational 缺少 {k!r}（請在 configs/base.yaml 設定）")
+            self.tw_rel_names = tuple(trc["relations"])
+            self.register_buffer("tw_rel_M", self._build_tw_relations(self.tw_rel_names, u),
+                                 persistent=False)                       # [R, n2, n2]
+            std = float(trc["init_std"])
+            if std < 0:
+                raise ValueError("model.tw_relational.init_std 不可為負")
+            W = torch.zeros(len(self.tw_rel_names), d_prime, d_prime)
+            if std > 0:
+                W.normal_(0.0, std)
+            self.tw_rel_W = nn.Parameter(W)                                  # [R, d', d']
+
     def set_tw_lag_channel(self, mu, sd, C, b) -> None:
         """寫入通道（④ 或 P12 的寬路徑）的封閉解。訓練開始前呼叫一次，之後不再更動（凍結）。"""
         if not self.tw_lag_enabled:
@@ -603,6 +631,11 @@ class MAGNET(nn.Module):
         if self.cs_demean_l2:
             h_L2 = self._cs_demean(h_L2)
 
+        # 關係型台股層傳遞（見 __init__ 的說明）：融合前、台股表示上。未啟用時不進入。
+        if self.tw_rel_enabled:
+            tw_rel_msg = self._tw_relational(h_L2)
+            h_L2 = h_L2 + tw_rel_msg
+
         # ── Phase 2: 跨市場融合 ───────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §4
         # 先把 L1 對齊到 L2 的索引空間（[B, n1, d'] → [B, n2, d']），
@@ -642,6 +675,8 @@ class MAGNET(nn.Module):
         }
         if self.tw_lag_enabled:
             extras["tw_lag_c"] = c                                            # [B, n2] 分析用
+        if self.tw_rel_enabled:
+            extras["tw_rel_msg"] = tw_rel_msg                                 # [B, n2, d'] 分析用
         if self.weak_mode is not None:
             extras["weak_beta"] = self._weak_beta_full() * self.weak_mask  # [n1, n2] 分析用
         if self.coupling_mode == "dense":
@@ -661,6 +696,47 @@ class MAGNET(nn.Module):
         if self.lstm.feat_idx is not None:
             x = x.index_select(-1, self.lstm.feat_idx)
         return x
+
+    def _tw_relational(self, h_L2: Tensor) -> Tensor:
+        """
+        關係型台股層的訊息 Σ_r M_r·h·W_r（M_r 的列已除以鄰居數，即鄰居平均）。
+
+            h_L2 : [B, n2, d']  ->  [B, n2, d']
+        """
+        msg = torch.einsum("rjk,bkd->brjd", self.tw_rel_M, h_L2)    # 每種關係的鄰居平均
+        return torch.einsum("brjd,rde->bje", msg, self.tw_rel_W)
+
+    @staticmethod
+    def _build_tw_relations(names, universe) -> Tensor:
+        """
+        台股層的關係矩陣 [R, n2, n2]：M[r, j, k] = 1/|N_r(j)|（k ∈ N_r(j)），其餘為 0。
+
+            same_industry   同產業的其他股票（不含自己）；沒有同業的股票整列為 0
+            other_industry  不同產業的股票
+
+        與 scripts/relational_linear.py 的 relations() 同一個定義（§67.3）。
+        """
+        ok = ("same_industry", "other_industry")
+        names = list(names)
+        if not names or len(set(names)) != len(names) or any(n not in ok for n in names):
+            raise ValueError(
+                f"model.tw_relational.relations 需為 {list(ok)} 中不重複的非空子集，得到 {names!r}")
+        missing = [c for c in universe.tw_nodes if universe.industry.get(c) is None]
+        if missing:
+            raise ValueError(f"[{universe.name}] 台股 {missing} 沒有 industry，無法建關係型台股層")
+        lab = [universe.industry[c] for c in universe.tw_nodes]
+        n = len(lab)
+        adj = {
+            "same_industry": [[float(lab[j] == lab[k] and j != k) for k in range(n)]
+                              for j in range(n)],
+            "other_industry": [[float(lab[j] != lab[k]) for k in range(n)] for j in range(n)],
+        }
+        out = []
+        for name in names:
+            A = torch.tensor(adj[name], dtype=torch.float32)
+            deg = A.sum(dim=1, keepdim=True)
+            out.append(A / torch.where(deg > 0, deg, torch.ones_like(deg)))
+        return torch.stack(out)
 
     @staticmethod
     def _cs_demean(h: Tensor) -> Tensor:

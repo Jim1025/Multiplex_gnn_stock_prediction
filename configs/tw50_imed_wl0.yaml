@@ -92,6 +92,14 @@ model:
     ridge_log10_alpha: [-2, 9, 23]   # alpha 網格 logspace(-2, 9, 23)，以 val 平均 IC 選
     blend_w: 0.3          # ④ 相對 GNN 輸出的權重（逐日 z 分數口徑）。兩折各自依 §62.7 的規則
                           # 在 val 上選定並事前登記：第一折 0.3、第二折 0.2（以 --tw-lag-w 傳入）
+  tw_relational:          # 關係型台股層傳遞（proposal §71）：台股表示在融合前加上依關係類型的訊息
+                          #   h2_j <- h2_j + Σ_r mean_{k∈N_r(j)}(h2_k)·W_r，W_r 為 d'xd'，50 檔共用
+                          # 關係取 universe 的 industry 欄（不動資料層）：同產業（不含自己）、其他產業；
+                          # 沒有同業的股票，同產業訊息為 0。預設 false，既有 run 逐位元不變；
+                          # 以 train.py 的 --tw-relational 開啟，其餘選項從這裡讀。
+    enabled: false
+    relations: [same_industry, other_industry]   # 可用：same_industry | other_industry
+    init_std: 0.0         # W_r 的初始標準差；0 = 零初始化，起點即現行 MAGNET（不消耗隨機數）
   weak_links:
     mode: free            # 1,493 條候選邊（30x50 扣掉 7 條恆等邊）
     lambda_sparse: 0.0    # 見檔頭第 2 點；與 tw50chk_wl0_* 一致
