@@ -40,6 +40,7 @@ RULES: list[tuple[str, str]] = [
     (r"_f2_ef(D3)?_",               "fold2/earlyfusion"),
     (r"_f2_icl",                    "fold2/icloss"),
     (r"_f2_smkt",                   "fold2/singlemarket"),
+    (r"_f2_bl_",                    "fold2/baselines"),   # 6 個文獻神經模型的第二折（§74）
     # 關係型台股層（§71）與同一天重跑的主 arm（程式漂移檢查），兩折對稱歸檔
     (r"_f2_relTW",                  "fold2/relational"),
     (r"_f2_rerun",                  "fold2/rerun"),

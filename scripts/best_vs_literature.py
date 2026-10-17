@@ -1,7 +1,8 @@
 """
 best_vs_literature.py — MAGNET 能不能稱最好（proposal §73）
 
-主指標 IC、第二指標 RankIC（2026-10-17 起）。對主表的每一個文獻方法（6 個文獻神經模型、[24] 的 10 個模型），
+主指標 IC、第二指標 RankIC（2026-10-17 起）。對主表的每一個文獻方法（6 個文獻神經模型、[24] 的 10 個模型；
+第二折的文獻神經模型 2026-10-17 補跑，§74），
 比較 MAGNET 本版（10 顆種子平均）與 10 顆集成：
 
   - 差值與逐日 HAC p；每折、每個指標各自做 Holm 校正（文獻方法為一族）
@@ -108,7 +109,8 @@ def series(files) -> tuple[list, np.ndarray]:
     """逐 run 的逐日 (IC, RankIC)，取全部 run 共同的日子後跨 run 平均。"""
     out = [_daily(pd.read_csv(f)) for f in files]
     k = sorted(set.intersection(*[set(x) for x in out]))
-    return k, np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in out]).mean(0)
+    # nan-aware（§74）：預測退化的日子 RankIC 無定義，略過；與 results_table._fold2_rows 相同
+    return k, np.nanmean(np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in out]), axis=0)
 
 
 def ens_series(files) -> tuple[list, np.ndarray]:
@@ -136,6 +138,9 @@ def fold2() -> None:
     ke, E = ens_series(bf)
     pats = [(R.bip_label(m), R._latest(f"runs_f2/{R.BIP.format(m)}") + "/predictions/test_predictions.csv", True)
             for m, _ in R.BIP_MODELS]
+    # 6 個文獻神經模型的第二折（2026-10-17 補跑，§74），與第一折同一族
+    pats += [(lab, f"runs/**/*f2_bl_{arm[len('tw50_bl_'):]}_s*/predictions/test_predictions.csv", True)
+             for lab, arm, cat, _ in R.NEURAL if cat == "文獻"]
     pats += [("關係型線性（z 目標）", "runs_f2/*_lin_relational/predictions/test_predictions.csv", False),
              ("兩區塊 ridge（z 目標）", "runs_f2/*_lin_twoblock/predictions/test_predictions.csv", False),
              ("KTW+（rank 目標）", "runs_f2/*fvg_KTWp/predictions/*.csv", False),
@@ -144,14 +149,19 @@ def fold2() -> None:
              ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv", False)]
     rows = []
     for lab, pat, lit in pats:
-        k, V = series(sorted(glob.glob(str(ROOT / pat), recursive=True)))
+        files = sorted(glob.glob(str(ROOT / pat), recursive=True))
+        if not files:
+            print(f"  [skip] 第二折 {lab}（找不到預測檔）")
+            continue
+        k, V = series(files)
         r = dict(lab=lab, lit=lit)
         for who, (kk, M) in (("m", (kb, B)), ("e", (ke, E))):
             ii = [k.index(d) for d in k if d in kk]
             jj = [kk.index(d) for d in k if d in kk]
-            r["ic"], r["ric"] = V[0][ii].mean(), V[1][ii].mean()
+            r["ic"], r["ric"] = np.nanmean(V[0][ii]), np.nanmean(V[1][ii])
             for i, key in ((0, "ic"), (1, "ric")):
                 dd = M[i][jj] - V[i][ii]
+                dd = dd[np.isfinite(dd)]
                 r[f"{who}_{key}_d"], r[f"{who}_{key}_p"] = float(dd.mean()), hac(dd)
         rows.append(r)
     report("第二折", rows, B[0].mean(), B[1].mean(), E[0].mean(), E[1].mean())

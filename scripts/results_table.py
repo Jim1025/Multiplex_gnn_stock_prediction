@@ -588,7 +588,11 @@ def _fold2_rows():
         # 日序列才算得出跨 run 的 sd。V 是它對 run 取平均，與加 sd 欄之前
         # 逐位元相同（第 2 個指標只給組合欄用，不進 V 的既有欄位）。
         P = np.array([[[x[d][i] for d in k] for i in (0, 1, 2)] for x in ds])
-        V = P.mean(axis=0)
+        # nan-aware（2026-10-17，§74）：預測退化的日子 Spearman 無定義（DeltaLag 第二折種子 7 有 22 天），
+        # 與第一折的 colmean / nanmean 同樣略過；沒有 NaN 的列數值不變。
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            V = np.nanmean(P, axis=0)
         # ICIR 逐 run 算完再平均。用 V[0]（跨 run 平均後的日序列）算會得到
         # 「集成」的 ICIR，系統性偏高，與主表的慣例不一致。
         per_ir = np.array([icir(P[r, 0]) for r in range(P.shape[0])])
@@ -641,6 +645,10 @@ def _fold2_rows():
             ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")]
     pats += [(bip_label(m), (_latest(f"runs_f2/{BIP.format(m)}") or "runs_f2/__missing__")
               + "/predictions/test_predictions.csv") for m, _ in BIP_MODELS]
+    # 6 個文獻神經模型的第二折（2026-10-17 補跑，§74）：各 3 顆種子，設定與第一折相同（未調參），
+    # tag 由第一折的 tw50_bl_<name> 換成 f2_bl_<name>；顯示名稱兩折相同。找不到 run 時該列略過。
+    pats += [(lab, f"runs/**/*f2_bl_{arm[len('tw50_bl_'):]}_s*/predictions/test_predictions.csv")
+             for lab, arm, cat, _ in NEURAL if cat == "文獻"]
     for lab, pat in pats:
         rows.append((lab, _load(str(ROOT / pat)), None))
 
@@ -679,13 +687,14 @@ def _fold2_rows():
         cells = []
         for i in (0, 1):
             dd = BESTV[i][jj] - V[i][ii]
+            dd = dd[np.isfinite(dd)]          # 同上：略過 RankIC 無定義的日子
             cells += [f"{dd.mean():+.4f}", f"{_hac(dd):.4f}"]
         # IC / RankIC 的 sd 與其點估計取同一組日子（ii）。ICIR 的點估計 IR 是在
         # 完整 kk 上算的，其 sd 因此也用完整 kk，兩者口徑一致。
         sig.append(
             f"| {lab} | {n_col} "
-            f"| {pm(V[0][ii].mean(), _sd(P[:, 0][:, ii].mean(axis=1)))} "
-            f"| {pm(V[1][ii].mean(), _sd(P[:, 1][:, ii].mean(axis=1)))} "
+            f"| {pm(np.nanmean(V[0][ii]), _sd(np.nanmean(P[:, 0][:, ii], axis=1)))} "
+            f"| {pm(np.nanmean(V[1][ii]), _sd(np.nanmean(P[:, 1][:, ii], axis=1)))} "
             f"| {cells[1]} | {cells[3]} |")
         oth.append(
             f"| {lab} | {n_col} "
@@ -1167,7 +1176,8 @@ def main() -> None:
     out.append("切法：train 0-902 / val 903-1149，評估窗 **2023-12-20 ~ 2024-12-25**"
                "（246 天），與第一折的測試期完全不重疊，且模型從未在其上做過任何選擇。"
                "所有線性 baseline 皆以第二折切法重新擬合，非沿用第一折的版本。"
-               "[24] 兩折都用滾動版（原文做法，2026-10-16 統一）。")
+               "[24] 兩折都用滾動版（原文做法，2026-10-16 統一）。"
+               "6 個文獻神經模型 2026-10-17 以第二折切法重訓，各 3 顆種子、設定與第一折相同（未調參，§74）。")
     out.append("")
     f2 = _fold2_rows()
     if f2 is None:
@@ -1561,6 +1571,7 @@ def main() -> None:
     out.append("- **逐日 p 用 Newey-West HAC 修正自相關**，以「日」為重複單位、種子視為固定，"
                "敏感但不外推到新種子。兩欄應一起看。")
     out.append("- **六個文獻 baseline 各只跑一組預設超參，MAGNET 跑了約 50 組設定。**"
+               "兩折都只有 3 顆種子（第二折 2026-10-17 補跑，§74）。"
                "這是目前最大的公平性缺口，比較結果須據此保留。")
     out.append("- **`log_volume_z` 的資料缺陷不是文獻 baseline 表現差的原因**（2026-09-27 驗證，"
                "proposal §55.9(h)）：資料層有 398 列成交量為 0（7 個全市場日期與個股停牌），"
@@ -1723,7 +1734,8 @@ def main() -> None:
                "全部線性 baseline 的塌縮天數皆為 0**，本表主要數字不受影響。"
                "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"
                "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。")
-    out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。")
+    out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。"
+               "第二折同樣：種子 7 有 40 天 50 檔的預測完全相同（§74）。")
     out.append("- 線性/樹模型（[24]、KTW+、關係型、兩區塊、R2、RC）無隨機種子，sd 欄為「—」。")
     txt = "\n".join(out)
     print(txt)

@@ -12710,9 +12710,10 @@ MAGNET 本版兩折合併：R²_oos +0.0201、命中率 54.24%，對不選股都
 - 校準診斷的說明改成只算主表：32 列（原 37 列），MSE 與離散比的 Spearman +0.90（原 +0.92），30 列在錨之上；
   KTW+ 的 IC 名次仍以主表加附表的 37 個方法計。
 
-**主表因此出現的兩個缺口**（第一個尚未處理）
+**主表因此出現的兩個缺口**（兩個都已處理）
 
-- 第二折主表的文獻方法只有 [24]：6 個文獻神經模型從未在第二折跑過，補齊需 18 個 run（各 3 顆種子）。
+- ~~第二折主表的文獻方法只有 [24]：6 個文獻神經模型從未在第二折跑過，補齊需 18 個 run（各 3 顆種子）。~~
+  **已補（2026-10-17）：18 個 run 跑完，見 §74。**
 - ~~主表兩折的 [24] 方案不同：第一折是同協定版（walkforward），第二折是滾動版（rolling，`runs_f2/` 只有這一版）。~~
   **已解決（2026-10-16）：兩折都改用滾動版，見 §70。**
 
@@ -13303,6 +13304,9 @@ MAGNET 本版減每一個文獻方法（第一折 16 個、第二折 10 個）�
 - **要一併附的保留：**
   1. 6 個文獻神經模型只跑了第一折，各 3 顆種子、沒有調參；MAGNET 試過約 50 組設定。這是最大的公平性缺口，補第二折需 18 個 run（§69）。
   2. 第二折的文獻比較只有 [24]。
+
+  > **2026-10-17：第 1、2 點的第二折已補，見 §74。** 6 個文獻神經模型在第二折的 IC 與 RankIC 也全部 Holm 後顯著低於 MAGNET。
+  > 保留改為「兩折都只有 3 顆種子、沒有調參」；第 3、4 點不變。
   3. [24] 是改到我們資料上的重現（台股、收盤到收盤報酬），不是原文的結果。
   4. 第一折的測試期在開發過程中用過很多次；第二折是登記過的獨立驗證，比較乾淨。兩折的結論一致。
 - **要升級成「顯著最好」，缺的是檢定力。** 對 [24] 最好的模型，MAGNET 的 IC 差只有 +0.004 / +0.010，
@@ -13314,3 +13318,146 @@ MAGNET 本版減每一個文獻方法（第一折 16 個、第二折 10 個）�
 .venv/bin/python scripts/results_table.py          # 主表與附錄 A–D
 .venv/bin/python scripts/best_vs_literature.py     # 73.3 的比較與 Holm 校正
 ```
+
+---
+
+## 74. 6 個文獻神經模型的第二折（2026-10-17）
+
+使用者要求（2026-10-17）：補跑第二折的 6 個文獻神經模型（§69、§73 列的缺口）。
+
+**範圍與限制**
+
+- 資料層沒有動。設定與第一折相同（未調參的預設超參），只換第二折的切法；種子與第一折相同（42、7、123）。
+- 登記在計算前寫下並記 SHA-256（74.6）。分析在 18 個 run 全部完成之後只跑一次。
+- **登記後的修正一處**（74.3）：第二折的 RankIC 對「名次相關無定義」的日子改為略過，與第一折的做法一致。只影響 DeltaLag 的 RankIC 一格。
+- repo 的改動：`scripts/results_table.py`（第二折加 6 列、上述修正、讀表注意兩條）、`scripts/best_vs_literature.py`（第二折的文獻族加 6 個）、
+  `scripts/organize_runs.py`（歸到 `runs/fold2/baselines`）。
+
+### 74.1 結論（先看這裡）
+
+1. **與第一折相同，6 個文獻神經模型在第二折也幾乎沒有預測力**：IC −0.0077 ~ +0.0095、RankIC −0.0039 ~ +0.0447。
+2. **MAGNET 對它們兩折、兩個指標都在 Holm 校正後顯著較高**（第二折的文獻族共 16 個）。依登記，§73 的「對文獻神經模型顯著」延伸到兩折，
+   保留改為「兩折都只有 3 顆種子、沒有調參」。
+3. **§73 的整體判斷不變**：MAGNET 在所有文獻方法中 IC 與 RankIC 最高（兩折、點估計）；對 [24] 最好的線性模型（LASSO、RIDGE、OLS 與兩種集成）仍不顯著。
+4. 未調參的模型多半很早就停：18 個 run 有 10 個的 val 最佳落在前 4 個 epoch（第一折是 7 個）。
+
+### 74.2 結果（test 只算一次）
+
+| 各 3 顆種子 | 第二折 IC | 第二折 RankIC | 第一折 IC / RankIC（對照） |
+|---|---:|---:|---|
+| Adv-ALSTM [10] | +0.0095 ± 0.0138 | +0.0235 ± 0.0168 | −0.0014 / +0.0051 |
+| MAN-SF [11] | +0.0065 ± 0.0116 | +0.0337 ± 0.0128 | +0.0113 / +0.0075 |
+| HGT [14] | +0.0051 ± 0.0027 | +0.0447 ± 0.0119 | +0.0011 / +0.0086 |
+| DeltaLag [13] | −0.0001 ± 0.0113 | +0.0013 ± 0.0167 | −0.0014 / −0.0059 |
+| HATS [12] | −0.0023 ± 0.0059 | +0.0215 ± 0.0130 | −0.0053 / +0.0102 |
+| MEIG [1] | −0.0077 ± 0.0102 | −0.0039 ± 0.0112 | +0.0061 / +0.0160 |
+| MAGNET 本版（對照，10 顆） | +0.1537 ± 0.0039 | +0.1411 ± 0.0056 | +0.1090 / +0.1116 |
+
+- MAGNET 本版對這 6 個的逐日 p，兩個指標都 < 0.0001（第二折主表）。
+- **Holm（第二折的文獻族 16 個）**：IC 顯著 11 個（6 個文獻神經模型與 [24] 的 RF、AdaBoost、XGBoost、LightGBM、SVM），
+  RankIC 顯著 9 個（6 個文獻神經模型與 [24] 的 XGBoost、LightGBM、SVM）。
+  不顯著的與 §73 相同：[24] 的 LASSO、RIDGE、OLS、ens-med、ens-avg；RankIC 另有 RF、AdaBoost。
+- 換成 10 顆集成：IC 顯著 12 個（多 [24] ens-avg）、RankIC 顯著 10 個（多 AdaBoost）。
+- 第二折的附錄 A4–A6（ICIR、組合讀法、校準診斷）也加了這 6 列。
+
+### 74.3 登記後的修正：第二折 RankIC 的 NaN 日
+
+- DeltaLag 種子 7 有 40 天 50 檔的預測完全相同。其中 18 天的標準差恰為 0，被當成常數略過；
+  另 22 天因浮點誤差標準差不為 0，沒有被略過，這些天的 Spearman 無定義（NaN）。
+- 登記版的第二折程式直接取平均，NaN 擴散到整格：主表的 DeltaLag RankIC 印成「—」、p 為 nan，
+  `best_vs_literature.py` 的 Holm 把它算成不顯著。這個問題以前沒出現，因為第二折從來沒有預測退化的 run。
+- 修正：跨種子平均與逐日檢定都略過 NaN，與第一折 `_frame_series` / `colmean` 的做法相同。
+- 檢查：修正前後重產的 `results_table.md` 只有 DeltaLag 第二折那一列不同（RankIC 由「—」變成 +0.0013 ± 0.0167，p < 0.0001）；
+  `best_vs_literature.py` 第一折的輸出完全相同。
+- 結論不受影響：DeltaLag 的 IC 原本就 Holm 後顯著。那 22 天的 IC 是用浮點誤差算的，沒有意義但也沒有方向；
+  DeltaLag 的數字照舊標為「不可信」。
+
+### 74.4 可以宣稱的寫法（更新 §73.3）
+
+- 「在兩個不重疊的測試期，MAGNET 的 IC 與 RankIC 都高於所有文獻方法。對 6 個文獻神經模型與 [24] 中較弱的模型，
+  兩折的差距在 Holm 校正後都顯著；對 [24] 最好的線性模型（LASSO、RIDGE、OLS 與兩種集成）則不顯著。」
+- 保留：文獻神經模型兩折都只有 3 顆種子、沒有調參（MAGNET 試過約 50 組設定）；[24] 是改到我們資料上的重現。
+
+### 74.5 重跑方式
+
+```
+# S ∈ {42, 7, 123}；A ∈ {hgt, delta_lag, meig, adv_alstm, hats, man_sf}
+.venv/bin/python -m src.train.train --config configs/tw50_fold2.yaml --architecture A --seed S --tag f2_bl_A_sS
+.venv/bin/python scripts/organize_runs.py --apply
+.venv/bin/python scripts/results_table.py
+.venv/bin/python scripts/best_vs_literature.py
+```
+
+### 74.6 附錄：事前登記原文（標題層級下調，內容逐字）
+
+| 檔案 | 寫下時間 | SHA-256 | test 計算 |
+|---|---|---|---|
+| `reg_f2_baselines.md` | 2026-10-17 14:49:26 | `8a98a05773bf88995f65a60141f1d2b91e549fdd8bb06aa7041d2123728736fb` | 第一個 run 14:49:38 開始；分析 15:34:50 |
+
+登記列出的其餘程式雜湊在分析時重新核對過，與登記時相同。74.3 的修正與讀表注意的文字是分析之後才改的，
+修正後的雜湊：`scripts/results_table.py` `85470a3b55072c0c619fd3cf47e6eee761a5993347acaaa62bb600591043807b`、
+`scripts/best_vs_literature.py` `971416bd4f78274ff95543f7add0f5c1b6aa764c123eea66fe337716e3907f1a`。
+
+<details><summary>reg_f2_baselines.md</summary>
+
+#### 登記：6 個文獻神經模型的第二折（proposal §74）
+
+時間：2026-10-17 14:49（計算前寫下，並記本檔與下列程式的 SHA-256）。不動資料層、不碰 2026 年資料。
+寫下時，第二折沒有任何一個文獻神經模型的 run。
+
+##### 1. 背景
+
+- §69、§73 的缺口：6 個文獻神經模型（HGT、DeltaLag、MEIG、Adv-ALSTM、HATS、MAN-SF）只跑過第一折，
+  第二折主表的文獻方法只有 [24]。使用者 2026-10-17 要求補跑。
+- 主指標 IC、第二指標 RankIC（2026-10-17 起）；不與 ④、P10、P12 比較。
+
+##### 2. Run
+
+設定與第一折相同（未調參的預設超參），只換第二折的切法（`configs/tw50_fold2.yaml` 與 `configs/tw50.yaml` 只差
+`data.split`）。種子與第一折相同：S ∈ {42, 7, 123}。
+
+    .venv/bin/python -m src.train.train --config configs/tw50_fold2.yaml --architecture A --seed S --tag f2_bl_<name>_sS
+
+A / <name>：hgt / hgt、delta_lag / delta_lag、meig / meig、adv_alstm / adv_alstm、hats / hats、man_sf / man_sf，共 18 個 run。
+兩條佇列並行（hgt、delta_lag、meig 一條；adv_alstm、hats、man_sf 一條）。若某個 run 因例外中止，只重跑該 run 一次並記錄。
+
+**事先知道的兩個差異（寫在結果之前）：**
+
+- 第一折的 run（2026-08-14）在 MPS 上算 val 指標選 checkpoint，不可重現；第二折的 run 用 CPU 算（`eval_device: cpu`）。
+  test 的比較兩折都用 CPU 的預測（第一折是重評版）。
+- 不做程式漂移的重跑：6 個模型的程式自第一折以來沒有改過（`src/models/__init__.py` 只多了一個無關架構的分派）。
+
+##### 3. 分析（程式在登記前改好，run 完成後才跑一次）
+
+- `scripts/results_table.py`：第二折主表加入 6 列（IC、RankIC 與兩者對 MAGNET 本版的逐日 HAC p）。
+- `scripts/best_vs_literature.py`：第二折的文獻族由 [24] 的 10 個加為 16 個，每個指標各做一次 Holm；同時列 10 顆集成。
+
+##### 4. 判讀（寫在結果之前）
+
+| 結果 | 寫法 |
+|---|---|
+| MAGNET 本版對 6 個模型的 IC 與 RankIC，兩折都較高且 Holm 後都顯著 | §73 的「對文獻神經模型顯著」延伸到兩折；公平性的保留改為「兩折都只有 3 顆種子、未調參」 |
+| 有任何一個在第二折 Holm 後不顯著，或點估計高於 MAGNET | 照實寫入，§73 的說法跟著修正（指名哪一個、哪個指標） |
+
+- 主表規則：不論結果，6 列都列入第二折主表。
+- 不做：調參、加種子、換指標、與 ④ / P10 / P12 比較。
+- 事前預期：第一折這 6 個模型的 IC 在 −0.005 ~ +0.011，與 MAGNET 差約 0.10；若第二折相近，檢定力不是問題。
+
+##### 5. 程式與設定的 SHA-256（登記時）
+
+| 檔案 | SHA-256 |
+|---|---|
+| `scripts/results_table.py` | `12ea1bd7905927846272cffe59fb635cd38df03ea3ff35621e412f396ab71d89` |
+| `scripts/best_vs_literature.py` | `d4bda6f6334edc4c84795af6a686a7664bfd6770bfce8933f11b4bc1112c244e` |
+| `scripts/organize_runs.py` | `1b5afba04a9c46c5804740c11cff535e7b363c1bf67d9cc6c53070781af631ea` |
+| `src/train/train.py` | `05b74982cf03e0cd94c1587678b61c2fc1027070b2953f7dcaaaccea8525a846` |
+| `configs/tw50_fold2.yaml` | `59d9151527c188aca42b6deab458b75fc5f51fe2341e1dc19911a3629c617c0e` |
+| `src/models/baseline_hgt.py` | `ed034d40ddff4bfbb8e47a8b1190c901ed8a01b9a78eb8874641f5c24238354b` |
+| `src/models/baseline_deltalag.py` | `ba58d79036cf1647033bb549015da149b5a44e92e62315a0c3644b993a5407bd` |
+| `src/models/baseline_meig.py` | `fd74df8c85c3d2d600986a9424ef316e46854caf7e4bccef352c87d31574be00` |
+| `src/models/baseline_advalstm.py` | `a90f8c9334cc1511e93f7ba24ac3fb765e4a565486c66c03891a0ca2c754bda5` |
+| `src/models/baseline_hats.py` | `6ab5263b69bce7bd162438a6ff30ad13b5f96aa1ed878640581059a43bf3b01c` |
+| `src/models/baseline_mansf.py` | `7756984857507b69c698ceeba8fe6b072c83e5604512d94ecffe25e4e166bebb` |
+| `src/models/__init__.py` | `b3eea3bb2f472170158b354d1c58795e1309d7d5f2769dff8a775fbf74de92e2` |
+
+</details>
