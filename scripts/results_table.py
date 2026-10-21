@@ -943,6 +943,51 @@ ACC_LINEAR = (
 ANCHOR = "不選股（每檔猜當天平均）"
 
 
+def _holdout_block():
+    """2026 保留期（§75）：凍結的第一折模型在 2026-01-02 ~ 2026-10-16 的 IC 與 RankIC。
+
+    只讀 scripts/holdout_2026_eval.py --run 寫下的 predictions/holdout2026_predictions.csv，
+    不重新評估。缺檔時回傳 None。統計與判定的程式在 holdout_2026_eval.py（登記版），這裡只重算同一組數字。
+    """
+    try:
+        import holdout_2026_eval as H
+    except Exception as e:                      # noqa: BLE001
+        print(f"[skip] 2026 保留期（{e}）")
+        return None
+    P = H.load_saved()
+    seeds = sorted(set(P.get("主 arm", {})) & set(P.get("關係型", {})))
+    if len(seeds) < 2:
+        return None
+    D = {a: {s: H.daily(P[a][s]) for s in seeds} for a in P}
+    days = sorted(set.intersection(*[set(D[a][s].index) for a in D for s in seeds]))
+    per = {a: {k: np.array([np.nanmean(D[a][s].loc[days, k]) for s in seeds]) for k in ("ic", "ric")} for a in D}
+    ens = {}
+    for a in P:
+        e = (pd.concat([P[a][s] for s in seeds]).groupby(["target_date", "ticker"])
+             .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
+        ens[a] = H.daily(e).loc[days]
+    out = ["| 方法 | n | IC ↑ | RankIC ↑ | 配對 p (IC) | 配對 p (RankIC) | 逐日 p (IC) | 逐日 p (RankIC) |",
+           "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    lab = {"主 arm": "**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", "關係型": "MAGNET 本版 + 關係型台股層"}
+    for a in ("關係型", "主 arm"):
+        out.append(f"| {lab[a]}（10 顆集成） | {len(seeds)} | {np.nanmean(ens[a].ic):+.4f} | {np.nanmean(ens[a].ric):+.4f} "
+                   "| — | — | — | — |")
+    for a in ("關係型", "主 arm"):
+        cells = []
+        if a == "關係型":
+            for k in ("ic", "ric"):
+                cells.append(f"{stats.ttest_rel(per['關係型'][k], per['主 arm'][k]).pvalue:.4f}")
+            for k in ("ic", "ric"):
+                ma = np.nanmean(np.vstack([D["主 arm"][s].loc[days, k] for s in seeds]), 0)
+                mb = np.nanmean(np.vstack([D["關係型"][s].loc[days, k] for s in seeds]), 0)
+                cells.append(f"{H.hac_p(mb - ma):.4f}")
+        else:
+            cells = ["—"] * 4
+        out.append(f"| {lab[a]} | {len(seeds)} | {pm(per[a]['ic'].mean(), per[a]['ic'].std(ddof=1))} "
+                   f"| {pm(per[a]['ric'].mean(), per[a]['ric'].std(ddof=1))} | " + " | ".join(cells) + " |")
+    return days, out
+
+
 def _acc_block():
     """準度小表（說明見 ACC_TOL 上方）。缺資料時回傳 None。
 
@@ -1201,6 +1246,19 @@ def main() -> None:
                "仍無一顯著。"
                "**兩折合看，相對最佳線性 baseline 是打平，不是超越。**")
     out.append("")
+    # ── 2026 保留期（§75）：登記的一次性確認，凍結的第一折模型 ─────────────
+    hb = _holdout_block()
+    if hb is not None:
+        hdays, hlines = hb
+        out.append("## 2026 保留期（凍結的第一折模型，§75）")
+        out.append("")
+        out.append(f"評估窗 **{hdays[0]} ~ {hdays[-1]}**（{len(hdays)} 天），資料在 2026-10-18 下載、只用這一次"
+                   "（事前登記，proposal §75）。模型是第一折已訓練好的兩個 arm（各 10 顆種子），不重訓、不調參。"
+                   "`配對 p` 是關係型對主 arm 的同種子配對 t 檢定（登記的判準），`逐日 p` 是種子平均的逐日差的 HAC 檢定。"
+                   "**登記的判定：主判準（IC）與第二指標（RankIC）都未通過，主結果不改。**")
+        out.append("")
+        out += hlines
+        out.append("")
     # ── 附錄 A：主表方法的其他指標 ────────────────────────────────
     out.append("## 附錄 A：其他指標（主表的方法）")
     out.append("")
