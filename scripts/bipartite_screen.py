@@ -19,7 +19,7 @@ Cross-Market Return Forecasting", arXiv:2603.10559
     5. 每 10 天重建圖並重訓所有模型（rolling）
     6. 十個模型：OLS / LASSO / RIDGE / SVM / XGBoost / LGBM / RF / AdaBoost
        / ensemble-avg / ensemble-med
-    7. 報酬 winsorize 至 0.5 / 99.5 百分位
+    7. 報酬 winsorize 至 0.5 / 99.5 百分位（本重現只用於擬合；評估與寫檔用原始報酬，見 main）
     8. 落後 l = 1（來源市場收盤在目標市場開盤之前）
 
 本重現與原文的差異，比較時必須揭露：
@@ -237,6 +237,9 @@ def main() -> None:
         dates.append(s["target_date"])
     dates = np.asarray(dates)
     te0 = n_tr + n_va                                  # 測試期第一個索引
+    # 評估與寫檔用原始報酬，與其他方法相同（2026-10-21，proposal §76）。之前寫進 CSV 的 y
+    # 是截尾後的，test 期 2–3% 的列被截，[24] 的 IC 因此略為偏高。截尾只用在擬合（原文 §3）。
+    Y_raw = Y.copy()
     X = winsorize_by(X, X[:n_tr], winsor)              # 百分位只用訓練期
     Y = winsorize_by(Y, Y[:n_tr], winsor)
     print(f"[24] N={N} 天，train {n_tr} / val {n_va} / test {n_te}，"
@@ -267,7 +270,7 @@ def main() -> None:
     print(f"     選中的邊：平均 {np.mean(edges):.0f} / {tot_pairs} "
           f"（{np.mean(edges)/tot_pairs:.1%}），{len(edges)} 次重建，{time.time()-t0:.0f}s")
 
-    Yte = Y[te0:te0 + n_te]
+    Yte = Y_raw[te0:te0 + n_te]
     dte = dates[te0:te0 + n_te]
     stamp = time.strftime("%Y%m%d_%H%M")
     print(f"\n{'model':10s} {'test IC':>9s} {'RankIC':>9s} {'paired7':>9s} {'unpair43':>9s}")

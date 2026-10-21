@@ -1155,7 +1155,8 @@ def main() -> None:
     out.append("")
     out.append("**[24] 列出全部 10 個模型（2026-10-17）**：8 個單一模型（OLS、LASSO、RIDGE、RF、SVM、"
                "AdaBoost、XGBoost、LightGBM）與兩種集成（平均、中位數）。兩折都是滾動版"
-               "（250 天視窗、每 10 天重訓、t 檢定篩邊 τ = 2，原文做法），只取最新一批（proposal §70）。")
+               "（250 天視窗、每 10 天重訓、t 檢定篩邊 τ = 2，原文做法），只取最新一批（proposal §70）。"
+               "2026-10-21 起改用原始報酬評估；之前誤用截尾後的報酬，IC 略為偏高（§76）。")
     out.append("")
     ordered = sorted(rows, key=lambda r: -r[3]["ic"])
     main_rows = [r for r in ordered if r[0] not in SUPPLEMENT]
