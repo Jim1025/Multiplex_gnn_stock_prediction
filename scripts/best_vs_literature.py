@@ -99,7 +99,8 @@ def _daily(df: pd.DataFrame) -> dict:
     df["target_date"] = df.target_date.astype(str).str[:10]
     o = {}
     for d, g in df.groupby("target_date"):
-        if d > CUT or g.y.std() == 0 or g.y_hat.std() == 0:
+        # 50 檔完全相同才略過，與 results_table 相同（§77）
+        if d > CUT or g.y.nunique() == 1 or g.y_hat.nunique() == 1:
             continue
         o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1], stats.spearmanr(g.y_hat, g.y).statistic)
     return o
@@ -109,7 +110,7 @@ def series(files) -> tuple[list, np.ndarray]:
     """逐 run 的逐日 (IC, RankIC)，取全部 run 共同的日子後跨 run 平均。"""
     out = [_daily(pd.read_csv(f)) for f in files]
     k = sorted(set.intersection(*[set(x) for x in out]))
-    # nan-aware（§74）：預測退化的日子 RankIC 無定義，略過；與 results_table._fold2_rows 相同
+    # nan-aware（§74）：RankIC 無定義的日子略過，與 results_table._fold2_rows 相同；§77 起 _daily 已先略過這些天，這裡只是保險
     return k, np.nanmean(np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in out]), axis=0)
 
 

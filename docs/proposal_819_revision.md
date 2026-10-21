@@ -13384,6 +13384,9 @@ MAGNET 本版減每一個文獻方法（第一折 16 個、第二折 10 個）�
 | MEIG [1] | −0.0077 ± 0.0102 | −0.0039 ± 0.0112 | +0.0061 / +0.0160 |
 | MAGNET 本版（對照，10 顆） | +0.1537 ± 0.0039 | +0.1411 ± 0.0056 | +0.1090 / +0.1116 |
 
+> **2026-10-21：DeltaLag 這列已重算，見 §77。** 第二折改為 IC +0.0020 ± 0.0148、RankIC +0.0070 ± 0.0155
+> （206 天，原本 228 天）；第一折一欄不變。逐日 p 仍 < 0.0001；Holm 的顯著集合不受這次修改影響。
+
 - MAGNET 本版對這 6 個的逐日 p，兩個指標都 < 0.0001（第二折主表）。
 - **Holm（第二折的文獻族 16 個）**：IC 顯著 11 個（6 個文獻神經模型與 [24] 的 RF、AdaBoost、XGBoost、LightGBM、SVM），
   RankIC 顯著 9 個（6 個文獻神經模型與 [24] 的 XGBoost、LightGBM、SVM）。
@@ -13405,6 +13408,9 @@ MAGNET 本版減每一個文獻方法（第一折 16 個、第二折 10 個）�
   `best_vs_literature.py` 第一折的輸出完全相同。
 - 結論不受影響：DeltaLag 的 IC 原本就 Holm 後顯著。那 22 天的 IC 是用浮點誤差算的，沒有意義但也沒有方向；
   DeltaLag 的數字照舊標為「不可信」。
+
+> **2026-10-21：本節的「18 天恰為 0、22 天不為 0」只在沒有 bottleneck 的環境成立。** 有 bottleneck 的 pandas（anaconda）是 6 天與 34 天，
+> 主表因此印成 IC +0.0002 / RankIC +0.0072。略過規則已改為「50 檔完全相同」，40 天全部略過，不再有 NaN 日，見 §77。
 
 ### 74.4 可以宣稱的寫法（更新 §73.3）
 
@@ -13431,6 +13437,8 @@ MAGNET 本版減每一個文獻方法（第一折 16 個、第二折 10 個）�
 登記列出的其餘程式雜湊在分析時重新核對過，與登記時相同。74.3 的修正與讀表注意的文字是分析之後才改的，
 修正後的雜湊：`scripts/results_table.py` `85470a3b55072c0c619fd3cf47e6eee761a5993347acaaa62bb600591043807b`、
 `scripts/best_vs_literature.py` `971416bd4f78274ff95543f7add0f5c1b6aa764c123eea66fe337716e3907f1a`。
+
+> **2026-10-21：** 兩支程式之後又改過（`results_table.py` 在 §75、§76；兩支在 §77 改略過規則），現行雜湊見 77.6。
 
 <details><summary>reg_f2_baselines.md</summary>
 
@@ -13759,3 +13767,122 @@ A / <name>：hgt / hgt、delta_lag / delta_lag、meig / meig、adv_alstm / adv_a
 .venv/bin/python scripts/best_vs_literature.py
 .venv/bin/python scripts/icir_gap.py --blocks F
 ```
+
+---
+
+## 77. 略過「50 檔完全相同」的日子：改用 `nunique() == 1`（2026-10-21）
+
+使用者要求（2026-10-21）：盤點所有以 `std() == 0` 決定略過哪些日子的程式，提出不受環境影響的規則；
+看過盤點報告後，決定採用 `nunique() == 1`，改程式並重產表格與 proposal。
+
+**範圍與限制**
+
+- 不重訓、不動資料層。只改 `scripts/results_table.py`、`scripts/best_vs_literature.py`、`scripts/icir_gap.py` 的略過規則與說明文字，
+  重產 `docs/results_table.md`。
+- 登記過的 `scripts/holdout_2026_eval.py`、`scripts/build_holdout_2026.py` 沒有改，雜湊與 §75.6 相同。
+  它們用的 `std() < 1e-12` 在現有資料上與新規則逐日相同（77.2）。
+- 2026 年保留期沒有重新評估，`results_table.md` 的保留期一節只讀 §75 存下的預測，數字不變。
+
+### 77.1 結論（先看這裡）
+
+1. **原本的 `std() == 0` 會隨環境改變結果。** 50 檔預測完全相同時，std 要先算平均再算偏差，捨入誤差讓它不一定恰為 0；
+   pandas 的 `Series.std()` 有沒有裝 bottleneck 走的是不同實作，捨入的結果也不同。DeltaLag 第二折種子 7 的 40 個全同日，
+   沒有 bottleneck（`.venv`）恰為 0 的有 18 天，有 bottleneck（anaconda）只有 6 天。§74 寫的是前者。
+2. **新規則：當天 50 檔 `y` 或 `y_hat` 完全相同（相關係數無定義）才略過。** pandas 用 `nunique() == 1`，numpy 陣列用 `np.ptp(x) == 0`。
+   不做任何浮點運算；兩個環境重產的 `results_table.md` 內容逐字相同。
+3. **只有 7 列數字變動**：DeltaLag 兩折，以及第一折單市場消融的組合讀法（77.3）。主表只有第二折 DeltaLag 一列：
+   IC −0.0001 -> +0.0020、RankIC +0.0013 -> +0.0070（228 -> 206 天）。
+4. **Holm 校正後的結論不變。** 兩折、本版與集成、IC 與 RankIC 共 8 族，顯著的方法集合與改前相同（77.4）。
+5. **一併修好一個不受環境影響、但原本就有的不一致。** 第一折主表的 IC 欄讀自 `meta.json`（訓練時的 `src/train/metrics.py`，全同日一律是 NaN），
+   逐日 p、ICIR 與組合讀法則由預測檔重算。原本的 `np.std == 0` 讓 DeltaLag 種子 7 有 12 個全同日只在後者計入
+   （IC 約 1e-17；Top-K 的多空腿由排序演算法處理平手的方式決定，與預測無關）。新規則下兩者用同一組日子：
+   由預測檔重算的逐種子 IC 與 `meta.json` / `meta_reeval.json` 完全相同（DeltaLag 3 顆、smktA s888 都核對過；
+   原本 DeltaLag s7 差 +6.6e-4、smktA s888 差 −1.8e-5）。
+
+### 77.2 盤點與兩個環境的實測
+
+| 位置 | 原本的判斷 | 受環境影響 | 讀到全同日的檔 |
+|---|---|---|---|
+| `results_table.py` `_frame_series`（第一折的神經、線性、集成列） | `np.std == 0` | 否 | DeltaLag s7 重評檔（25 個全同日只略過 13 個）、smktA s888（1 個沒略過） |
+| `results_table.py` `_fold2_rows._load_frames`（第二折） | pandas `std() == 0` | **是** | DeltaLag s7（40 個） |
+| `results_table.py` `_ens_block._metrics`（附錄 C） | pandas `std() == 0` | 原則上是 | 無（只讀主 arm 與線性 baseline） |
+| `results_table.py` `_acc_block`（附錄 D，只看 y） | `nanstd(y) > 1e-12` | 否 | 無 |
+| `best_vs_literature.py` `_daily`（第二折；第一折走 `_frame_series`） | pandas `std() == 0` | **是** | DeltaLag s7 |
+| `icir_gap.py` `ic1`、`zc`、`_ic_after` | numpy `std > 0` | 否 | 無 |
+
+- 這 6 處都改成新規則。`_acc_block` 原本就不受影響，改成「50 檔 `y` 完全相同」是為了讓說明文字「日子的取捨同訊號層」字面上成立，數字不變。
+- 沒有改的三處都是容差寫法：登記版 `holdout_2026_eval.py` 的 `daily`（pandas `std() < 1e-12`）、
+  `tw_lag_channel.py` 的 `ic_ser`（`np.std < 1e-12`，`tw_relational_eval.py` 用它）、訓練時寫 `meta.json` 的 `src/train/metrics.py`（`denom < 1e-12`）。
+  它們不受環境影響，在現有資料上與新規則逐日相同；保留期與 `tw_relational_eval.py` 讀的預測檔也沒有任何全同日。
+- 實測環境：`.venv`（Python 3.14、numpy 2.4.3、無 bottleneck）與 anaconda（Python 3.13、bottleneck 1.4.2；不加 `-I` 時 numpy 是 `~/.local` 裡的 2.2.6）。
+- 改之前兩個環境的差異：`results_table.md` 只有第二折 DeltaLag 的四列不同（主表、A4、A5、A6），anaconda 關掉 bottleneck 後與 `.venv` 逐字相同。
+  `best_vs_literature.py` 印出的內容相同：DeltaLag 在 Holm 後顯著，數字沒有印出來，但內部的差值不同
+  （例如本版 − DeltaLag 的第二折 IC 差 +0.1489 對 +0.1525）。`icir_gap.py`、`tw_relational_eval.py`（含區塊 C）、
+  `holdout_2026_eval.py --report` 逐字相同。
+- 掃過 `runs/` 與 `runs_f2/` 的全部 2125 個預測檔：`np.std == 0` 在 numpy 2.2.6 與 2.4.3 下逐日判斷相同（DeltaLag 的檔另以 2.3.5 確認）。
+  y 與 y_hat 合計 9338 個「50 檔完全相同」的（檔, 日），`std() < 1e-12` 與 `nunique() == 1` 沒有一個不同；
+  `std() == 0` 有 3420 個（numpy 或無 bottleneck）、6117 個（有 bottleneck）沒有略過。y 的 2351 個全同日都是 50 檔報酬皆為 0，任何規則都會略過。
+- 其他仍用 `std() == 0` 或 `std() > 0` 的舊腳本沒有改（k = 7 時期的 m8、m10、`freeze_k7.py`，以及 `paired_daily.py`、`p8_report.py`、`p12_explore.py` 等）：
+  它們不產生主表與本 proposal 現行引用的數字。其中 pandas 寫法的 4 支，讀到的 test 預測檔有沒有 bottleneck 判斷都相同。
+
+### 77.3 數字的變動（`docs/results_table.md`）
+
+**主表**
+
+| 列 | 改前 | 改後 |
+|---|---|---|
+| 第二折 DeltaLag [13]（IC / RankIC） | −0.0001 ± 0.0113 / +0.0013 ± 0.0167（228 天） | **+0.0020 ± 0.0148 / +0.0070 ± 0.0155**（206 天） |
+
+- 第二折主表的列序不變（仍在 HGT +0.0051 與 HATS −0.0023 之間），逐日 p 兩個指標都仍印成 0.0000。
+- 第一折主表不變：IC 欄讀自 `meta.json`，RankIC 在全同日本來就是 NaN。
+
+**附錄（描述性）**
+
+| 位置 | 列 | 改前 | 改後 |
+|---|---|---|---|
+| A1 | DeltaLag 的 ICIR | −0.0056 ± 0.0586 | −0.0062 ± 0.0596 |
+| A2 | 單市場消融（主結果 arm）：日均 / sd / 年化 / Sharpe / MDD(複利) / MDD(加總) | +0.0264% / 0.6135% / +6.9% / 0.68 / 15.27% / 13.49% | +0.0260% / 0.6132% / +6.8% / 0.67 / 15.27% / 13.50% |
+| A2 | DeltaLag（同上六欄） | −0.0160% / 0.5468% / −3.9% / −0.47 / 12.59% / 13.08% | −0.0167% / 0.5469% / −4.1% / −0.49 / 12.50% / 13.00% |
+| A4 | DeltaLag 的 ICIR / Rank ICIR | −0.0018 ± 0.0540 / 0.0093 ± 0.0767 | 0.0086 ± 0.0675 / 0.0289 ± 0.0721 |
+| A5 | DeltaLag（同 A2 六欄） | +0.0142% / 0.5003% / +4.0% / 0.42 / 6.62% / 6.52% | +0.0192% / 0.4925% / +5.0% / 0.60 / 5.65% / 5.45% |
+| A6 | DeltaLag 的 MSE / RMSE / 離散比 | 0.440 ± 0.178 / 2.070 ± 0.415 / 0.215 ± 0.170 | 0.435 ± 0.184 / 2.057 ± 0.432 / 0.216 ± 0.169 |
+
+- 其餘每一列都不變；附錄 B、C、D 與「2026 保留期」一節逐行相同。另外改了三段說明文字：「每一欄怎麼算」的 T、準度小表的日子取捨、讀表注意的 DeltaLag 一條。
+- 單市場消融的變動來自 s888 在 2025-08-04 的全同日：原本 10 顆裡只有它沒被略過。它對主 arm 的逐日 IC 差 +0.1003 -> +0.1004
+  （245 -> 244 天，p 4.9e-06 -> 5.1e-06），主表都印成 0.0000。§41 本來就用 244 個共同日，不受影響。
+
+### 77.4 Holm 校正
+
+| 文獻族 16 個，Holm 後仍顯著的個數 | 本版 IC | 本版 RankIC | 集成 IC | 集成 RankIC |
+|---|---:|---:|---:|---:|
+| 第一折 | 7 | 10 | 8 | 10 |
+| 第二折 | 11 | 9 | 13 | 10 |
+
+- 改前（兩個環境）與改後，這 8 族的顯著方法集合完全相同。DeltaLag 的 p 在每一族都遠低於第一個門檻 0.05/16 = 0.0031
+  （第一折在 3.1e-10 至 6.6e-09 之間；第二折的常態近似下溢為 0）。
+- 表中個數與 §76.3 相同（已含 [24] 改用原始報酬後的變動）。這次修改沒有改變任何一族的顯著集合，§74.4 的寫法不必改。
+
+### 77.5 已知的限制
+
+- 第一折 DeltaLag 種子 7 的 CPU 重評檔，2025-08-18 與 2025-09-22 兩天的 50 檔預測只差 8 與 2 個 float32 ulp，
+  IC 是 −0.280 與 −0.027，是浮點誤差算出來的。它們不算完全相同，新規則仍計入；`meta_reeval.json` 的 IC 也計入。
+  MPS 原始紀錄檔裡這兩天是完全相同的（全同日 27 個，重評檔 25 個）。
+- 沒有改用相對容差的理由：DeltaLag 的橫截面全距從 1 個 float32 ulp 到上萬個 ulp 是連續的，沒有自然的斷點
+  （第二折種子 42 在 2024-12-04 只有 40 ulp，IC +0.138）。門檻設 1e-6、8 ulp 或 64 ulp 會略過不同的日子，等於多一個要選的參數。
+  若連上面兩天也略過（相對容差 1e-6），第一折主表 DeltaLag 的 RankIC 由 −0.0059 變成 −0.0058，Holm 也不變，
+  但由預測檔重算的 IC 就與 `meta_reeval.json` 對不上了。
+- DeltaLag 的數字照舊標為「不可信」（預測退化）。
+
+### 77.6 重跑方式與雜湊
+
+```
+.venv/bin/python scripts/results_table.py
+.venv/bin/python scripts/best_vs_literature.py
+.venv/bin/python scripts/icir_gap.py
+```
+
+- 改用 anaconda 的 `python`，`results_table.py --no-write` 印出的內容與 `.venv` 寫出的檔逐字相同；`best_vs_literature.py`、`icir_gap.py` 的輸出也相同。
+- 修改後的雜湊：`scripts/results_table.py` `01a2647f1565adbfd19112afa9ceb6f70ad6170eae2d81ad2eaec94a78795d51`、
+  `scripts/best_vs_literature.py` `0cecd2de60505c94342c32ece676e43f4be76861aab0c66090757497bf32e56c`、
+  `scripts/icir_gap.py` `b00ad82b42b2f32b6e663699693886fbb896b99db18c485407ee79b545263b47`。
+  §74.6 記的前兩支雜湊已被取代；登記版的兩支未改，雜湊同 §75.6。

@@ -357,7 +357,9 @@ def _frame_series(df: pd.DataFrame):
     rk = np.full(len(Yn), np.nan)          # Top-K 多空的日報酬（組合欄用）
     for t in range(len(Yn)):
         a, b = Hn[t], Yn[t]
-        if np.std(a) == 0 or np.std(b) == 0:
+        # 50 檔完全相同（相關係數無定義）才略過。不用 std == 0：同值的 std 因捨入不一定恰為 0，
+        # 結果隨加總順序與 pandas 是否裝了 bottleneck 而不同（2026-10-21，§77）。
+        if np.ptp(a) == 0 or np.ptp(b) == 0:
             continue
         ic[t] = np.corrcoef(a, b)[0, 1]
         with warnings.catch_warnings():
@@ -372,8 +374,8 @@ def icir(arr) -> float:
     """ICIR = mean(逐日 IC) / sd(逐日 IC)。
 
     與 `src/train/metrics.py:176` 同一個定義（ddof=1），只是多了 nan-aware，
-    因為 `daily_series` 會把 std(y)=0 的日子標成 NaN（第一折有 1 天，
-    50 檔報酬完全相同）。
+    因為 `daily_series` 會把 50 檔 y 或 y_hat 完全相同的日子標成 NaN
+    （第一折有 1 天 50 檔報酬完全相同）。
 
     為什麼要報這個：§57.8 的恆等式是 r_t = IC_t x sigma_t，所以
     **IC 只決定組合報酬的分子**。若 sigma_t 為常數，
@@ -569,7 +571,8 @@ def _fold2_rows():
             hh, yy = [], []          # 校準診斷用：只收進入評估窗的那些天
             for d, g in df.groupby("target_date"):
                 d = str(d)[:10]
-                if d > CUT or g.y.std() == 0 or g.y_hat.std() == 0:
+                # 略過規則同 _frame_series：50 檔完全相同才略過（§77）
+                if d > CUT or g.y.nunique() == 1 or g.y_hat.nunique() == 1:
                     continue
                 o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
                         stats.spearmanr(g.y_hat, g.y).statistic,
@@ -588,8 +591,8 @@ def _fold2_rows():
         # 日序列才算得出跨 run 的 sd。V 是它對 run 取平均，與加 sd 欄之前
         # 逐位元相同（第 2 個指標只給組合欄用，不進 V 的既有欄位）。
         P = np.array([[[x[d][i] for d in k] for i in (0, 1, 2)] for x in ds])
-        # nan-aware（2026-10-17，§74）：預測退化的日子 Spearman 無定義（DeltaLag 第二折種子 7 有 22 天），
-        # 與第一折的 colmean / nanmean 同樣略過；沒有 NaN 的列數值不變。
+        # nan-aware（2026-10-17，§74）：Spearman 無定義的日子略過，與第一折的 colmean / nanmean 相同；
+        # 沒有 NaN 的列數值不變。§74 當時是 DeltaLag 第二折種子 7 的 22 天，§77 起這些天在上面就略過，這裡只是保險。
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             V = np.nanmean(P, axis=0)
@@ -723,7 +726,7 @@ def _ens_block():
         """回傳 {date: (IC, RankIC, 離散比, Top-K 日報酬)}。"""
         o = {}
         for d, g in df.groupby("target_date"):
-            if g.y.std() == 0 or g.y_hat.std() == 0:
+            if g.y.nunique() == 1 or g.y_hat.nunique() == 1:     # 同 _frame_series（§77）
                 continue
             o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1],
                     stats.spearmanr(g.y_hat, g.y).statistic,
@@ -1005,8 +1008,8 @@ def _acc_block():
         return P - np.nanmean(P, 1, keepdims=True)
 
     def evaluate(Hva, Yva, Hte, Yte):
-        """val 定尺度 -> test 的逐日橫截面 MSE、不選股的 MSE、命中率。只用 std(y) > 0 的日子。"""
-        okv, okt = np.nanstd(Yva, 1) > 1e-12, np.nanstd(Yte, 1) > 1e-12
+        """val 定尺度 -> test 的逐日橫截面 MSE、不選股的 MSE、命中率。50 檔 y 完全相同的日子不用（同訊號層，§77）。"""
+        okv, okt = np.nanmax(Yva, 1) > np.nanmin(Yva, 1), np.nanmax(Yte, 1) > np.nanmin(Yte, 1)
         hv, yv = dm(Hva[okv]), dm(Yva[okv])
         den = np.nansum(hv * hv)
         b = float(np.nansum(hv * yv) / den) if den > 1e-24 else 0.0
@@ -1430,8 +1433,10 @@ def main() -> None:
                "log return**（`log(Close_t / Close_{t-1})`，"
                "`src/dataset/pipeline.py:659`，由 `graph_builder.py` 的 "
                "`_extract_target_returns` 取出）。`T` 是**有效交易日數**——"
-               "`std(y)=0` 或 `std(y_hat)=0` 的日子一律跳過，"
-               "第一折 246 天扣掉 1 天（該日 50 檔報酬完全相同）得 **T=245**。")
+               "50 檔 `y` 或 `y_hat` 完全相同（`nunique() == 1`，相關係數無定義）的日子一律跳過，"
+               "第一折 246 天扣掉 1 天（該日 50 檔報酬完全相同）得 **T=245**。"
+               "2026-10-21 以前用 `std() == 0` 判斷：同值的 std 因捨入不一定恰為 0，"
+               "結果隨 pandas 是否裝了 bottleneck 而不同（proposal §77）。")
     out.append("")
     out.append("### 主表與附錄 A 的欄")
     out.append("")
@@ -1549,7 +1554,7 @@ def main() -> None:
     out.append("")
     out.append("下標 `d` 表示扣掉當天 50 檔的橫截面平均；`b` 只用 val 擬合（`b = Σ y_d·y_hat_d / Σ y_hat_d²`）。"
                "MAGNET 本版逐 seed 算完再平均（`± sd` 為跨 seed），檢定用跨 seed 平均後的逐日序列；"
-               "集成列先平均 10 顆的預測再定尺度。日子的取捨同訊號層（`std(y)=0` 的日子跳過）。")
+               "集成列先平均 10 顆的預測再定尺度。日子的取捨同訊號層（50 檔 `y` 完全相同的日子跳過）。")
     out.append("")
     out.append("| 欄 | 算式 | 方向 |")
     out.append("|---|---|---|")
@@ -1794,7 +1799,9 @@ def main() -> None:
                "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"
                "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。")
     out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。"
-               "第二折同樣：種子 7 有 40 天 50 檔的預測完全相同（§74）。")
+               "第二折同樣：種子 7 有 40 天 50 檔的預測完全相同（§74），這些天一律略過（§77）。"
+               "第一折種子 7 的 CPU 重評檔有 25 天完全相同，另有 2 天只差 2–8 個 float32 ulp；"
+               "這 2 天不算完全相同，仍計入（`meta_reeval.json` 的 IC 也計入）。")
     out.append("- 線性/樹模型（[24]、KTW+、關係型、兩區塊、R2、RC）無隨機種子，sd 欄為「—」。")
     txt = "\n".join(out)
     print(txt)

@@ -75,7 +75,8 @@ def load_files(files, fold2: bool = False) -> list[tuple[np.ndarray, np.ndarray]
 
 
 def ic1(a, b) -> float:
-    return float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else np.nan
+    # 50 檔完全相同才當成無定義，與 results_table 相同（§77）
+    return float(np.corrcoef(a, b)[0, 1]) if np.ptp(a) > 0 and np.ptp(b) > 0 else np.nan
 
 
 def ic_series(H, Y) -> np.ndarray:
@@ -91,7 +92,7 @@ def icir(a) -> float:
 def zc(A: np.ndarray) -> np.ndarray:
     """逐日橫截面標準化。"""
     s = A.std(1, keepdims=True)
-    return (A - A.mean(1, keepdims=True)) / np.where(s > 0, s, np.nan)
+    return (A - A.mean(1, keepdims=True)) / np.where(np.ptp(A, 1, keepdims=True) > 0, s, np.nan)
 
 
 def decompose(H, Y, rng) -> tuple[float, float, float, float]:
@@ -203,7 +204,7 @@ def _ic_after(H, Y, f):
     zh = f(zc(H))
     out = np.full(len(Y), np.nan)
     for t in range(len(Y)):
-        if np.isfinite(zh[t]).all() and zh[t].std() > 0 and Y[t].std() > 0:
+        if np.isfinite(zh[t]).all() and np.ptp(zh[t]) > 0 and np.ptp(Y[t]) > 0:
             out[t] = np.corrcoef(zh[t], Y[t])[0, 1]
     return np.nanmean(out), np.nanstd(out, ddof=1), icir(out)
 
