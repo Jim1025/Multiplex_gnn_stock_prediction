@@ -28,6 +28,7 @@ from __future__ import annotations
 import yaml
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from src.models._universe import universe_from_cfg
@@ -411,7 +412,26 @@ class MAGNET(nn.Module):
 
         # GAT：L1 / L2 各自獨立（multiplex ≠ siamese）
         self.gat_L1 = GATEncoder(gat_cfg)
-        self.gat_L2 = GATEncoder(gat_cfg)
+        # 方案二 b（§78，tw_relational.placement = replace_gat_l2）：關係型卷積取代 GAT_L2。
+        # 仍在這個位置建一個同設定的 GATEncoder：它消耗的隨機數與主 arm 相同，後面的
+        # proj / fusion / head 在同一顆種子下初始值才不會位移。只取它起作用的三個張量
+        # （lin_l 的權重與偏差、GATv2Conv 的 bias）當自身項，其餘丟掉——A₂ 關閉時它們的梯度恆為 0。
+        trc0 = m_cfg.get("tw_relational") or {}
+        self.tw_rel_replace_gat = (bool(trc0.get("enabled", False))
+                                   and trc0.get("placement", "after_projection") == "replace_gat_l2")
+        if self.tw_rel_replace_gat:
+            shadow = GATEncoder(gat_cfg)
+            if len(shadow.convs) != 1:
+                raise ValueError("tw_relational.placement = replace_gat_l2 只支援 model.gat.num_layers = 1"
+                                 f"（主 arm 的設定），當前為 {len(shadow.convs)}")
+            conv = shadow.convs[0]
+            self.tw_rel_W0 = nn.Parameter(conv.lin_l.weight.detach().clone())   # [H_gat, H_lstm]
+            self.tw_rel_b0 = nn.Parameter(conv.lin_l.bias.detach().clone())     # [H_gat]
+            self.tw_rel_bias = nn.Parameter(conv.bias.detach().clone())         # [H_gat]
+            self.tw_rel_p = float(conv.dropout)
+            self.gat_L2 = None
+        else:
+            self.gat_L2 = GATEncoder(gat_cfg)
 
         # 階段 A-2a'：concat 模式下，proj 讓出 concat_dim 維給原始特徵路徑。
         # 預設讓出 lstm.in_size 維——原始特徵有幾維就給幾維，剛好能無損通過，
@@ -529,6 +549,8 @@ class MAGNET(nn.Module):
         # 台股層不會有兩種層內傳遞並存。A₂ 關閉後 GAT_L2 沒有鄰居（GATv2Conv 只補自環），
         # 主 arm 的 1 層設定下推論時逐位元等於逐檔的仿射轉換 lin_l(h) + bias，注意力向量、
         # lin_r、lin_edge 的梯度恆為 0；訓練時的注意力 dropout 等於逐檔 dropout（tests 驗證）。
+        # placement = replace_gat_l2（方案二 b，§78）時，同一個關係型傳遞改放在 GAT_L2 的位置（投影前），
+        # 自身項沿用 GAT_L2 起作用的部分（見建 GAT 處），W_r 為區塊對角；見 _tw_rgcn。
         # 關係來自 universe 的 industry 欄，由 cfg 決定、不是學到的狀態，所以是非持久 buffer。
         # 放在 __init__ 最後，理由同上兩段；init_std = 0 時零初始化、不消耗 RNG，
         # 同一顆種子下其餘參數與不開時逐位元相同，起點即現行 MAGNET。
@@ -544,16 +566,35 @@ class MAGNET(nn.Module):
                     "model.tw_relational 取代台股層內圖 A₂，開啟時 A₂ 必須關閉："
                     f"model.gat.graph_ablate 需為 empty_l2 或 empty_both，當前為 {self.graph_ablate!r}"
                     "（train.py 加 --graph-ablate empty_l2）")
+            # 方案二 b 的兩個選項（§78）。舊快照沒有這兩個鍵，視為現行設定（投影後、不分解）。
+            self.tw_rel_placement = trc.get("placement", "after_projection")
+            if self.tw_rel_placement not in ("after_projection", "replace_gat_l2"):
+                raise ValueError("model.tw_relational.placement 需為 after_projection 或 replace_gat_l2，"
+                                 f"當前為 {self.tw_rel_placement!r}")
+            blocks = int(trc.get("blocks", 1))
+            if self.tw_rel_placement == "after_projection" and blocks != 1:
+                raise ValueError("model.tw_relational.blocks 只在 placement = replace_gat_l2 下生效，"
+                                 f"after_projection 時必須是 1，當前為 {blocks}")
+            if self.tw_rel_replace_gat:
+                dim = self.tw_rel_W0.shape[0]
+                if self.tw_rel_W0.shape[1] != dim:
+                    raise ValueError("replace_gat_l2 需要 GAT 的輸入與輸出維度相同（區塊對角的 W_r 是方陣）")
+                if blocks < 1 or dim % blocks:
+                    raise ValueError(f"model.tw_relational.blocks 需為能整除 {dim} 的正整數，當前為 {blocks}")
             self.tw_rel_names = tuple(trc["relations"])
             self.register_buffer("tw_rel_M", self._build_tw_relations(self.tw_rel_names, u),
                                  persistent=False)                       # [R, n2, n2]
             std = float(trc["init_std"])
             if std < 0:
                 raise ValueError("model.tw_relational.init_std 不可為負")
-            W = torch.zeros(len(self.tw_rel_names), d_prime, d_prime)
+            if self.tw_rel_replace_gat:
+                # W_r 為區塊對角（R-GCN 原文的分解）：blocks 塊 kxk，作用在 LSTM 輸出（H_gat 維）上
+                W = torch.zeros(len(self.tw_rel_names), blocks, dim // blocks, dim // blocks)
+            else:
+                W = torch.zeros(len(self.tw_rel_names), d_prime, d_prime)
             if std > 0:
                 W.normal_(0.0, std)
-            self.tw_rel_W = nn.Parameter(W)                                  # [R, d', d']
+            self.tw_rel_W = nn.Parameter(W)         # [R, d', d']（投影後）或 [R, blocks, k, k]（取代 GAT_L2）
 
     def set_tw_lag_channel(self, mu, sd, C, b) -> None:
         """寫入通道（④ 或 P12 的寬路徑）的封閉解。訓練開始前呼叫一次，之後不再更動（凍結）。"""
@@ -615,7 +656,11 @@ class MAGNET(nn.Module):
             ei_L1, ea_L1 = self._ablate_graph(ei_L1, ea_L1, x_L1.size(2), "l1")
             ei_L2, ea_L2 = self._ablate_graph(ei_L2, ea_L2, x_L2.size(2), "l2")
         h_gat_L1 = self._apply_gat_batched(self.gat_L1, h_lstm_L1, ei_L1, ea_L1)  # [B, n1, H_gat]
-        h_gat_L2 = self._apply_gat_batched(self.gat_L2, h_lstm_L2, ei_L2, ea_L2)  # [B, n2, H_gat]
+        if self.tw_rel_replace_gat:
+            # 方案二 b（§78）：關係型卷積取代 GAT_L2（A₂ 已關閉，L2 的邊不再使用）
+            h_gat_L2, tw_rel_msg = self._tw_rgcn(h_lstm_L2)                         # [B, n2, H_gat]
+        else:
+            h_gat_L2 = self._apply_gat_batched(self.gat_L2, h_lstm_L2, ei_L2, ea_L2)  # [B, n2, H_gat]
 
         # ── Phase 1: 投影至 d' 維 ─────────────────────────────────────
         # Corresponds to IMPLEMENTATION_SPEC §3.3
@@ -640,8 +685,9 @@ class MAGNET(nn.Module):
         if self.cs_demean_l2:
             h_L2 = self._cs_demean(h_L2)
 
-        # 關係型台股層傳遞（見 __init__ 的說明）：融合前、台股表示上。未啟用時不進入。
-        if self.tw_rel_enabled:
+        # 關係型台股層傳遞（見 __init__ 的說明）：融合前、台股表示上。未啟用、或已在上面
+        # 取代 GAT_L2（方案二 b）時不進入。
+        if self.tw_rel_enabled and not self.tw_rel_replace_gat:
             tw_rel_msg = self._tw_relational(h_L2)
             h_L2 = h_L2 + tw_rel_msg
 
@@ -685,7 +731,7 @@ class MAGNET(nn.Module):
         if self.tw_lag_enabled:
             extras["tw_lag_c"] = c                                            # [B, n2] 分析用
         if self.tw_rel_enabled:
-            extras["tw_rel_msg"] = tw_rel_msg                                 # [B, n2, d'] 分析用
+            extras["tw_rel_msg"] = tw_rel_msg          # [B, n2, d']；取代 GAT_L2 時為 [B, n2, H_gat]。分析用
         if self.weak_mode is not None:
             extras["weak_beta"] = self._weak_beta_full() * self.weak_mask  # [n1, n2] 分析用
         if self.coupling_mode == "dense":
@@ -714,6 +760,28 @@ class MAGNET(nn.Module):
         """
         msg = torch.einsum("rjk,bkd->brjd", self.tw_rel_M, h_L2)    # 每種關係的鄰居平均
         return torch.einsum("brjd,rde->bje", msg, self.tw_rel_W)
+
+    def _tw_rgcn(self, h: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        方案二 b（§78）：取代 GAT_L2 的關係型卷積（R-GCN 原式）。
+
+            h'_j = Drop_j(W₀·h_j + b₀) + b + Σ_r mean_{k∈N_r(j)}(h_k)·W_r
+            h : [B, n2, H]  ->  (h' [B, n2, H], 關係訊息 [B, n2, H])
+
+        自身項逐位元重現只剩自環的 GAT_L2：GATv2Conv 每張快照對 [n2, 1] 的注意力係數
+        （恆為 1）做一次 dropout，這裡在同一個位置、逐張快照抽同形狀的遮罩，隨機數流相同；
+        再乘在 lin_l 的輸出上、加 GATv2Conv 的 bias。W_r 為區塊對角（blocks = 1 即完整矩陣）。
+        """
+        B, n, H = h.shape
+        R, nb, kb, _ = self.tw_rel_W.shape
+        avg = torch.einsum("rjk,bkd->brjd", self.tw_rel_M, h)                  # 每種關係的鄰居平均
+        msg = torch.einsum("brjgc,rgce->bjge", avg.reshape(B, R, n, nb, kb),
+                           self.tw_rel_W).reshape(B, n, H)
+        own = []
+        for b in range(B):
+            keep = F.dropout(h.new_ones(n, 1), p=self.tw_rel_p, training=self.training)
+            own.append(F.linear(h[b], self.tw_rel_W0, self.tw_rel_b0) * keep + self.tw_rel_bias)
+        return torch.stack(own, dim=0) + msg, msg
 
     @staticmethod
     def _build_tw_relations(names, universe) -> Tensor:

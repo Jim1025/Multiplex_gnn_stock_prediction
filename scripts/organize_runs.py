@@ -43,6 +43,7 @@ RULES: list[tuple[str, str]] = [
     (r"_f2_bl_",                    "fold2/baselines"),   # 6 個文獻神經模型的第二折（§74）
     # 關係型台股層（§71）與同一天重跑的主 arm（程式漂移檢查），兩折對稱歸檔
     (r"_f2_relTW",                  "fold2/relational"),
+    (r"_f2_rgcnTW",                 "fold2/relational"),   # 方案二 b：關係型卷積取代 GAT_L2（§78）
     (r"_f2_rerun",                  "fold2/rerun"),
     (r"_f2_",                       "fold2"),
     # P8（mse_target，§52.3 / §60.2a(i)(j)）與 P9（A₂ 介入，§60.2a(l)）。
@@ -55,6 +56,7 @@ RULES: list[tuple[str, str]] = [
     (r"_tw50_p10",                  "tw50/p10"),
     (r"_tw50_p12",                  "tw50/p12"),
     (r"_tw50_relTW",                "tw50/relational"),
+    (r"_tw50_rgcnTW",               "tw50/relational"),
     (r"_tw50_rerun",                "tw50/rerun"),
     (r"_tw50_efD3",                 "tw50/earlyfusion"),
     (r"_tw50_icl",                  "tw50/icloss"),

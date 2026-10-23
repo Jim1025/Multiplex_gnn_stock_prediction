@@ -68,6 +68,10 @@ NEURAL = [
     # （兩折 ICIR 同為正，第一折 p 0.056），主結果 arm 不變。
     ("MAGNET 本版 + 關係型台股層", "tw50_relTW", "本專案",
      "同產業 / 其他產業的鄰居平均 x W_r；探索性，判準未通過，§71"),
+    # §78（2026-10-23）：方案二 b，同一層改放在 GAT_L2 的位置（投影前、區塊對角 W_r）。
+    # 依登記的主表規則不論結果都列入；判準是對上一列的非劣性（兩折 IC、RankIC 都成立）。
+    ("MAGNET 本版 + 關係型台股層（取代 GAT_L2）", "tw50_rgcnTW", "本專案",
+     "關係型卷積放在 GAT_L2 的位置；探索性，對上一列非劣，§78"),
     ("　└ F1 + rank 1.0（保留 A₂）", "tw50_betaF1r1", "本專案",
      "(1,0,1)，2^3 補格"),
     ("　└ 只有 rank 1.0（保留 A₂ 與 F3）", "tw50_betaR1", "本專案",
@@ -640,6 +644,8 @@ def _fold2_rows():
             ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
     pats = [("關係型線性（z 目標）", "runs_f2/*_lin_relational/predictions/test_predictions.csv"),
             ("MAGNET 本版 + 關係型台股層", "runs/**/*f2_relTW_s*/predictions/test_predictions.csv"),
+            ("MAGNET 本版 + 關係型台股層（取代 GAT_L2）",
+             "runs/**/*f2_rgcnTW_s*/predictions/test_predictions.csv"),
             ("兩區塊 ridge（z 目標）", "runs_f2/*_lin_twoblock/predictions/test_predictions.csv"),
             ("KTW+（rank 目標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
             ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),

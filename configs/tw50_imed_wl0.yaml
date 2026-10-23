@@ -100,6 +100,9 @@ model:
     enabled: false
     relations: [same_industry, other_industry]   # 可用：same_industry | other_industry
     init_std: 0.0         # W_r 的初始標準差；0 = 零初始化，起點即現行 MAGNET（不消耗隨機數）
+    placement: after_projection   # after_projection = 投影後加訊息（§71，預設）；
+                                  # replace_gat_l2 = 關係型卷積取代 GAT_L2（方案二 b，§78）
+    blocks: 1             # replace_gat_l2 時 W_r 的區塊對角塊數（1 = 完整矩陣）；after_projection 只能是 1
   weak_links:
     mode: free            # 1,493 條候選邊（30x50 扣掉 7 條恆等邊）
     lambda_sparse: 0.0    # 見檔頭第 2 點；與 tw50chk_wl0_* 一致

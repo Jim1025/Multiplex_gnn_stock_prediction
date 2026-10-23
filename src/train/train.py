@@ -226,6 +226,8 @@ def train(
     tw_lag_w:          Optional[float] = None,
     tw_lag_inputs:     Optional[str] = None,
     tw_relational:     Optional[bool]  = None,
+    tw_relational_placement: Optional[str] = None,
+    tw_relational_blocks:    Optional[int] = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -476,8 +478,17 @@ def train(
             raise ValueError("configs/base.yaml 缺少 model.tw_relational")
         trc = {**base_trc, **(cfg["model"].get("tw_relational") or {})}
         trc["enabled"] = True
-        cfg["model"]["tw_relational"] = trc
         _overrides.append("tw_relational=True")
+        # 方案二 b（§78）：關係型卷積取代 GAT_L2 的位置與 W_r 的區塊數
+        if tw_relational_placement is not None:
+            trc["placement"] = tw_relational_placement
+            _overrides.append(f"tw_relational.placement={tw_relational_placement}")
+        if tw_relational_blocks is not None:
+            trc["blocks"] = int(tw_relational_blocks)
+            _overrides.append(f"tw_relational.blocks={int(tw_relational_blocks)}")
+        cfg["model"]["tw_relational"] = trc
+    elif tw_relational_placement is not None or tw_relational_blocks is not None:
+        raise ValueError("--tw-relational-placement / --tw-relational-blocks 必須與 --tw-relational 一起用")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -870,6 +881,8 @@ def train(
             # 關係型台股層（§71）：best checkpoint 的 W_r 大小，分析用（此時 model 已載入 best）
             meta["tw_relational"] = {
                 "relations": list(model.tw_rel_names),
+                "placement": model.tw_rel_placement,
+                "W_shape":   list(model.tw_rel_W.shape),
                 "W_fro": {nm: float(model.tw_rel_W[r].detach().norm())
                           for r, nm in enumerate(model.tw_rel_names)},
             }
@@ -1034,6 +1047,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--tw-relational", action="store_true", default=None,
                    help="開啟關係型台股層傳遞（proposal §71）：台股表示在融合前加上同產業、其他產業的"
                         "鄰居平均 x W_r。其餘選項從 configs/base.yaml 的 model.tw_relational 讀")
+    p.add_argument("--tw-relational-placement", choices=["after_projection", "replace_gat_l2"],
+                   default=None,
+                   help="覆寫 model.tw_relational.placement（須搭配 --tw-relational）："
+                        "replace_gat_l2 = 關係型卷積取代 GAT_L2（方案二 b，proposal §78）")
+    p.add_argument("--tw-relational-blocks", type=int, default=None,
+                   help="覆寫 model.tw_relational.blocks：replace_gat_l2 時 W_r 的區塊對角塊數（須搭配 --tw-relational）")
     return p.parse_args()
 
 
@@ -1080,6 +1099,8 @@ if __name__ == "__main__":
         tw_lag_w=args.tw_lag_w,
         tw_lag_inputs=args.tw_lag_inputs,
         tw_relational=args.tw_relational,
+        tw_relational_placement=args.tw_relational_placement,
+        tw_relational_blocks=args.tw_relational_blocks,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

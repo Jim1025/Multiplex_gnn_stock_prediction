@@ -1549,3 +1549,132 @@ def test_gat_l2_without_neighbours_is_per_node_affine(config: dict, small_batch:
         is_kept = torch.isclose(rows, kept, atol=1e-6).all(dim=-1)
         is_dropped = torch.isclose(rows, conv.bias.expand_as(rows), atol=1e-6).all(dim=-1)
     assert bool((is_kept | is_dropped).all())
+
+
+# ---------------------------------------------------------------------------
+# 方案二 b：關係型卷積取代 GAT_L2（proposal §78）
+# ---------------------------------------------------------------------------
+
+def _gat1(config: dict) -> dict:
+    """主 arm（tw50_betaF1nA2r1）的 GAT 設定：1 層。replace_gat_l2 只支援這個設定。"""
+    cfg = copy.deepcopy(config)
+    cfg["model"]["gat"]["num_layers"] = 1
+    return cfg
+
+
+# 主 arm 的 GAT_L2 -> 方案二 b 的自身項；GAT_L2 其餘 4 個張量的梯度恆為 0，直接丟掉
+_RGCN_KEYS = {"gat_L2.convs.0.lin_l.weight": "tw_rel_W0",
+              "gat_L2.convs.0.lin_l.bias": "tw_rel_b0",
+              "gat_L2.convs.0.bias": "tw_rel_bias"}
+
+
+def test_tw_relational_placement_default_is_after_projection(config: dict, small_batch: dict) -> None:
+    """舊快照沒有 placement / blocks：與明寫 after_projection、blocks = 1 逐位元相同（§71 的 run 照舊）。"""
+    cfg = copy.deepcopy(config)
+    for k in ("placement", "blocks"):
+        cfg["model"]["tw_relational"].pop(k, None)
+    m_old = _magnet_tw_rel(cfg, enabled=True, init_std=0.1).eval()
+    m_new = _magnet_tw_rel(config, enabled=True, init_std=0.1,
+                           placement="after_projection", blocks=1).eval()
+    assert not m_old.tw_rel_replace_gat and m_old.tw_rel_placement == "after_projection"
+    p_old, p_new = dict(m_old.named_parameters()), dict(m_new.named_parameters())
+    assert p_old.keys() == p_new.keys() and all(torch.equal(p_old[k], p_new[k]) for k in p_old)
+    with torch.no_grad():
+        assert torch.equal(m_old(small_batch)[0], m_new(small_batch)[0])
+
+
+def test_tw_rgcn_zero_init_matches_main_arm(config: dict, small_batch: dict) -> None:
+    """W_r = 0 時，同一顆種子下：GAT_L2 起作用的三個張量改名成自身項，其餘參數逐位元相同；
+    推論與訓練模式（dropout 遮罩相同）的輸出都逐位元相同——起點即主 arm，同種子配對才乾淨。"""
+    cfg = _gat1(config)
+    m_main = _magnet_tw_rel(cfg, enabled=False)
+    m_2b = _magnet_tw_rel(cfg, enabled=True, placement="replace_gat_l2", blocks=4)
+    p_main, p_2b = dict(m_main.named_parameters()), dict(m_2b.named_parameters())
+    gat2 = {k for k in p_main if k.startswith("gat_L2.")}
+    assert m_2b.gat_L2 is None
+    assert set(p_2b) == (set(p_main) - gat2) | set(_RGCN_KEYS.values()) | {"tw_rel_W"}
+    assert all(torch.equal(p_2b[v], p_main[k]) for k, v in _RGCN_KEYS.items())
+    assert all(torch.equal(p_2b[k], p_main[k]) for k in set(p_main) - gat2)
+    assert bool((m_2b.tw_rel_W == 0).all()) and tuple(m_2b.tw_rel_W.shape[1:]) == (4, 16, 16)
+    with torch.no_grad():
+        for train in (False, True):
+            m_main.train(train)
+            m_2b.train(train)
+            torch.manual_seed(0)
+            y_main = m_main(small_batch)[0]
+            torch.manual_seed(0)
+            y_2b = m_2b(small_batch)[0]
+            assert torch.equal(y_main, y_2b), f"train={train}"
+
+
+def test_tw_rgcn_reproduces_trained_main_arm(config: dict, small_batch: dict) -> None:
+    """任意（訓練過的）主 arm 權重改名載入、W_r = 0：推論輸出逐位元相同。"""
+    cfg = _gat1(config)
+    m_main = _magnet_tw_rel(cfg, enabled=False).eval()
+    with torch.no_grad():
+        for p in m_main.parameters():
+            p.add_(0.05 * torch.randn_like(p))                 # 模擬訓練後的權重
+    m_2b = _magnet_tw_rel(cfg, enabled=True, placement="replace_gat_l2", blocks=4).eval()
+    sd = {_RGCN_KEYS.get(k, k): v for k, v in m_main.state_dict().items()
+          if not k.startswith("gat_L2.") or k in _RGCN_KEYS}
+    sd["tw_rel_W"] = torch.zeros_like(m_2b.tw_rel_W)
+    m_2b.load_state_dict(sd, strict=True)
+    with torch.no_grad():
+        assert torch.equal(m_main(small_batch)[0], m_2b(small_batch)[0])
+
+
+def test_tw_rgcn_formula(config: dict) -> None:
+    """h'_j = W₀·h_j + b₀ + b + Σ_r（關係 r 的鄰居平均）x 區塊對角 W_r，逐節點手算（推論模式）。"""
+    m = _magnet_tw_rel(_gat1(config), enabled=True, placement="replace_gat_l2",
+                       blocks=4, init_std=0.1).eval()
+    R, H = m.tw_rel_W.shape[0], m.tw_rel_W0.shape[0]
+    h = torch.randn(2, m.n_l2, H)
+    with torch.no_grad():
+        got, msg = m._tw_rgcn(h)
+        bd = [torch.block_diag(*m.tw_rel_W[r]) for r in range(R)]          # 每個關係 [H, H]
+        own = torch.nn.functional.linear(h, m.tw_rel_W0, m.tw_rel_b0) + m.tw_rel_bias
+        want = torch.zeros_like(h)
+        for r in range(R):
+            for j in range(m.n_l2):
+                nb = torch.nonzero(m.tw_rel_M[r, j]).flatten()
+                if len(nb):
+                    want[:, j] += h[:, nb].mean(dim=1) @ bd[r]
+    assert torch.allclose(msg, want, atol=1e-5)
+    assert torch.allclose(got, own + want, atol=1e-5)
+
+
+def test_tw_rgcn_zero_init_gets_gradient(config: dict, small_batch: dict) -> None:
+    """W_r 從 0 出發仍拿得到梯度。"""
+    m = _magnet_tw_rel(_gat1(config), enabled=True, placement="replace_gat_l2", blocks=4).train()
+    y_hat, extras = m(small_batch)
+    loss, _ = m.compute_loss(y_hat, small_batch["y"], extras)
+    loss.backward()
+    assert m.tw_rel_W.grad is not None and torch.isfinite(m.tw_rel_W.grad).all()
+    assert float(m.tw_rel_W.grad.abs().sum()) > 0
+
+
+def test_tw_rgcn_effective_params_match_after_projection(config: dict) -> None:
+    """blocks = 4：參數量 = 現行關係型層（投影後）− GAT_L2 那 4,288 個梯度恆為 0 的參數，有效參數相同。"""
+    cfg = _gat1(config)
+    m_after = _magnet_tw_rel(cfg, enabled=True)
+    m_2b = _magnet_tw_rel(cfg, enabled=True, placement="replace_gat_l2", blocks=4)
+    inert = sum(p.numel() for k, p in m_after.gat_L2.convs[0].named_parameters()
+                if k == "att" or k.startswith(("lin_r.", "lin_edge.")))
+    n_after = sum(p.numel() for p in m_after.parameters())
+    n_2b = sum(p.numel() for p in m_2b.parameters())
+    assert inert == 4288 and n_2b == n_after - inert
+
+
+def test_tw_rgcn_rejects_bad_config(config: dict) -> None:
+    cfg = _gat1(config)
+    with pytest.raises(ValueError, match="placement"):
+        _magnet_tw_rel(cfg, enabled=True, placement="before_gat")
+    for blocks in (0, 3):
+        with pytest.raises(ValueError, match="blocks"):
+            _magnet_tw_rel(cfg, enabled=True, placement="replace_gat_l2", blocks=blocks)
+    with pytest.raises(ValueError, match="blocks"):
+        _magnet_tw_rel(cfg, enabled=True, placement="after_projection", blocks=4)
+    with pytest.raises(ValueError, match="num_layers"):
+        _magnet_tw_rel(config, enabled=True, placement="replace_gat_l2", blocks=4)   # base.yaml 是 2 層
+    with pytest.raises(ValueError, match="A₂"):
+        _magnet_tw_rel(cfg, enabled=True, graph_ablate="none", placement="replace_gat_l2", blocks=4)

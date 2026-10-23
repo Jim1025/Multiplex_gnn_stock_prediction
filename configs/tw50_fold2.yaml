@@ -128,6 +128,9 @@ model:
     enabled: false
     relations: [same_industry, other_industry]   # 可用：same_industry | other_industry
     init_std: 0.0         # W_r 的初始標準差；0 = 零初始化，起點即現行 MAGNET（不消耗隨機數）
+    placement: after_projection   # after_projection = 投影後加訊息（§71，預設）；
+                                  # replace_gat_l2 = 關係型卷積取代 GAT_L2（方案二 b，§78）
+    blocks: 1             # replace_gat_l2 時 W_r 的區塊對角塊數（1 = 完整矩陣）；after_projection 只能是 1
 
 loss_weights:
   mse: 1.0
