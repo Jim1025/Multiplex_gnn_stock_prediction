@@ -525,6 +525,10 @@ class MAGNET(nn.Module):
         # 為什麼不用 GAT：注意力是鄰居的非負加權平均，同一個頭裡自己和同業只能同號，
         # 資料裡卻是「自身反轉、同業延續」（§62.4、§67.3）。依關係各給一個可正可負的轉換才裝得下；
         # 舊的台股層內圖（A₂，|ρ| 建的同日相關邊）對稱、不分正負號，主 arm 已關閉（empty_l2）。
+        # 本層取代 A₂（2026-10-23）：開啟時 A₂ 必須關閉（empty_l2 / empty_both），否則報錯，
+        # 台股層不會有兩種層內傳遞並存。A₂ 關閉後 GAT_L2 沒有鄰居（GATv2Conv 只補自環），
+        # 主 arm 的 1 層設定下推論時逐位元等於逐檔的仿射轉換 lin_l(h) + bias，注意力向量、
+        # lin_r、lin_edge 的梯度恆為 0；訓練時的注意力 dropout 等於逐檔 dropout（tests 驗證）。
         # 關係來自 universe 的 industry 欄，由 cfg 決定、不是學到的狀態，所以是非持久 buffer。
         # 放在 __init__ 最後，理由同上兩段；init_std = 0 時零初始化、不消耗 RNG，
         # 同一顆種子下其餘參數與不開時逐位元相同，起點即現行 MAGNET。
@@ -535,6 +539,11 @@ class MAGNET(nn.Module):
             for k in ("relations", "init_std"):
                 if k not in trc:
                     raise ValueError(f"model.tw_relational 缺少 {k!r}（請在 configs/base.yaml 設定）")
+            if self.graph_ablate not in ("empty_l2", "empty_both"):
+                raise ValueError(
+                    "model.tw_relational 取代台股層內圖 A₂，開啟時 A₂ 必須關閉："
+                    f"model.gat.graph_ablate 需為 empty_l2 或 empty_both，當前為 {self.graph_ablate!r}"
+                    "（train.py 加 --graph-ablate empty_l2）")
             self.tw_rel_names = tuple(trc["relations"])
             self.register_buffer("tw_rel_M", self._build_tw_relations(self.tw_rel_names, u),
                                  persistent=False)                       # [R, n2, n2]

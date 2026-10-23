@@ -103,6 +103,7 @@ model:
                           # 關係取 universe 的 industry 欄（不動資料層）：同產業（不含自己）、其他產業；
                           # 沒有同業的股票，同產業訊息為 0。預設 false，既有 run 逐位元不變；
                           # 以 train.py 的 --tw-relational 開啟，其餘選項從這裡讀。
+                          # 本層取代台股層內圖 A₂：開啟時 gat.graph_ablate 需為 empty_l2 或 empty_both，否則報錯。
     enabled: false
     relations: [same_industry, other_industry]   # 可用：same_industry | other_industry
     init_std: 0.0         # W_r 的初始標準差；0 = 零初始化，起點即現行 MAGNET（不消耗隨機數）

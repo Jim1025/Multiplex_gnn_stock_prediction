@@ -1409,9 +1409,14 @@ def test_ic_loss_formula_and_scale_invariance() -> None:
 # 關係型台股層傳遞（proposal §71）
 # ---------------------------------------------------------------------------
 
-def _magnet_tw_rel(config: dict, enabled: bool | None, **kw) -> MAGNET:
-    """enabled=None 表示設定裡完全沒有 tw_relational 這一段。"""
+def _magnet_tw_rel(config: dict, enabled: bool | None, graph_ablate: str = "empty_l2", **kw) -> MAGNET:
+    """enabled=None 表示設定裡完全沒有 tw_relational 這一段。
+
+    關係型層取代台股層內圖 A₂，開啟時 A₂ 必須關閉；開與不開用同一個 graph_ablate
+    （預設同主 arm 的 empty_l2），比較的基準才相同。
+    """
     cfg = copy.deepcopy(config)
+    cfg["model"]["gat"]["graph_ablate"] = graph_ablate
     if enabled is None:
         cfg["model"].pop("tw_relational", None)
     else:
@@ -1498,3 +1503,49 @@ def test_tw_relational_rejects_bad_config(config: dict) -> None:
     cfg["model"]["tw_relational"] = {"enabled": True}
     with pytest.raises(ValueError, match="缺少"):
         MAGNET(cfg)
+
+
+def test_tw_relational_requires_a2_off(config: dict) -> None:
+    """關係型層取代 A₂：A₂ 還在（含隨機化的 A₂）時開啟要報錯，A₂ 關閉才可以；不開時不受限制。"""
+    for mode in ("none", "empty_l1", "rand_l1", "rand_l2", "rand_both"):
+        with pytest.raises(ValueError, match="A₂"):
+            _magnet_tw_rel(config, enabled=True, graph_ablate=mode)
+    for mode in ("empty_l2", "empty_both"):
+        assert _magnet_tw_rel(config, enabled=True, graph_ablate=mode).tw_rel_enabled
+    assert not _magnet_tw_rel(config, enabled=False, graph_ablate="none").tw_rel_enabled
+
+
+def test_gat_l2_without_neighbours_is_per_node_affine(config: dict, small_batch: dict) -> None:
+    """A₂ 關閉時 GAT_L2 沒有鄰居，關係型層是台股層唯一的層內傳遞。
+
+    主 arm 的 1 層設定下：推論時逐位元等於逐檔的 lin_l(h) + bias；注意力向量、lin_r、lin_edge
+    的梯度恆為 0（只有自環時 softmax 恆為 1，自環的邊特徵補成 0）；訓練時注意力 dropout
+    讓每檔的訊息整個保留（乘 1/(1-p)）或整個丟掉（只剩 bias），等於逐檔 dropout。
+    """
+    cfg = copy.deepcopy(config)
+    cfg["model"]["gat"]["num_layers"] = 1            # 主 arm（tw50_betaF1nA2r1）的設定
+    m = _magnet_tw_rel(cfg, enabled=True)
+    conv = m.gat_L2.convs[0]
+    ei, ea = m._ablate_graph(small_batch["edge_index_L2"], small_batch["edge_attr_L2"], m.n_l2, "l2")
+    h = torch.randn(len(ei), m.n_l2, conv.in_channels)
+
+    m.eval()
+    with torch.no_grad():
+        out = m._apply_gat_batched(m.gat_L2, h, ei, ea)
+        affine = torch.stack([conv.lin_l(h[b]) + conv.bias for b in range(len(ei))])
+    assert torch.equal(out, affine)
+
+    m.train()
+    out = m._apply_gat_batched(m.gat_L2, h, ei, ea)
+    out.sum().backward()
+    grads = {n: p.grad for n, p in conv.named_parameters()}
+    inert = [n for n in grads if n == "att" or n.startswith(("lin_r.", "lin_edge."))]
+    assert len(inert) == 4
+    assert all(grads[n] is None or bool((grads[n] == 0).all()) for n in inert)
+    assert float(grads["lin_l.weight"].abs().sum()) > 0
+    with torch.no_grad():
+        kept = torch.stack([conv.lin_l(h[b]) / (1 - conv.dropout) + conv.bias for b in range(len(ei))])
+        rows = out.detach()
+        is_kept = torch.isclose(rows, kept, atol=1e-6).all(dim=-1)
+        is_dropped = torch.isclose(rows, conv.bias.expand_as(rows), atol=1e-6).all(dim=-1)
+    assert bool((is_kept | is_dropped).all())
