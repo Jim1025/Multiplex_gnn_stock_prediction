@@ -419,15 +419,20 @@ class MAGNET(nn.Module):
         trc0 = m_cfg.get("tw_relational") or {}
         self.tw_rel_replace_gat = (bool(trc0.get("enabled", False))
                                    and trc0.get("placement", "after_projection") == "replace_gat_l2")
+        self.tw_rel_self = True
         if self.tw_rel_replace_gat:
             shadow = GATEncoder(gat_cfg)
             if len(shadow.convs) != 1:
                 raise ValueError("tw_relational.placement = replace_gat_l2 只支援 model.gat.num_layers = 1"
                                  f"（主 arm 的設定），當前為 {len(shadow.convs)}")
             conv = shadow.convs[0]
-            self.tw_rel_W0 = nn.Parameter(conv.lin_l.weight.detach().clone())   # [H_gat, H_lstm]
-            self.tw_rel_b0 = nn.Parameter(conv.lin_l.bias.detach().clone())     # [H_gat]
-            self.tw_rel_bias = nn.Parameter(conv.bias.detach().clone())         # [H_gat]
+            # 元件消融（§79）：self_term = false 時不含自身項，W₀、b₀ 不建立；影子照建，隨機數消耗不變
+            self.tw_rel_self = bool(trc0.get("self_term", True))
+            if self.tw_rel_self:
+                self.tw_rel_W0 = nn.Parameter(conv.lin_l.weight.detach().clone())   # [H_gat, H_lstm]
+                self.tw_rel_b0 = nn.Parameter(conv.lin_l.bias.detach().clone())     # [H_gat]
+            self.tw_rel_bias = nn.Parameter(conv.bias.detach().clone())             # [H_gat]
+            self.tw_rel_dims = (conv.in_channels, conv.out_channels)
             self.tw_rel_p = float(conv.dropout)
             self.gat_L2 = None
         else:
@@ -576,13 +581,21 @@ class MAGNET(nn.Module):
                 raise ValueError("model.tw_relational.blocks 只在 placement = replace_gat_l2 下生效，"
                                  f"after_projection 時必須是 1，當前為 {blocks}")
             if self.tw_rel_replace_gat:
-                dim = self.tw_rel_W0.shape[0]
-                if self.tw_rel_W0.shape[1] != dim:
+                d_in, dim = self.tw_rel_dims
+                if d_in != dim:
                     raise ValueError("replace_gat_l2 需要 GAT 的輸入與輸出維度相同（區塊對角的 W_r 是方陣）")
                 if blocks < 1 or dim % blocks:
                     raise ValueError(f"model.tw_relational.blocks 需為能整除 {dim} 的正整數，當前為 {blocks}")
+            # 元件消融的兩個選項（§79）：不含自身項；打亂產業標籤（安慰劑）。舊快照沒有這兩個鍵，視為不消融。
+            if not bool(trc.get("self_term", True)) and not self.tw_rel_replace_gat:
+                raise ValueError("model.tw_relational.self_term = false 只在 placement = replace_gat_l2 下有定義"
+                                 "（投影後的版本以殘差保留自身）")
+            shuffle = trc.get("shuffle_seed")
+            if shuffle is not None and (isinstance(shuffle, bool) or not isinstance(shuffle, int)):
+                raise ValueError(f"model.tw_relational.shuffle_seed 需為整數或 null，當前為 {shuffle!r}")
+            self.tw_rel_shuffle = shuffle
             self.tw_rel_names = tuple(trc["relations"])
-            self.register_buffer("tw_rel_M", self._build_tw_relations(self.tw_rel_names, u),
+            self.register_buffer("tw_rel_M", self._build_tw_relations(self.tw_rel_names, u, shuffle),
                                  persistent=False)                       # [R, n2, n2]
             std = float(trc["init_std"])
             if std < 0:
@@ -780,11 +793,14 @@ class MAGNET(nn.Module):
         own = []
         for b in range(B):
             keep = F.dropout(h.new_ones(n, 1), p=self.tw_rel_p, training=self.training)
-            own.append(F.linear(h[b], self.tw_rel_W0, self.tw_rel_b0) * keep + self.tw_rel_bias)
+            if self.tw_rel_self:
+                own.append(F.linear(h[b], self.tw_rel_W0, self.tw_rel_b0) * keep + self.tw_rel_bias)
+            else:                   # 消融（§79）：不含自身項，只剩 bias；遮罩照抽，隨機數流與完整版相同
+                own.append(self.tw_rel_bias.expand(n, -1))
         return torch.stack(own, dim=0) + msg, msg
 
     @staticmethod
-    def _build_tw_relations(names, universe) -> Tensor:
+    def _build_tw_relations(names, universe, shuffle_seed: int | None = None) -> Tensor:
         """
         台股層的關係矩陣 [R, n2, n2]：M[r, j, k] = 1/|N_r(j)|（k ∈ N_r(j)），其餘為 0。
 
@@ -792,6 +808,8 @@ class MAGNET(nn.Module):
             other_industry  不同產業的股票
 
         與 scripts/relational_linear.py 的 relations() 同一個定義（§67.3）。
+        shuffle_seed 不是 None 時，先把 50 檔的產業標籤隨機排列（安慰劑，§79）：各產業的檔數不變，
+        只換成哪幾檔同組。用局部亂數產生器，不動全域隨機數。
         """
         ok = ("same_industry", "other_industry")
         names = list(names)
@@ -802,6 +820,9 @@ class MAGNET(nn.Module):
         if missing:
             raise ValueError(f"[{universe.name}] 台股 {missing} 沒有 industry，無法建關係型台股層")
         lab = [universe.industry[c] for c in universe.tw_nodes]
+        if shuffle_seed is not None:
+            perm = torch.randperm(len(lab), generator=torch.Generator().manual_seed(int(shuffle_seed)))
+            lab = [lab[i] for i in perm.tolist()]
         n = len(lab)
         adj = {
             "same_industry": [[float(lab[j] == lab[k] and j != k) for k in range(n)]

@@ -131,6 +131,8 @@ model:
     placement: after_projection   # after_projection = 投影後加訊息（§71，預設）；
                                   # replace_gat_l2 = 關係型卷積取代 GAT_L2（方案二 b，§78）
     blocks: 1             # replace_gat_l2 時 W_r 的區塊對角塊數（1 = 完整矩陣）；after_projection 只能是 1
+    self_term: true       # false = 2b 不含自身項（元件消融，§79；只在 replace_gat_l2 下有定義）
+    shuffle_seed: null    # 整數 = 先把產業標籤隨機排列（安慰劑，§79；各產業檔數不變）
 
 loss_weights:
   mse: 1.0

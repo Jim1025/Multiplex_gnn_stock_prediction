@@ -228,6 +228,9 @@ def train(
     tw_relational:     Optional[bool]  = None,
     tw_relational_placement: Optional[str] = None,
     tw_relational_blocks:    Optional[int] = None,
+    tw_relational_relations: Optional[list] = None,
+    tw_relational_no_self:   Optional[bool] = None,
+    tw_relational_shuffle_seed: Optional[int] = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -486,9 +489,21 @@ def train(
         if tw_relational_blocks is not None:
             trc["blocks"] = int(tw_relational_blocks)
             _overrides.append(f"tw_relational.blocks={int(tw_relational_blocks)}")
+        # 2b 的元件消融（§79）：只留部分關係、拿掉自身項、打亂產業標籤
+        if tw_relational_relations is not None:
+            trc["relations"] = list(tw_relational_relations)
+            _overrides.append(f"tw_relational.relations={list(tw_relational_relations)}")
+        if tw_relational_no_self:
+            trc["self_term"] = False
+            _overrides.append("tw_relational.self_term=False")
+        if tw_relational_shuffle_seed is not None:
+            trc["shuffle_seed"] = int(tw_relational_shuffle_seed)
+            _overrides.append(f"tw_relational.shuffle_seed={int(tw_relational_shuffle_seed)}")
         cfg["model"]["tw_relational"] = trc
-    elif tw_relational_placement is not None or tw_relational_blocks is not None:
-        raise ValueError("--tw-relational-placement / --tw-relational-blocks 必須與 --tw-relational 一起用")
+    elif any(v is not None for v in (tw_relational_placement, tw_relational_blocks, tw_relational_relations,
+                                      tw_relational_no_self, tw_relational_shuffle_seed)):
+        raise ValueError("--tw-relational-placement / -blocks / -relations / -no-self / -shuffle-seed "
+                         "必須與 --tw-relational 一起用")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -883,6 +898,8 @@ def train(
                 "relations": list(model.tw_rel_names),
                 "placement": model.tw_rel_placement,
                 "W_shape":   list(model.tw_rel_W.shape),
+                "self_term": bool(model.tw_rel_self),
+                "shuffle_seed": model.tw_rel_shuffle,
                 "W_fro": {nm: float(model.tw_rel_W[r].detach().norm())
                           for r, nm in enumerate(model.tw_rel_names)},
             }
@@ -1053,6 +1070,13 @@ def _parse_args() -> argparse.Namespace:
                         "replace_gat_l2 = 關係型卷積取代 GAT_L2（方案二 b，proposal §78）")
     p.add_argument("--tw-relational-blocks", type=int, default=None,
                    help="覆寫 model.tw_relational.blocks：replace_gat_l2 時 W_r 的區塊對角塊數（須搭配 --tw-relational）")
+    p.add_argument("--tw-relational-relations", nargs="+", default=None,
+                   choices=["same_industry", "other_industry"],
+                   help="覆寫 model.tw_relational.relations（元件消融，proposal §79；須搭配 --tw-relational）")
+    p.add_argument("--tw-relational-no-self", action="store_true", default=None,
+                   help="model.tw_relational.self_term = false：2b 不含自身項（元件消融，§79；須搭配 --tw-relational）")
+    p.add_argument("--tw-relational-shuffle-seed", type=int, default=None,
+                   help="model.tw_relational.shuffle_seed：打亂產業標籤的安慰劑（§79；須搭配 --tw-relational）")
     return p.parse_args()
 
 
@@ -1101,6 +1125,9 @@ if __name__ == "__main__":
         tw_relational=args.tw_relational,
         tw_relational_placement=args.tw_relational_placement,
         tw_relational_blocks=args.tw_relational_blocks,
+        tw_relational_relations=args.tw_relational_relations,
+        tw_relational_no_self=args.tw_relational_no_self,
+        tw_relational_shuffle_seed=args.tw_relational_shuffle_seed,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

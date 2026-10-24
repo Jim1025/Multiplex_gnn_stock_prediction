@@ -1678,3 +1678,102 @@ def test_tw_rgcn_rejects_bad_config(config: dict) -> None:
         _magnet_tw_rel(config, enabled=True, placement="replace_gat_l2", blocks=4)   # base.yaml 是 2 層
     with pytest.raises(ValueError, match="A₂"):
         _magnet_tw_rel(cfg, enabled=True, graph_ablate="none", placement="replace_gat_l2", blocks=4)
+
+
+# ---------------------------------------------------------------------------
+# 2b 的元件消融（proposal §79）：只留部分關係、拿掉自身項、打亂產業標籤
+# ---------------------------------------------------------------------------
+
+def _rgcn(config: dict, **kw) -> MAGNET:
+    return _magnet_tw_rel(_gat1(config), enabled=True, placement="replace_gat_l2", blocks=4, **kw)
+
+
+def test_tw_rgcn_ablation_defaults_match_2b(config: dict, small_batch: dict) -> None:
+    """self_term / shuffle_seed 缺省與明寫 true / null 逐位元相同（§78 的 2b run 照舊）。"""
+    cfg = _gat1(config)
+    for k in ("self_term", "shuffle_seed"):
+        cfg["model"]["tw_relational"].pop(k, None)
+    m_old = _magnet_tw_rel(cfg, enabled=True, placement="replace_gat_l2", blocks=4, init_std=0.1).eval()
+    m_new = _rgcn(config, init_std=0.1, self_term=True, shuffle_seed=None).eval()
+    p_old, p_new = dict(m_old.named_parameters()), dict(m_new.named_parameters())
+    assert p_old.keys() == p_new.keys() and all(torch.equal(p_old[k], p_new[k]) for k in p_old)
+    assert torch.equal(m_old.tw_rel_M, m_new.tw_rel_M)
+    with torch.no_grad():
+        assert torch.equal(m_old(small_batch)[0], m_new(small_batch)[0])
+
+
+def test_tw_rgcn_relation_subset_formula(config: dict) -> None:
+    """只留一種關係：W_r 只有一組、公式逐節點手算相同；其餘參數與完整 2b 逐位元相同（同種子）。"""
+    full = dict(_rgcn(config).named_parameters())
+    for rel in ("same_industry", "other_industry"):
+        m = _rgcn(config, relations=[rel], init_std=0.1).eval()
+        assert m.tw_rel_names == (rel,) and tuple(m.tw_rel_W.shape) == (1, 4, 16, 16)
+        p = dict(m.named_parameters())
+        assert all(torch.equal(p[k], full[k]) for k in p if k != "tw_rel_W")
+        h = torch.randn(2, m.n_l2, m.tw_rel_W0.shape[0])
+        with torch.no_grad():
+            got, msg = m._tw_rgcn(h)
+            bd = torch.block_diag(*m.tw_rel_W[0])
+            want = torch.zeros_like(h)
+            for j in range(m.n_l2):
+                nb = torch.nonzero(m.tw_rel_M[0, j]).flatten()
+                if len(nb):
+                    want[:, j] = h[:, nb].mean(dim=1) @ bd
+            own = torch.nn.functional.linear(h, m.tw_rel_W0, m.tw_rel_b0) + m.tw_rel_bias
+        assert torch.allclose(msg, want, atol=1e-5) and torch.allclose(got, own + want, atol=1e-5)
+
+
+def test_tw_rgcn_no_self(config: dict, small_batch: dict) -> None:
+    """拿掉自身項：沒有 W₀、b₀，其餘參數與完整 2b 逐位元相同；輸出 = bias + 關係訊息；
+    訓練模式下抽的 dropout 遮罩與完整版相同（隨機數流一致）；W_r 從 0 出發拿得到梯度。"""
+    m_full = _rgcn(config)
+    m_ns = _rgcn(config, self_term=False, init_std=0.1)
+    p_full, p_ns = dict(m_full.named_parameters()), dict(m_ns.named_parameters())
+    assert set(p_full) - set(p_ns) == {"tw_rel_W0", "tw_rel_b0"} and not m_ns.tw_rel_self
+    assert all(torch.equal(p_ns[k], p_full[k]) for k in p_ns if k != "tw_rel_W")
+    h = torch.randn(2, m_ns.n_l2, m_ns.tw_rel_dims[0])
+    with torch.no_grad():
+        got, msg = m_ns.eval()._tw_rgcn(h)
+    assert torch.allclose(got, m_ns.tw_rel_bias + msg, atol=1e-6)
+    with torch.no_grad():
+        torch.manual_seed(0)
+        m_full.train()(small_batch)
+        s_full = torch.get_rng_state()
+        torch.manual_seed(0)
+        m_ns.train()(small_batch)
+        assert torch.equal(torch.get_rng_state(), s_full)
+    m0 = _rgcn(config, self_term=False).train()
+    y_hat, extras = m0(small_batch)
+    loss, _ = m0.compute_loss(y_hat, small_batch["y"], extras)
+    loss.backward()
+    assert torch.isfinite(m0.tw_rel_W.grad).all() and float(m0.tw_rel_W.grad.abs().sum()) > 0
+
+
+def test_tw_relational_shuffle_preserves_group_sizes() -> None:
+    """打亂產業標籤：各產業檔數不變（仍有 9 檔沒有同業）、同一個種子可重現、不同於真實分組。"""
+    from src.dataset.config import load_universe
+    u = load_universe("tw50")
+    names = ["same_industry", "other_industry"]
+    M = MAGNET._build_tw_relations(names, u)
+    S = MAGNET._build_tw_relations(names, u, shuffle_seed=7)
+    sizes = lambda A: sorted(int((A[j] > 0).sum()) + 1 for j in range(A.shape[0]))   # 每檔所屬產業的檔數
+    assert sizes(S[0]) == sizes(M[0]) and int((S[0].sum(1) == 0).sum()) == 9
+    assert torch.allclose(S[1].sum(1), torch.ones(50))
+    assert torch.equal(S, MAGNET._build_tw_relations(names, u, shuffle_seed=7))
+    assert not torch.equal(S, M)
+
+
+def test_tw_rgcn_shuffle_does_not_touch_global_rng(config: dict) -> None:
+    """打亂只用局部亂數產生器：同種子下參數與不打亂的完整 2b 逐位元相同，只有關係矩陣不同。"""
+    m_full, m_sh = _rgcn(config), _rgcn(config, shuffle_seed=42)
+    p_full, p_sh = dict(m_full.named_parameters()), dict(m_sh.named_parameters())
+    assert p_full.keys() == p_sh.keys() and all(torch.equal(p_full[k], p_sh[k]) for k in p_full)
+    assert m_sh.tw_rel_shuffle == 42
+
+
+def test_tw_rgcn_rejects_bad_ablation_config(config: dict) -> None:
+    with pytest.raises(ValueError, match="self_term"):
+        _magnet_tw_rel(config, enabled=True, self_term=False)                  # 投影後的版本沒有定義
+    for bad in ("7", True, 1.5):
+        with pytest.raises(ValueError, match="shuffle_seed"):
+            _rgcn(config, shuffle_seed=bad)
