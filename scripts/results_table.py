@@ -995,7 +995,37 @@ def _holdout_block():
             cells = ["—"] * 4
         out.append(f"| {lab[a]} | {len(seeds)} | {pm(per[a]['ic'].mean(), per[a]['ic'].std(ddof=1))} "
                    f"| {pm(per[a]['ric'].mean(), per[a]['ric'].std(ddof=1))} | " + " | ".join(cells) + " |")
-    return days, out
+    # §81（2026-10-26）：凍結的 SA（自身 + 同產業，§80）的探索性第二次評估，只讀 holdout_2026_sa_eval.py --run
+    # 存下的預測。日子沿用上面兩個 arm 的同一組；配對 p 括號內是 Bonferroni x2（同一假設的第二次檢驗）。
+    sa = {}
+    for s, d in H.runs("tw50_rgcnSA").items():
+        f = d / "predictions" / H.OUT_NAME
+        if f.exists():
+            df = pd.read_csv(f, dtype={"ticker": str})
+            df["target_date"] = df["target_date"].astype(str).str[:10]
+            sa[s] = df
+    has_sa = set(seeds) <= set(sa)
+    if has_sa:
+        Ds = {s: H.daily(sa[s]) for s in seeds}
+        has_sa = all(set(days) <= set(Ds[s].index) for s in seeds)
+    if has_sa:
+        ps = {k: np.array([np.nanmean(Ds[s].loc[days, k]) for s in seeds]) for k in ("ic", "ric")}
+        e = (pd.concat([sa[s] for s in seeds]).groupby(["target_date", "ticker"])
+             .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
+        e = H.daily(e).loc[days]
+        sl = "MAGNET 本版 + 關係型台股層（取代 GAT_L2，自身 + 同產業；探索性的第二次檢驗，§81）"
+        cells = []
+        for k in ("ic", "ric"):
+            p = stats.ttest_rel(ps[k], per["主 arm"][k]).pvalue
+            cells.append(f"{p:.4f}（x2 {min(1.0, 2 * p):.4f}）")
+        for k in ("ic", "ric"):
+            ma = np.nanmean(np.vstack([D["主 arm"][s].loc[days, k] for s in seeds]), 0)
+            mb = np.nanmean(np.vstack([Ds[s].loc[days, k] for s in seeds]), 0)
+            cells.append(f"{H.hac_p(mb - ma):.4f}")
+        out.append(f"| {sl}（10 顆集成） | {len(seeds)} | {np.nanmean(e.ic):+.4f} | {np.nanmean(e.ric):+.4f} | — | — | — | — |")
+        out.append(f"| {sl} | {len(seeds)} | {pm(ps['ic'].mean(), ps['ic'].std(ddof=1))} "
+                   f"| {pm(ps['ric'].mean(), ps['ric'].std(ddof=1))} | " + " | ".join(cells) + " |")
+    return days, out, has_sa
 
 
 def _acc_block():
@@ -1260,13 +1290,17 @@ def main() -> None:
     # ── 2026 保留期（§75）：登記的一次性確認，凍結的第一折模型 ─────────────
     hb = _holdout_block()
     if hb is not None:
-        hdays, hlines = hb
+        hdays, hlines, has_sa = hb
         out.append("## 2026 保留期（凍結的第一折模型，§75）")
         out.append("")
-        out.append(f"評估窗 **{hdays[0]} ~ {hdays[-1]}**（{len(hdays)} 天），資料在 2026-10-18 下載、只用這一次"
+        out.append(f"評估窗 **{hdays[0]} ~ {hdays[-1]}**（{len(hdays)} 天），資料在 2026-10-18 下載，§75 的登記檢驗只用這一次"
                    "（事前登記，proposal §75）。模型是第一折已訓練好的兩個 arm（各 10 顆種子），不重訓、不調參。"
                    "`配對 p` 是關係型對主 arm 的同種子配對 t 檢定（登記的判準），`逐日 p` 是種子平均的逐日差的 HAC 檢定。"
                    "**登記的判定：主判準（IC）與第二指標（RankIC）都未通過，主結果不改。**")
+        if has_sa:
+            out.append("")
+            out.append("最後兩列是 2026-10-26 加的**探索性第二次評估**（規則先寫好，proposal §81）：凍結的 SA（自身 + 同產業，§80）"
+                       "對主 arm。這是看過 §75 的結果之後才做的同一假設的第二次檢驗，不是確認；配對 p 括號內是 Bonferroni x2。")
         out.append("")
         out += hlines
         out.append("")
