@@ -62,7 +62,8 @@ PRIOR = "tw50_betaF1nA2r1"      # 原主結果（不帶關係），2026-10-27 �
 PRIOR_F2 = "f2_best"
 MAIN_LABEL = "MAGNET（+ 同產業關係，主結果）"
 PRIOR_LABEL = "MAGNET 不帶關係（原主結果）"
-# 主結果自己的單市場消融（2026-10-27 事前登記，proposal §83.3）。依登記不進主表，只在「讀表注意」說明，數字由 run 算
+# 主結果自己的單市場消融（2026-10-27 事前登記，proposal §83.3）。登記寫的是不進主表；同日依使用者決定改放進兩折的主表，
+# 原主結果與前一版 arm 的單市場消融（tw50_smktA / tw50_smktB）移出主表（§83.3）
 SMKT_SA = ("tw50_smktSA", "f2_smktSA")
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
@@ -108,10 +109,8 @@ NEURAL = [
     ("MAGNET F3（無跳接）",            "tw50_T1F3rb",   "本專案", "F3, T=1, L=1"),
     ("MAGNET + 稠密耦合 A",            "tw50_T1F9dense","本專案", "A[30,50] 可學"),
     ("Early fusion 對照",             "tw50chk_ef",    "本專案", "拼接後單一編碼器"),
-    ("單市場消融（不帶關係的版本）", "tw50_smktA", "本專案",
-     "disable_a12，跨市場全關"),
-    ("單市場消融（前一版 arm）", "tw50_smktB", "本專案",
-     "disable_a12，台股側 F3 + 有圖"),
+    ("單市場消融（主結果）", SMKT_SA[0], "本專案",
+     "disable_a12，跨市場全關；事前登記，§83.3"),
     ("LSTM only（無圖）",              "tw50chk_lstm",  "本專案",
      "另一架構，非對等對照"),
     ("HGT [14]",                      "tw50_bl_hgt",       "文獻", "未調參"),
@@ -569,7 +568,7 @@ def fmt(v, nd=4, signed=True):
 
 
 def _smkt_sa_note(base: dict) -> str | None:
-    """「讀表注意」裡主結果自己的單市場消融（SMKT_SA，proposal §83.3）。缺 run 時回傳 None。
+    """「讀表注意」裡單市場消融那一條（主表的「單市場消融（主結果）」，SMKT_SA，proposal §83.3）。缺 run 時回傳 None。
 
     兩折都是同種子配對：主結果 − 單市場的差、為正的種子數、配對 p、跨市場佔主結果的比例。
     第一折的逐種子 IC / RankIC 與主表同口徑（neural_stats）；第二折的評估窗截到 2024-12-25，
@@ -610,15 +609,15 @@ def _smkt_sa_note(base: dict) -> str | None:
     def diffs(k):
         return "/ ".join(f"{res[i, k]['d']:+.4f}（{res[i, k]['pos']}/{res[i, k]['n']} 為正，"
                           f"配對 p {res[i, k]['p']:.1e}）" for i in (0, 1))
-    return ("- **主結果自己的單市場消融**（2026-10-27 事前登記，proposal §83.3；依登記不進主表）："
-            f"`{SMKT_SA[0]}` / `{SMKT_SA[1]}` 的 IC {res[0, 'IC']['abl']:+.4f} / {res[1, 'IC']['abl']:+.4f}、"
-            f"RankIC {res[0, 'RankIC']['abl']:+.4f} / {res[1, 'RankIC']['abl']:+.4f}（第一折 / 第二折）。"
-            f"主結果 − 單市場：IC {diffs('IC')}；RankIC {diffs('RankIC')}。"
+    return ("- **單市場消融是本表效果量最大的一格，也是「多層圖值不值得」的直接答案。**"
+            "`disable_a12` 把 h_L1 在進 fusion 前零化，參數與計算圖不變，所以差異可以歸因到跨市場資訊"
+            "（原主結果的版本實測美股側與耦合的參數梯度恰為 0，proposal §41）。"
+            f"主表的「單市場消融（主結果）」是 `{SMKT_SA[0]}` / `{SMKT_SA[1]}`（2026-10-27 事前登記，proposal §83.3）。"
+            f"主結果 − 單市場（同種子配對，第一折 / 第二折）：IC {diffs('IC')}；RankIC {diffs('RankIC')}。"
             f"**跨市場佔主結果 IC 的 {res[0, 'IC']['share']:.0%} / {res[1, 'IC']['share']:.0%}、"
-            f"RankIC 的 {res[0, 'RankIC']['share']:.0%} / {res[1, 'RankIC']['share']:.0%}**"
-            "（上一條的 92% 是原主結果第一折的數字，第二折見 proposal §64.8）。"
-            "主表「單市場消融（不帶關係的版本）」那一列是原主結果的消融：它的逐日 p 是主結果對該列，"
-            "跨了兩個 arm，不是主結果自己的消融。")
+            f"RankIC 的 {res[0, 'RankIC']['share']:.0%} / {res[1, 'RankIC']['share']:.0%}。**"
+            "原主結果的單市場消融佔 IC 的 92% / 78%（§41、§64.8），不是主結果的數字；"
+            "它與前一版 arm 的單市場消融 2026-10-27 起移出主表。")
 
 
 def _fold2_rows():
@@ -713,6 +712,7 @@ def _fold2_rows():
             ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
             ("TW+（美股+台股 80 維）", "runs_f2/*fvg_TWp/predictions/*.csv"),
             ("MAGNET 基準（自家前版）", "runs/**/*f2_base_s*/predictions/test_predictions.csv"),
+            ("單市場消融（主結果）", f"runs/**/*{SMKT_SA[1]}_s*/predictions/test_predictions.csv"),
             ("RC 常數對照", "runs_f2/*ridge_RC/predictions/*.csv")]
     pats += [(bip_label(m), (_latest(f"runs_f2/{BIP.format(m)}") or "runs_f2/__missing__")
               + "/predictions/test_predictions.csv") for m, _ in BIP_MODELS]
@@ -1826,25 +1826,14 @@ def main() -> None:
                "不是主效應，那是只看一個角落造成的假象。"
                "`無A₂` 的真實作用是**用 ICIR 換 RankIC**"
                "（+0.0077 / −0.0258，兩者皆 10/10 種子），在 IC 上恰好抵消。")
-    out.append("- **單市場消融是本表效果量最大的一格，也是「多層圖值不值得」的直接答案。**"
-               "`disable_a12` 把 h_L1 在進 fusion 前零化，**參數量 48,548 與完整版完全相同**"
-               "（美股側與耦合的 12,256 個參數梯度實測恰為 0），"
-               "所以差異可以完全歸因到跨市場資訊。"
-               "淨值：主結果 arm **ΔIC +0.1004**（10/10 種子、逐日 HAC p 3.3e-06）、"
-               "前一版 arm +0.0961（10/10、3.2e-07）——"
-               "**佔模型表現的 92%，切掉後低於常數對照。** 詳見 proposal §41。")
     smkt_note = _smkt_sa_note(base)
     if smkt_note:
         out.append(smkt_note)
     out.append("- **`LSTM only` 不能當單市場對照。** 它是另一個架構（無 GAT、無融合閘門、"
                "無 beta 層），差異裡混了「沒有跨市場」與「少三個模組」。"
-               "要回答教授建議 1，用的是上面兩個 `disable_a12` 的消融 arm。")
-    out.append("- **兩個單市場 arm 的方向是反的**：台股側資訊較「完整」的 B"
-               "（3 特徵 + 2,200 條邊的台股圖）RankIC 反而比 A（1 特徵、圖只剩 self-loop）"
-               "低 0.0292，10 顆種子無一例外。理由見 §37——"
-               "RSI/BB 的逐日自相關 0.85–0.91（只能產生近乎不變的排序）、"
-               "台股圖對相關股票做平滑（抹掉排序唯一需要的橫截面差異）。"
-               "有跨市場訊號時這兩項的傷害被蓋過去，切掉後才顯現。")
+               "要回答教授建議 1，用的是主表的「單市場消融（主結果）」（`disable_a12`）。")
+    out.append("- 原主結果（`tw50_smktA`）與前一版 arm（`tw50_smktB`，台股側 3 特徵 + 有圖）的單市場消融 "
+               "2026-10-27 起移出主表；兩者的方向相反，原因見 proposal §37。")
     out.append("- 單市場的數字**不可解讀成「台股資料沒有預測力」**：T_history=1 是在"
                "「有跨市場資訊」的前提下選的，沒有它時只看前一天本來就極難預測。"
                "佐證：六個文獻的單市場 baseline 也全部落在 −0.0053 ~ +0.0113。")
@@ -1913,8 +1902,9 @@ def main() -> None:
                "沒有結論翻轉。** 詳見 proposal §44.7 與 §54。"
                "掃過全部 631 個預測檔：**主結果 arm、beta 各版本、兩折的 f2_best / f2_base、"
                "全部線性 baseline 的塌縮天數皆為 0**，本表主要數字不受影響。"
-               "兩個例外：`tw50_smktA` 每顆種子 1/246 天（對平均影響 < 0.0005）、"
-               "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。")
+               "兩個例外：`tw50_smktA`（2026-10-27 起不在主表）每顆種子 1/246 天（對平均影響 < 0.0005）、"
+               "`tw50_bl_delta_lag` 27/246 天（**其 RankIC 有 11% 的天數是 ticker 順序捏造的**）。"
+               "2026-10-27 檢查：主結果與「單市場消融（主結果）」兩折的塌縮天數也都是 0。")
     out.append("- DeltaLag 的預測退化（多日全 50 檔近乎同值），其數字不可信，待修。"
                "第二折同樣：種子 7 有 40 天 50 檔的預測完全相同（§74），這些天一律略過（§77）。"
                "第一折種子 7 的 CPU 重評檔有 25 天完全相同，另有 2 天只差 2–8 個 float32 ulp；"
