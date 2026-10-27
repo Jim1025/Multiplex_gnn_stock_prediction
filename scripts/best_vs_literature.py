@@ -14,12 +14,17 @@ best_vs_literature.py — MAGNET 能不能稱最好（proposal §73）
 
 只讀預測檔，不寫入任何檔案。
 
+2026-10-27 起主結果改為 SA（MAGNET + 同產業關係，§83）：預設比較 SA；--arm prior 改比原主結果（不帶關係），兩者都列出才透明
+（SA 是事後選的，對文獻方法新出現的顯著要保留）。
+
 用法：
-    .venv/bin/python scripts/best_vs_literature.py
+    .venv/bin/python scripts/best_vs_literature.py              # 主結果（SA）
+    .venv/bin/python scripts/best_vs_literature.py --arm prior   # 原主結果（不帶關係）
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
 import sys
 import warnings
@@ -52,10 +57,10 @@ def holm(ps, alpha: float = 0.05) -> np.ndarray:
 
 
 def report(fold: str, rows: list[dict], mic, mric, eic, eric) -> None:
-    print(f"\n######## {fold}：MAGNET 本版 IC {mic:+.4f} / RankIC {mric:+.4f}；"
+    print(f"\n######## {fold}：{ARM['label']} IC {mic:+.4f} / RankIC {mric:+.4f}；"
           f"10 顆集成 {eic:+.4f} / {eric:+.4f}")
     lit = [r for r in rows if r["lit"]]
-    for who, name in (("m", "MAGNET 本版"), ("e", "10 顆集成")):
+    for who, name in (("m", ARM["label"]), ("e", "10 顆集成")):
         for key, kn in (("ic", "IC"), ("ric", "RankIC")):
             ps = np.array([r[f"{who}_{key}_p"] for r in lit])
             keep = holm(ps)
@@ -71,9 +76,9 @@ def report(fold: str, rows: list[dict], mic, mric, eic, eric) -> None:
     print("  附錄 B（非文獻，不進 Holm）：")
     for r in rows:
         if not r["lit"]:
-            print(f"      {r['lab']:24s} IC {r['ic']:+.4f}（本版 − 它 {r['m_ic_d']:+.4f}，p {r['m_ic_p']:.3f}；"
+            print(f"      {r['lab']:24s} IC {r['ic']:+.4f}（MAGNET − 它 {r['m_ic_d']:+.4f}，p {r['m_ic_p']:.3f}；"
                   f"集成 − 它 {r['e_ic_d']:+.4f}，p {r['e_ic_p']:.3f}） RankIC {r['ric']:+.4f}"
-                  f"（本版 {r['m_ric_d']:+.4f}，p {r['m_ric_p']:.3f}；集成 {r['e_ric_d']:+.4f}，p {r['e_ric_p']:.3f}）")
+                  f"（MAGNET {r['m_ric_d']:+.4f}，p {r['m_ric_p']:.3f}；集成 {r['e_ric_d']:+.4f}，p {r['e_ric_p']:.3f}）")
 
 
 # ---------------------------------------------------------------- 第一折
@@ -81,7 +86,7 @@ def fold1() -> None:
     lit = [(lab, arm, "n") for lab, arm, cat, _ in R.NEURAL if cat == "文獻"] + \
           [(lab, pat, "b") for lab, pat, _, _ in R.NONNEURAL if lab.startswith("[24]")]
     app = [(lab, pat, "b") for lab, pat, _, _ in R.NONNEURAL if lab in R.SUPPLEMENT]
-    base, ens = R.neural_stats(R.BEST), R.ensemble_stats(R.BEST)
+    base, ens = R.neural_stats(ARM["f1"]), R.ensemble_stats(ARM["f1"])
     rows = []
     for lab, x, kind in lit + app:
         s = R.neural_stats(x) if kind == "n" else R.nonneural_stats(x)
@@ -134,7 +139,7 @@ def hac(d) -> float:
 
 
 def fold2() -> None:
-    bf = sorted(glob.glob(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"), recursive=True))
+    bf = sorted(glob.glob(str(ROOT / f"runs/**/*{ARM['f2']}_s*/predictions/test_predictions.csv"), recursive=True))
     kb, B = series(bf)
     ke, E = ens_series(bf)
     pats = [(R.bip_label(m), R._latest(f"runs_f2/{R.BIP.format(m)}") + "/predictions/test_predictions.csv", True)
@@ -168,7 +173,16 @@ def fold2() -> None:
     report("第二折", rows, B[0].mean(), B[1].mean(), E[0].mean(), E[1].mean())
 
 
+ARM: dict = {}
+
+
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="MAGNET 能不能稱最好（proposal §73、§83）")
+    ap.add_argument("--arm", choices=["main", "prior"], default="main",
+                    help="main = 主結果（SA，2026-10-27 起）；prior = 原主結果（不帶關係）")
+    a = ap.parse_args()
+    ARM.update(dict(f1=R.BEST, f2=R.BEST_F2, label=R.MAIN_LABEL) if a.arm == "main"
+               else dict(f1=R.PRIOR, f2=R.PRIOR_F2, label=R.PRIOR_LABEL))
     R.PREDICTIONS = "reeval"
     fold1()
     fold2()

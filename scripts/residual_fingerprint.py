@@ -386,7 +386,11 @@ def main() -> None:
                     help="另印圖①的讀法：三個概念、半導體與金融兩格的成因、非對角格（§55.9(g)）")
     ap.add_argument("--strict", action="store_true",
                     help="敏感度：另外排除 2021-08-17（佔位列）與 4 個兩日報酬日（§55.9(h)）")
+    # 2026-10-27 起主結果是 SA（tw50_rgcnSA / f2_rgcnSA，§83）；預設仍是原主結果，舊的數字照舊重現
+    ap.add_argument("--arm", default=FOLDS["第一折"][0])
+    ap.add_argument("--arm-f2", default=FOLDS["第二折"][0])
     args = ap.parse_args()
+    FOLDS["第一折"], FOLDS["第二折"] = (args.arm, False), (args.arm_f2, True)
     warnings.filterwarnings("ignore")
     tw, us, fine = universe()
     Y, X, D, ok = returns_panel(tw, us, strict=args.strict)

@@ -128,6 +128,8 @@ def agg(runs, fn):
 
 
 FOLDS = (("第一折", BEST_F1, KTW_F1, False), ("第二折", BEST_F2, KTW_F2, True))
+MAIN_LABEL = "MAGNET 本版"      # --arm 換成別的 arm 時跟著換
+EXTRA_F: list = []
 
 
 def block_A():
@@ -136,7 +138,7 @@ def block_A():
     print("=" * 74)
     print(f"\n  {'':22s} {'n':>3s} {'mean IC':>9s} {'sd_t(IC)':>9s} {'ICIR':>8s}")
     for fold, mp, kp, f2 in FOLDS:
-        for nm, pat in ((f"{fold} MAGNET 本版", mp), (f"{fold} KTW+", kp)):
+        for nm, pat in ((f"{fold} {MAIN_LABEL}", mp), (f"{fold} KTW+", kp)):
             rs = load(pat, f2)
             if not rs:
                 print(f"  {nm:22s} (找不到)")
@@ -184,7 +186,7 @@ def block_C():
     rng = np.random.default_rng(SEED)
     print(f"\n  {'':22s} {'mean IC':>9s} {'sd_t':>8s} {'抽樣雜訊':>9s} {'押注報酬 sd':>11s}")
     for fold, mp, kp, f2 in FOLDS:
-        for nm, pat in ((f"{fold} MAGNET 本版", mp), (f"{fold} KTW+", kp)):
+        for nm, pat in ((f"{fold} {MAIN_LABEL}", mp), (f"{fold} KTW+", kp)):
             rs = load(pat, f2)
             if not rs:
                 continue
@@ -288,6 +290,7 @@ def block_F():
             ("[24] LASSO（線性）", _latest_run("runs/**/*_bipartite_rolling_t2_LASSO")),
             ("R2 ridge（線性）", "runs/**/*ridge_R2/predictions/*.csv"),
             ("RC 常數對照（線性）", "runs/**/*ridge_RC/predictions/*.csv")]
+    ARMS = EXTRA_F + ARMS
     print(f"\n  第一折   {'':22s} {'n':>2s} {'mean IC':>9s} {'抽樣雜訊':>9s} {'押注報酬 sd':>11s} {'ICIR':>8s}")
     rows = []
     for nm, pat in ARMS:
@@ -342,7 +345,19 @@ BLOCKS = {"A": block_A, "B": block_B, "C": block_C,
 def main() -> None:
     ap = argparse.ArgumentParser(description="ICIR 差距的拆解（proposal §60.2a）")
     ap.add_argument("--blocks", nargs="*", default=list(BLOCKS), choices=list(BLOCKS))
-    for b in ap.parse_args().blocks:
+    # 2026-10-27 起主結果是 SA（tw50_rgcnSA / f2_rgcnSA，§83）。給了 --arm 時，A 到 E 的主 arm 換成它，
+    # F 在最上面多一列；不給就與原本的輸出相同
+    ap.add_argument("--arm", default=None)
+    ap.add_argument("--arm-f2", default=None)
+    ap.add_argument("--label", default="MAGNET SA")
+    a = ap.parse_args()
+    if a.arm:
+        global FOLDS, MAIN_LABEL, EXTRA_F
+        f1 = f"runs/**/*{a.arm}_s*/predictions/test_predictions.csv"
+        f2 = f"runs/**/*{a.arm_f2}_s*/predictions/test_predictions.csv"
+        FOLDS = (("第一折", f1, KTW_F1, False), ("第二折", f2, KTW_F2, True))
+        MAIN_LABEL, EXTRA_F = a.label, [(f"{a.label}（神經）", f1)]
+    for b in a.blocks:
         BLOCKS[b]()
 
 

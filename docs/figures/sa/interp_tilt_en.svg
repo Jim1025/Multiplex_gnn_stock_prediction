@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1040" width="1180" height="1040" font-family="Helvetica, Arial, sans-serif">
+<rect width="1180" height="1040" fill="#ffffff"/>
+<text x="56" y="52" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="600">The model holds a persistent cross-sectional tilt</text>
+<text x="56" y="82" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">w-bar = time average of the daily cross-sectionally standardized prediction, per Taiwanese stock.</text>
+<text x="56" y="106" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Long semiconductors, short telecom. Same sign in both folds.</text>
+<rect x="330" y="152" width="12" height="12" fill="#1f6f8b"/>
+<text x="348" y="162" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Semiconductors</text>
+<rect x="466" y="152" width="12" height="12" fill="#8fb8c9"/>
+<text x="484" y="162" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Other electronics</text>
+<rect x="602" y="152" width="12" height="12" fill="#6b3fa0"/>
+<text x="620" y="162" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Telecom</text>
+<rect x="738" y="152" width="12" height="12" fill="#b45309"/>
+<text x="756" y="162" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Financials</text>
+<rect x="874" y="152" width="12" height="12" fill="#9aa0a6"/>
+<text x="892" y="162" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Other</text>
+<line x1="611.1" y1="190" x2="611.1" y2="750" stroke="#d8d8d8" stroke-width="1.2"/>
+<rect x="611.1" y="190.9" width="205.5" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="716.4" y1="195.6" x2="916.8" y2="195.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="809.9" cy="195.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="932.7857142857142" y="199.6" font-size="12.5" fill="#1a1a1a" text-anchor="start" font-weight="600">2330 TSMC</text>
+<rect x="611.1" y="202.1" width="168.7" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="726.1" y1="206.8" x2="833.5" y2="206.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="728.4" cy="206.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="849.4668986110715" y="210.79999999999998" font-size="12.5" fill="#1a1a1a" text-anchor="start" font-weight="600">3711 ASE</text>
+<rect x="611.1" y="213.3" width="150.7" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="699.7" y1="218.0" x2="823.9" y2="218.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="609.7" cy="218.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="224.5" width="138.6" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="685.1" y1="229.2" x2="814.2" y2="229.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="650.3" cy="229.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="235.7" width="108.4" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="677.6" y1="240.4" x2="761.5" y2="240.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="733.4" cy="240.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="777.4910702587799" y="244.4" font-size="12.5" fill="#1a1a1a" text-anchor="start" font-weight="600">2303 UMC</text>
+<rect x="611.1" y="246.9" width="92.4" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="649.4" y1="251.6" x2="757.5" y2="251.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="713.1" cy="251.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="258.1" width="87.7" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="655.4" y1="262.8" x2="742.3" y2="262.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="639.4" cy="262.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="269.3" width="87.2" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="651.7" y1="274.0" x2="744.9" y2="274.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="698.7" cy="274.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="280.5" width="83.4" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="607.1" y1="285.2" x2="782.0" y2="285.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="801.4" cy="285.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="291.7" width="73.3" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="636.0" y1="296.4" x2="732.8" y2="296.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="595.5" cy="296.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="302.9" width="65.3" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="618.0" y1="307.6" x2="734.7" y2="307.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="661.5" cy="307.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="314.1" width="61.9" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="655.8" y1="318.8" x2="690.2" y2="318.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="700.3" cy="318.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="325.3" width="61.8" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="609.6" y1="330.0" x2="736.1" y2="330.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="683.5" cy="330.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="336.5" width="58.3" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="613.2" y1="341.2" x2="725.7" y2="341.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="679.3" cy="341.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="347.7" width="54.5" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="627.8" y1="352.4" x2="703.5" y2="352.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="632.6" cy="352.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="358.9" width="50.9" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="608.8" y1="363.6" x2="715.3" y2="363.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="602.2" cy="363.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="370.1" width="50.8" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="628.6" y1="374.8" x2="695.2" y2="374.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="636.3" cy="374.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="381.3" width="43.3" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="605.7" y1="386.0" x2="703.1" y2="386.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="643.6" cy="386.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="392.5" width="42.9" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="621.7" y1="397.2" x2="686.4" y2="397.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="681.1" cy="397.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="403.7" width="41.9" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="613.1" y1="408.4" x2="693.0" y2="408.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="679.4" cy="408.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="414.9" width="28.4" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="569.9" y1="419.6" x2="709.1" y2="419.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="665.2" cy="419.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="426.1" width="22.6" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="594.0" y1="430.8" x2="673.4" y2="430.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="674.4" cy="430.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="437.3" width="20.9" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="573.7" y1="442.0" x2="690.3" y2="442.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="682.1" cy="442.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="448.5" width="19.2" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="592.3" y1="453.2" x2="668.3" y2="453.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="651.7" cy="453.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="459.7" width="17.9" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="592.9" y1="464.4" x2="665.1" y2="464.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="632.3" cy="464.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="470.9" width="14.2" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="544.2" y1="475.6" x2="706.4" y2="475.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="737.8" cy="475.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="482.1" width="11.0" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="567.9" y1="486.8" x2="676.4" y2="486.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="535.7" cy="486.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="493.3" width="7.6" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="588.9" y1="498.0" x2="648.5" y2="498.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="614.6" cy="498.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="504.5" width="5.6" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="564.3" y1="509.2" x2="669.1" y2="509.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="566.6" cy="509.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="611.1" y="515.7" width="2.8" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="553.7" y1="520.4" x2="674.1" y2="520.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="644.1" cy="520.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="592.9" y="526.9" width="18.2" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="552.7" y1="531.6" x2="633.1" y2="531.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="638.3" cy="531.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="588.7" y="538.1" width="22.4" height="9.4" fill="#b45309" opacity="0.88"/>
+<line x1="547.4" y1="542.8" x2="630.0" y2="542.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="650.6" cy="542.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="569.7" y="549.3" width="41.4" height="9.4" fill="#6b3fa0" opacity="0.88"/>
+<line x1="493.7" y1="554.0" x2="645.7" y2="554.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="471.1" cy="554.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="455.0869056739651" y="558.0" font-size="12.5" fill="#1a1a1a" text-anchor="end" font-weight="600">3045 Taiwan Mobile</text>
+<rect x="565.7" y="560.5" width="45.4" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="543.5" y1="565.2" x2="588.0" y2="565.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="596.2" cy="565.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="555.4" y="571.7" width="55.7" height="9.4" fill="#1f6f8b" opacity="0.88"/>
+<line x1="472.4" y1="576.4" x2="638.3" y2="576.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="594.1" cy="576.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="553.9" y="582.9" width="57.2" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="531.2" y1="587.6" x2="576.7" y2="587.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="577.3" cy="587.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="544.9" y="594.1" width="66.2" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="492.7" y1="598.8" x2="597.2" y2="598.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="649.0" cy="598.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="538.3" y="605.3" width="72.8" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="444.9" y1="610.0" x2="631.7" y2="610.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="669.2" cy="610.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="536.5" y="616.5" width="74.6" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="488.1" y1="621.2" x2="584.9" y2="621.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="448.8" cy="621.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="527.1" y="627.7" width="84.0" height="9.4" fill="#8fb8c9" opacity="0.88"/>
+<line x1="405.7" y1="632.4" x2="648.5" y2="632.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="559.7" cy="632.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="506.0" y="638.9" width="105.1" height="9.4" fill="#6b3fa0" opacity="0.88"/>
+<line x1="431.4" y1="643.6" x2="580.6" y2="643.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="574.7" cy="643.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="415.39538754579235" y="647.6" font-size="12.5" fill="#1a1a1a" text-anchor="end" font-weight="600">2412 Chunghwa Telecom</text>
+<rect x="504.6" y="650.1" width="106.5" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="462.3" y1="654.8" x2="547.0" y2="654.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="443.8" cy="654.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="503.0" y="661.3" width="108.1" height="9.4" fill="#6b3fa0" opacity="0.88"/>
+<line x1="453.4" y1="666.0" x2="552.6" y2="666.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="495.9" cy="666.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="437.36633383438226" y="670.0" font-size="12.5" fill="#1a1a1a" text-anchor="end" font-weight="600">4904 FET</text>
+<rect x="497.1" y="672.5" width="114.0" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="433.9" y1="677.2" x2="560.4" y2="677.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="414.4" cy="677.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="489.3" y="683.7" width="121.8" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="447.6" y1="688.4" x2="531.0" y2="688.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="435.0" cy="688.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="467.9" y="694.9" width="143.2" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="424.0" y1="699.6" x2="511.8" y2="699.6" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="616.0" cy="699.6" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="461.3" y="706.1" width="149.8" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="420.1" y1="710.8" x2="502.5" y2="710.8" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="474.6" cy="710.8" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="455.3" y="717.3" width="155.8" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="413.4" y1="722.0" x2="497.3" y2="722.0" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="412.6" cy="722.0" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="455.3" y="728.5" width="155.8" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="418.3" y1="733.2" x2="492.3" y2="733.2" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="442.9" cy="733.2" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<rect x="430.8" y="739.7" width="180.3" height="9.4" fill="#9aa0a6" opacity="0.88"/>
+<line x1="363.2" y1="744.4" x2="498.4" y2="744.4" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<circle cx="406.3" cy="744.4" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<line x1="474.9" y1="750" x2="474.9" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="474.8805866853245" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">-0.2</text>
+<line x1="543.0" y1="750" x2="543.0" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="542.9884328296808" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">-0.1</text>
+<line x1="611.1" y1="750" x2="611.1" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="611.0962789740372" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.0</text>
+<line x1="679.2" y1="750" x2="679.2" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="679.2041251183937" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.1</text>
+<line x1="747.3" y1="750" x2="747.3" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="747.31197126275" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.2</text>
+<line x1="815.4" y1="750" x2="815.4" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="815.4198174071062" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.3</text>
+<line x1="883.5" y1="750" x2="883.5" y2="755" stroke="#8a8a8a" stroke-width="1"/>
+<text x="883.5276635514626" y="772" font-size="13" fill="#8a8a8a" text-anchor="middle" font-weight="400">+0.4</text>
+<text x="640.0" y="800" font-size="16" fill="#1a1a1a" text-anchor="middle" font-weight="600">average z-score of the daily prediction</text>
+<text x="640.0" y="822" font-size="13.5" fill="#8a8a8a" text-anchor="middle" font-weight="400">0 = that day's cross-sectional mean of the 50 stocks, averaged over 246 trading days</text>
+<text x="56" y="208" font-size="14" fill="#1a1a1a" text-anchor="start" font-weight="600">How to read one row</text>
+<rect x="56" y="234" width="86" height="11" fill="#1f6f8b" opacity="0.88"/>
+<text x="152" y="243" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">bar: fold-1 mean</text>
+<line x1="74" y1="274" x2="160" y2="274" stroke="#1a1a1a" stroke-width="1.0" opacity="0.45"/>
+<text x="56" y="298" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">grey horizontal line:</text>
+<text x="56" y="316" font-size="12.5" fill="#1a1a1a" text-anchor="start" font-weight="600">+/- 1 SD across the 10 seeds</text>
+<text x="56" y="334" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">(not a confidence interval)</text>
+<circle cx="117" cy="364" r="2.8" fill="none" stroke="#1a1a1a" stroke-width="1.1" opacity="0.8"/>
+<text x="56" y="388" font-size="12.5" fill="#1a1a1a" text-anchor="start" font-weight="600">open circle: fold 2</text>
+<text x="56" y="406" font-size="12.5" fill="#8a8a8a" text-anchor="start" font-weight="400">(non-overlapping test window)</text>
+<text x="56" y="842" font-size="16" fill="#1a1a1a" text-anchor="start" font-weight="600">Semiconductors vs rest    dw-bar +0.1804 (fold 1) / +0.1810 (fold 2), 10/10 seeds each</text>
+<text x="56" y="868" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">Reproducibility of w-bar: corr +0.745 across seeds, +0.789 across folds (random-direction control SD 0.146).</text>
+<text x="56" y="894" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">How to read +0.30 (TSMC): its prediction sits 0.30 SD above the daily average. In ranks that is top-5 on 42% of days</text>
+<text x="56" y="916" font-size="15" fill="#8a8a8a" text-anchor="start" font-weight="400">and bottom-10 on 35% - the tilt is a net over two extremes, not a steady placement.</text>
+<text x="56" y="1012" font-size="13" fill="#8a8a8a" text-anchor="start" font-weight="400">Cross-seed SD is 0.072 at the median against a cross-sectional SD of 0.133 in w-bar, so read groups, not individual pairs.</text>
+</svg>

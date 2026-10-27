@@ -226,7 +226,12 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--blocks", nargs="*", default=list(BLOCKS), choices=list(BLOCKS))
     ap.add_argument("--topk", type=int, default=TOPK_DEFAULT)
+    # 2026-10-27 起主結果是 SA（tw50_rgcnSA，§83）。給了 --arm 時在最上面多一列；不給就與原本的輸出相同
+    ap.add_argument("--arm", default=None)
+    ap.add_argument("--label", default="MAGNET SA rgcnSA")
     args = ap.parse_args()
+    if args.arm:
+        MODELS.insert(0, (args.label, f"runs/**/*{args.arm}_s*/predictions/test_predictions.csv"))
     data = collect(args.topk)
     if not data:
         raise SystemExit("找不到任何預測檔")

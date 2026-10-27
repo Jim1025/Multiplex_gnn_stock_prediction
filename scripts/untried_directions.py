@@ -10,6 +10,7 @@ untried_directions.py — proposal §64 夜間批次（2026-10-11）的檢驗程
   R     全域資料與市場狀態：VIX、匯率、|SPY|、美股離散度的交互作用與水準特徵；三分位描述
   A     不對稱傳導：正負報酬分開
   S     供應鏈先驗圖：先驗懲罰 ridge + 100 組同度數隨機先驗；事後：只用先驗邊、MAGNET 的 B 對齊
+  S2    只跑 S 的事後 2（MAGNET 的 B 對齊）；配 --arm / --arm-f2 換主 arm
   E     early fusion 的三方組合（第二折重現）與 D3 公平性；事後：預測的持續性
   L     IC 損失（`loss_weights.ic`）的判定
   P2    第二折的單市場消融
@@ -558,7 +559,6 @@ def auc_stat(A, P):
 
 def block_s(n_placebo: int):
     print("\n==================== S：供應鏈先驗圖")
-    import beta_industry_clustering as BIC
     rng = np.random.default_rng(42)
     for f in FOLDS:
         D = fold(f)
@@ -590,6 +590,12 @@ def block_s(n_placebo: int):
             pv, pt = np.array(pv), np.array(pt)
             print(f"  {f} {name:12s} val IC {r['val_ic']:+.4f}（安慰劑中位數 {np.median(pv):+.4f}，百分位 {100 * (pv < r['val_ic']).mean():.0f}）"
                   f"  test IC {tr:+.4f}（中位數 {np.median(pt):+.4f}，百分位 {100 * (pt < tr).mean():.0f}）", flush=True)
+    s_posthoc2(n_placebo)
+
+
+def s_posthoc2(n_placebo: int):
+    """S 的事後 2，單獨成函式，--blocks S2 可以只跑這段（隨機數序列與在 S 裡跑時相同）。"""
+    import beta_industry_clustering as BIC
     print("\n  -- 事後 2：MAGNET 學到的 B 與線性-z 的係數是否偏重先驗邊（AUC，每欄先去均值，不含 SPY）")
     rng = np.random.default_rng(11)
     for f, armname in MAIN.items():
@@ -780,12 +786,17 @@ def main() -> None:
     ap.add_argument("--cache", type=str, default=str(CACHE))
     ap.add_argument("--no-ext", action="store_true", help="區塊 N 不跑事後的延伸網格")
     ap.add_argument("--placebo", type=int, default=100)
+    # 2026-10-27 起主結果是 SA（tw50_rgcnSA / f2_rgcnSA，§83）；預設仍是原主結果，§64 的數字照舊重現
+    ap.add_argument("--arm", default=MAIN["第一折"])
+    ap.add_argument("--arm-f2", default=MAIN["第二折"])
     a = ap.parse_args()
+    MAIN["第一折"], MAIN["第二折"] = a.arm, a.arm_f2
     CACHE = Path(a.cache)
     CACHE.mkdir(parents=True, exist_ok=True)
     os.chdir(ROOT)
     for b in a.blocks:
         {"N": lambda: block_n(not a.no_ext), "R": block_r, "A": block_a, "S": lambda: block_s(a.placebo),
+         "S2": lambda: s_posthoc2(a.placebo),
          "E": block_e, "L": block_l, "P2": block_p2, "P3": block_p3, "POOL": block_pool}[b]()
 
 

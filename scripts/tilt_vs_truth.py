@@ -99,7 +99,11 @@ def main() -> None:
     ap.add_argument("--universe", default="tw50")
     ap.add_argument("--strict", action="store_true",
                     help="敏感度：另外排除 2021-08-17（佔位列）與 4 個兩日報酬日（§55.9(h)）")
+    # 2026-10-27 起主結果是 SA（tw50_rgcnSA / f2_rgcnSA，§83）；預設仍是原主結果，舊的數字照舊重現
+    ap.add_argument("--arm", default=FOLDS["第一折"]["arm"])
+    ap.add_argument("--arm-f2", default=FOLDS["第二折"]["arm"])
     a = ap.parse_args()
+    FOLDS["第一折"]["arm"], FOLDS["第二折"]["arm"] = a.arm, a.arm_f2
     drop = sorted(rf.PLACEHOLDER | rf.TWO_DAY) if a.strict else []
     warnings.filterwarnings("ignore")
 

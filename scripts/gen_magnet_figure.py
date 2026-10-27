@@ -241,13 +241,13 @@ def cylinder(cx, top, w, h, label1, label2):
     text(cx, top + h / 2 + 22, label2, 12.5, GREY)
 
 
-def stack(x, y, w, h, lines, n=3, off=6):
-    """堆疊卡片：代表「每張日快照各跑一次」。"""
+def stack(x, y, w, h, lines, n=3, off=6, **kw):
+    """堆疊卡片：代表「每張日快照各跑一次」。kw 傳給 box（上色用）。"""
     for k in range(n - 1, 0, -1):
         add(f'<rect x="{x + k * off}" y="{y - k * off}" width="{w}" '
             f'height="{h}" rx="4" fill="#ffffff" stroke="{LINE}" '
             f'stroke-width="1.2"/>')
-    box(x, y, w, h, lines)
+    box(x, y, w, h, lines, **kw)
 
 
 def heat(x, y, w, h, arr, title=None, sub=None, rowlab=None, collab=None):
@@ -322,9 +322,18 @@ def load_real(run_dir: Path, date: str) -> dict:
     A2 = dense(batch["edge_index_L2"], batch["edge_attr_L2"], u.n_l2)
     B = (model.weak_beta * model.weak_mask).detach().numpy()
     pair = [(i, j) for j, i in enumerate(u.pair_index) if i >= 0]
+    # 2026-10-27 起主結果是 SA（§83）：台股層內是同產業關係的 R-GCN（取代 GAT_L2，§78、§80）。
+    # 熱圖畫模型自己的關係矩陣（tw_rel_M，有邊 = 同產業），不另外重建
+    trc = cfg["model"].get("tw_relational", {})
+    rel = None
+    if trc.get("enabled") and trc.get("placement") == "replace_gat_l2":
+        if list(model.tw_rel_names) != ["same_industry"]:
+            raise SystemExit(f"只會畫同產業一種關係，這個 run 是 {list(model.tw_rel_names)}")
+        rel = (model.tw_rel_M[0].numpy() > 0).astype(np.float32)
     return {"A1": A1, "A2": A2, "B": B, "pair": pair, "u": u,
             "n_edge_1": int((A1 > 0).sum()), "n_edge_2": int((A2 > 0).sum()),
-            "tau": 0.3}
+            "tau": 0.3, "rel": rel, "n_edge_rel": int(rel.sum()) if rel is not None else 0,
+            "feats": list(cfg["model"]["lstm"]["feature_subset"])}
 
 
 def rgb_adj(A: np.ndarray) -> np.ndarray:
@@ -396,9 +405,12 @@ def build(d: dict, date: str) -> str:
     for yy in (301, 316 + DY):
         arrow([(158, yy), (166, yy)])
         arrow([(206, yy), (222, yy)])
-    text(24, 818, "9 technical indicators computed, 3 fed to the model",
+    nf = len(d["feats"])
+    text(24, 818, "9 technical indicators computed, only log return fed to the model"
+         if d["feats"] == ["log_return"] else
+         f"9 technical indicators computed, {nf} fed to the model",
          12, GREY, "start", "400", "italic")
-    text(24, 836, f"edge drawn iff |correlation| > {d['tau']}, "
+    text(24, 836, f"{'US edge' if d['rel'] is not None else 'edge'} drawn iff |correlation| > {d['tau']}, "
                   f"60-day window ending at t-1", 12, GREY, "start", "400",
          "italic")
 
@@ -408,20 +420,29 @@ def build(d: dict, date: str) -> str:
             ("US", 0, 30, d["A1"], "n_edge_1", "shared LSTM weights"),
             ("TW", DY, 50, d["A2"], "n_edge_2", "same LSTM weights"),
     ]:
-        box(238, 268 + dy, 112, 66, [f"{tag} features", "day t", "3 per stock"])
-        arrow([(352, 301 + dy), (378, 301 + dy)], f"{n} x 3", ly=259 + dy)
+        box(238, 268 + dy, 112, 66, [f"{tag} features", "day t", f"{nf} per stock"])
+        arrow([(352, 301 + dy), (378, 301 + dy)], f"{n} x {nf}", ly=259 + dy)
         box(380, 268 + dy, 116, 66,
             ["Input norm", "per feature,", "across stocks"], AMB_F, AMB_S, 1.8)
         arrow([(498, 301 + dy), (524, 301 + dy)])
         stack(526, 268 + dy, 120, 66, ["Shared LSTM", "hidden 64"])
         text(586, 354 + dy, note, 11.5, GREY, "middle", "400", "italic")
         arrow([(654, 301 + dy), (680, 301 + dy)], f"{n} x 64", ly=259 + dy)
-        heat(700, 174 + dy, 60, 60, rgb_adj(A))
-        text(772, 194 + dy, f"{tag} correlation graph", 13, INK, "start", "700")
-        text(772, 212 + dy, f"{d[ekey]} directed edges", 11.5, GREY, "start")
-        text(772, 229 + dy, "rebuilt every day", 11.5, GREY, "start")
-        arrow([(730, 238 + dy), (730, 266 + dy)])
-        stack(682, 268 + dy, 118, 66, ["GATv2", "1 layer, 1 head"])
+        if tag == "TW" and d["rel"] is not None:
+            heat(700, 174 + dy, 60, 60, rgb_adj(d["rel"]))
+            text(772, 194 + dy, "TW industry groups", 13, INK, "start", "700")
+            text(772, 212 + dy, f"{d['n_edge_rel']} directed edges", 11.5, GREY, "start")
+            text(772, 229 + dy, "same industry, fixed", 11.5, GREY, "start")
+            arrow([(730, 238 + dy), (730, 266 + dy)])
+            stack(682, 268 + dy, 118, 66, ["R-GCN", "self + peer mean"],
+                  fill=AMB_F, stroke=AMB_S, sw=1.8, hf="#7c3f06", bf="#7c4a09")
+        else:
+            heat(700, 174 + dy, 60, 60, rgb_adj(A))
+            text(772, 194 + dy, f"{tag} correlation graph", 13, INK, "start", "700")
+            text(772, 212 + dy, f"{d[ekey]} directed edges", 11.5, GREY, "start")
+            text(772, 229 + dy, "rebuilt every day", 11.5, GREY, "start")
+            arrow([(730, 238 + dy), (730, 266 + dy)])
+            stack(682, 268 + dy, 118, 66, ["GATv2", "1 layer, 1 head"])
         arrow([(808, 301 + dy), (828, 301 + dy)])
         box(830, 268 + dy, 116, 66, ["Type projection", "to 32 dims"])
         # 標籤縮短為不含 "32,"：維度在左邊的 Type projection 框裡已經寫了。
@@ -537,7 +558,9 @@ def build(d: dict, date: str) -> str:
     add(f'<rect x="984" y="812" width="18" height="12" fill="{AMB_F}" '
         f'stroke="{AMB_S}" stroke-width="1.4"/>')
     text(1010, 822, "new in this version", 12, GREY, "start")
-    text(1160, 822, f"heatmaps are real data — correlation graphs from {date}, "
+    text(1160, 822, f"heatmaps are real data — US graph from {date}, TW industry groups, "
+                    f"trained coupling weights" if d["rel"] is not None else
+                    f"heatmaps are real data — correlation graphs from {date}, "
                     f"trained coupling weights", 12, GREY, "start", "400",
          "italic")
 

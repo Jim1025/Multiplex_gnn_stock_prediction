@@ -20,10 +20,12 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -204,15 +206,38 @@ def fig_b(M, fine_en, n_seed, out: Path) -> None:
     txt(s, 56, H - 44, "Industries with n >= 2 shown (9 of 18). Diagonal = mean correlation "
                        "within that industry; off-diagonal = between the two industries.", 13, MUTE)
     txt(s, 56, H - 24, "Pearson correlation across the 30 US loadings. Two random profiles "
-                       "would give 0.00 with SD 0.19, so +0.58 is far from chance.", 13, MUTE)
+                       f"would give 0.00 with SD 0.19, so {max(dia):+.2f} is far from chance.", 13, MUTE)
     s.append("</svg>")
     out.write_text("\n".join(s), encoding="utf-8")
-    print(f"-> {out.relative_to(ROOT)}  ({W}x{H}, {W/H:.2f}:1)")
+    print(f"-> {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}  ({W}x{H}, {W/H:.2f}:1)")
 
 
 # ─────────────────────────────────────────────────────────────────────
-def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
-    """② w̄ 的逐檔長條 + x 軸單位 + 誤差棒說明。"""
+def rank_shares(arm: str, code: str, top: int = 5, bottom: int = 10) -> tuple[float, float]:
+    """各種子的逐日 z 分數先平均（集成），再看 code 每天在 50 檔裡的名次：進前 top 名、落在後 bottom 名的天數比例。
+
+    §55.7 的「48% 的天數進前 5、35% 的天數落後 10 名」（原主結果的台積電）就是這樣算的，2026-10-27 重算核對過。
+    """
+    Zs = []
+    for d in sorted(glob.glob(str(ROOT / "runs" / "**" / f"*{arm}_s*"), recursive=True)):
+        f = glob.glob(f"{d}/predictions/test_predictions.csv")
+        if not d.rsplit("_s", 1)[-1].isdigit() or not f:
+            continue
+        df = pd.read_csv(f[0])
+        df["ticker"] = df["ticker"].astype(str)
+        df["target_date"] = df["target_date"].astype(str).str[:10]
+        H = df.pivot(index="target_date", columns="ticker", values="y_hat").sort_index()
+        A = H.to_numpy()
+        sd = A.std(1, keepdims=True)
+        Zs.append(pd.DataFrame((A - A.mean(1, keepdims=True)) / np.where(sd > 0, sd, np.nan),
+                               index=H.index, columns=H.columns))
+    r = (sum(Zs) / len(Zs)).rank(axis=1, ascending=False)[code]
+    n = r.shape[0]
+    return float((r <= top).sum() / n), float((r > len(Zs[0].columns) - bottom).sum() / n)
+
+
+def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, facts: dict, out: Path) -> None:
+    """② w̄ 的逐檔長條 + x 軸單位 + 誤差棒說明。facts：底下幾行讀數（main 裡算，不寫死，換 arm 時跟著換）。"""
     W, H = 1180, 1040
     o = np.argsort(-w1)
     rx, ry, rw, rh = 330, 190, 620, 560
@@ -288,19 +313,26 @@ def fig_tilt(w1, e1, w2, cols, fine_en, n_seed, out: Path) -> None:
     txt(s, ex, ey + 176, "(non-overlapping test window)", 12.5, MUTE)
 
     y = ry + rh + 92
-    txt(s, 56, y, "Semiconductors vs rest    dw-bar +0.2227 (fold 1) / +0.1867 (fold 2), "
-                  f"{n_seed}/{n_seed} seeds each", 16, INK, "start", "600")
-    txt(s, 56, y + 26, "Reproducibility of w-bar: corr +0.751 across seeds, +0.718 across folds "
+    (d1, k1), (d2, k2) = facts["semi"]
+    same = f"{k1}/{n_seed} seeds each" if k1 == k2 else f"{k1}/{n_seed} and {k2}/{n_seed} seeds"
+    txt(s, 56, y, f"Semiconductors vs rest    dw-bar {d1:+.4f} (fold 1) / {d2:+.4f} (fold 2), "
+                  f"{same}", 16, INK, "start", "600")
+    txt(s, 56, y + 26, f"Reproducibility of w-bar: corr {facts['seed_corr']:+.3f} across seeds, "
+                       f"{facts['fold_corr']:+.3f} across folds "
                        "(random-direction control SD 0.146).", 15, MUTE)
-    txt(s, 56, y + 52, "How to read +0.44 (TSMC): its prediction sits 0.44 SD above the daily "
-                       "average. In ranks that is top-5 on 48% of days", 15, MUTE)
-    txt(s, 56, y + 74, "and bottom-10 on 35% - the tilt is a net over two extremes, "
+    j = int(np.argmax(w1))
+    p5, p10 = facts["ranks"]
+    txt(s, 56, y + 52, f"How to read {w1[j]:+.2f} ({NAMED.get(cols[j], cols[j])}): its prediction sits "
+                       f"{w1[j]:.2f} SD above the daily "
+                       f"average. In ranks that is top-5 on {p5:.0%} of days", 15, MUTE)
+    txt(s, 56, y + 74, f"and bottom-10 on {p10:.0%} - the tilt is a net over two extremes, "
                        "not a steady placement.", 15, MUTE)
-    txt(s, 56, H - 28, "Cross-seed SD is 0.064 at the median against a cross-sectional SD of 0.127 "
+    txt(s, 56, H - 28, f"Cross-seed SD is {np.median(e1):.3f} at the median against a cross-sectional SD "
+                       f"of {w1.std():.3f} "
                        "in w-bar, so read groups, not individual pairs.", 13, MUTE)
     s.append("</svg>")
     out.write_text("\n".join(s), encoding="utf-8")
-    print(f"-> {out.relative_to(ROOT)}  ({W}x{H}, {W/H:.2f}:1)")
+    print(f"-> {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}  ({W}x{H}, {W/H:.2f}:1)")
 
 
 def main() -> None:
@@ -328,11 +360,20 @@ def main() -> None:
     fig_b(np.mean(mats, axis=0), fine_en, len(mats), outdir / "interp_b_industry_en.svg")
 
     _, W1, cols = stl.tilts(a.arm)
-    _, W2, _ = stl.tilts(a.arm_f2, fold2=True)
+    _, W2, cols2 = stl.tilts(a.arm_f2, fold2=True)
     idx = [cols.index(c) for c in tw]      # 對齊到 universe 的順序
     w1, e1 = W1.mean(0)[idx], W1.std(0, ddof=1)[idx]
     w2 = (W2.mean(0)[idx] if W2.size else np.full(len(tw), np.nan))
-    fig_tilt(w1, e1, w2, tw, fine_en, len(W1), outdir / "interp_tilt_en.svg")
+    # 底下幾行讀數，定義與 static_tilt.py 的 A、C 區塊相同
+    def semi(W, cs):
+        m = np.array([u.industry.get(c) == "半導體業" for c in cs])
+        d = W[:, m].mean(1) - W[:, ~m].mean(1)
+        return float(d.mean()), int((np.sign(d) == np.sign(d.mean())).sum())
+    facts = dict(semi=(semi(W1, cols), semi(W2, cols2)),
+                 seed_corr=float(stl.pair_corr(W1).mean()),
+                 fold_corr=float(np.corrcoef(w1, w2)[0, 1]),
+                 ranks=rank_shares(a.arm, tw[int(np.argmax(w1))]))
+    fig_tilt(w1, e1, w2, tw, fine_en, len(W1), facts, outdir / "interp_tilt_en.svg")
 
 
 if __name__ == "__main__":

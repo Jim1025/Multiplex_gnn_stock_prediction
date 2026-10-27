@@ -53,7 +53,15 @@ if str(ROOT) not in sys.path:
 #   - 須揭露的退步：過度離散再惡化，std 比 1.69 -> 2.59、MSE 0.00106 -> 0.00204
 #   - 三個改動是**兩兩協同，沒有三階交互作用**（§35.3，2026-09-15 補完 2^3）。
 #     主效應 F1 +0.0050 p=0.026、rank1.0 +0.0037 p=0.016、無A₂ −0.0006 ns
-BEST = "tw50_betaF1nA2r1"       # 主結果，所有比較的基準（見上）
+# 2026-10-27：主結果改為 tw50_rgcnSA（MAGNET + 同產業關係，§80、§83）。換的理由是結構：台股層內圖有作用、
+# 兩個市場層都有層內圖模組；SA 是看過 §79 的消融後選的（事後選擇），數字偏高，對原主結果的 IC 沒有可靠差別。
+# 原主結果（不帶關係，上面那段紀錄的 arm）保留為一列「MAGNET 不帶關係（原主結果）」。
+BEST = "tw50_rgcnSA"            # 主結果，所有比較的基準（見上）
+BEST_F2 = "f2_rgcnSA"           # 第二折的主結果
+PRIOR = "tw50_betaF1nA2r1"      # 原主結果（不帶關係），2026-10-27 以前的基準
+PRIOR_F2 = "f2_best"
+MAIN_LABEL = "MAGNET（+ 同產業關係，主結果）"
+PRIOR_LABEL = "MAGNET 不帶關係（原主結果）"
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
 # 子列（「└」）的名稱要自己看得懂：表依 IC 排序，子列常不在母列正下方，
@@ -62,17 +70,17 @@ NEURAL = [
     # 以下六格 + tw50_beta + tw50_beta_g_empty_l2 構成 §35.3 的 2^3 完整設計
     # （A=F1 / B=無A₂ / C=rank1.0）。原本的備註「三者缺一不可」已被 2026-09-15
     # 的分解證偽：三階項是零，F1 與 rank1.0 各有顯著主效應。
-    ("MAGNET 本版（F1 + 無A₂ + rank 1.0）", "tw50_betaF1nA2r1", "本專案",
-     "2^3 的 (1,1,1)，見 §35.3"),
+    (PRIOR_LABEL, PRIOR, "本專案",
+     "F1 + 無A₂ + rank 1.0，2^3 的 (1,1,1)，§35.3；2026-10-27 以前的主結果"),
     # §71（2026-10-17）：登記外的探索，依登記的主表規則不論結果都列入。登記判準未通過
     # （兩折 ICIR 同為正，第一折 p 0.056），主結果 arm 不變。
-    ("MAGNET 本版 + 關係型台股層", "tw50_relTW", "本專案",
+    ("MAGNET + 關係型台股層（投影後版本）", "tw50_relTW", "本專案",
      "同產業 / 其他產業的鄰居平均 x W_r；探索性，判準未通過，§71"),
     # §80（2026-10-24）：使用者決定把關係型台股層簡化為「自身 + 同產業」（§79 的 SA arm，不重訓），
     # 這一列由 §78 的完整 2b（tw50_rgcnTW）換成 SA。SA 是看過 §79 的消融之後選的，數字偏高，不能當證據；
     # §78 的完整 2b 數字留在 proposal §78.6。
-    ("MAGNET 本版 + 關係型台股層（取代 GAT_L2，自身 + 同產業）", "tw50_rgcnSA", "本專案",
-     "事後選擇：看過 §79 的消融後才選，數字偏高、不能當證據，§80"),
+    (MAIN_LABEL, BEST, "本專案",
+     "台股層內圖：同產業關係卷積（取代 GAT_L2）；事後選擇，數字偏高，§80、§83"),
     ("　└ F1 + rank 1.0（保留 A₂）", "tw50_betaF1r1", "本專案",
      "(1,0,1)，2^3 補格"),
     ("　└ 只有 rank 1.0（保留 A₂ 與 F3）", "tw50_betaR1", "本專案",
@@ -98,7 +106,7 @@ NEURAL = [
     ("MAGNET F3（無跳接）",            "tw50_T1F3rb",   "本專案", "F3, T=1, L=1"),
     ("MAGNET + 稠密耦合 A",            "tw50_T1F9dense","本專案", "A[30,50] 可學"),
     ("Early fusion 對照",             "tw50chk_ef",    "本專案", "拼接後單一編碼器"),
-    ("單市場消融（主結果 arm）", "tw50_smktA", "本專案",
+    ("單市場消融（不帶關係的版本）", "tw50_smktA", "本專案",
      "disable_a12，跨市場全關"),
     ("單市場消融（前一版 arm）", "tw50_smktB", "本專案",
      "disable_a12，台股側 F3 + 有圖"),
@@ -144,7 +152,7 @@ NONNEURAL = [(bip_label(m), BIP.format(m), "文獻", note) for m, note in BIP_MO
 # 所以沒有 ± sd、跨種子欄為「—」；逐日 p 是它對統計基準（同一個 arm 逐 seed 平均）的
 # 配對檢定，也就是集成增益本身的顯著性。統計基準仍是逐 seed 平均那一列（BEST）。
 ENSEMBLE = [
-    ("MAGNET 本版（10 顆集成）", BEST, "本專案", "MAGNET 本版的 10 顆先平均預測再算 IC，§43 (A)"),
+    ("MAGNET（+ 同產業關係，10 顆集成）", BEST, "本專案", "主結果的 10 顆先平均預測再算 IC，§43 (A)"),
 ]
 # 主表 / 附表（2026-10-16，依教授建議）：主表只放 MAGNET 自身的各版本與消融，以及文獻方法；
 # 我們另外建構、又不是出自文獻的對照（同輸入的線性模型與空模型）移到附表。
@@ -624,14 +632,14 @@ def _fold2_rows():
         tt = d.mean() / (s2 / n) ** 0.5
         return 2 * (1 - stats.norm.cdf(abs(tt)))
 
-    b = _load(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"))
+    b = _load(str(ROOT / f"runs/**/*{BEST_F2}_s*/predictions/test_predictions.csv"))
     if b is None:
         return None
     kb, BESTV, BESTIR, BESTP, BESTIRS, BESTPF, BESTRIR, BESTRIRS, BESTCAL, BESTCALSD = b
     # 種子集成列（見 ENSEMBLE）：f2_best 的全部種子先逐 (日, 檔) 平均 y_hat，當成一條序列。
     # n 印種子數；只有一條序列，sd 為 NaN（pm 只印值）。逐日 p 是集成增益本身的檢定。
     # IC 高於逐 seed 平均，所以放在第一列，維持依 IC 排序。
-    ens_files = sorted(_g.glob(str(ROOT / "runs/**/*f2_best_s*/predictions/test_predictions.csv"),
+    ens_files = sorted(_g.glob(str(ROOT / f"runs/**/*{BEST_F2}_s*/predictions/test_predictions.csv"),
                               recursive=True))
     ens = None
     if ens_files:
@@ -642,11 +650,10 @@ def _fold2_rows():
     # 手排的順序已經不對）。主結果 arm 依自己的 IC 落位，集成列 IC 最高、仍在第一列。
     # [24] 列出全部 10 個模型（BIP_MODELS），一律取最新一批。
     rows = [(ENSEMBLE[0][0], ens, len(ens_files)),
-            ("**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", None, None)]
+            (f"**{MAIN_LABEL}**", None, None)]
     pats = [("關係型線性（z 目標）", "runs_f2/*_lin_relational/predictions/test_predictions.csv"),
-            ("MAGNET 本版 + 關係型台股層", "runs/**/*f2_relTW_s*/predictions/test_predictions.csv"),
-            ("MAGNET 本版 + 關係型台股層（取代 GAT_L2，自身 + 同產業）",     # 事後選擇，§80
-             "runs/**/*f2_rgcnSA_s*/predictions/test_predictions.csv"),
+            ("MAGNET + 關係型台股層（投影後版本）", "runs/**/*f2_relTW_s*/predictions/test_predictions.csv"),
+            (PRIOR_LABEL, f"runs/**/*{PRIOR_F2}_s*/predictions/test_predictions.csv"),
             ("兩區塊 ridge（z 目標）", "runs_f2/*_lin_twoblock/predictions/test_predictions.csv"),
             ("KTW+（rank 目標）", "runs_f2/*fvg_KTWp/predictions/*.csv"),
             ("R2 per-target ridge", "runs_f2/*ridge_R2/predictions/*.csv"),
@@ -790,7 +797,7 @@ def _ens_block():
 
     FOLDS = (("第一折", f"runs/**/*{BEST}_s*", None,
               "runs/linear/*_fvg_KTWp/predictions/*.csv"),
-             ("第二折", "runs/**/*f2_best_s*", "2024-12-25",
+             ("第二折", f"runs/**/*{BEST_F2}_s*", "2024-12-25",
               "runs_f2/*_fvg_KTWp/predictions/*.csv"))
 
     out, ok = [], False
@@ -978,7 +985,7 @@ def _holdout_block():
         ens[a] = H.daily(e).loc[days]
     out = ["| 方法 | n | IC ↑ | RankIC ↑ | 配對 p (IC) | 配對 p (RankIC) | 逐日 p (IC) | 逐日 p (RankIC) |",
            "|---|---:|---:|---:|---:|---:|---:|---:|"]
-    lab = {"主 arm": "**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", "關係型": "MAGNET 本版 + 關係型台股層"}
+    lab = {"主 arm": PRIOR_LABEL, "關係型": "MAGNET + 關係型台股層（投影後版本）"}
     for a in ("關係型", "主 arm"):
         out.append(f"| {lab[a]}（10 顆集成） | {len(seeds)} | {np.nanmean(ens[a].ic):+.4f} | {np.nanmean(ens[a].ric):+.4f} "
                    "| — | — | — | — |")
@@ -1013,7 +1020,7 @@ def _holdout_block():
         e = (pd.concat([sa[s] for s in seeds]).groupby(["target_date", "ticker"])
              .agg(y_hat=("y_hat", "mean"), y=("y", "first")).reset_index())
         e = H.daily(e).loc[days]
-        sl = "MAGNET 本版 + 關係型台股層（取代 GAT_L2，自身 + 同產業；探索性的第二次檢驗，§81）"
+        sl = f"**{MAIN_LABEL}**（探索性的第二次檢驗，§81）"
         cells = []
         for k in ("ic", "ric"):
             p = stats.ttest_rel(ps[k], per["主 arm"][k]).pvalue
@@ -1065,14 +1072,20 @@ def _acc_block():
     for fi, (f, c) in enumerate(T.FOLDS.items()):
         D = T.load_fold(c["cfg"], c["f2"])
         Yv, Yt = D["y_val"], D["y_test"]
-        Mv, sv = T.preds(c["main"], "val", D["d_val"], D["codes"])
-        Mt, st = T.preds(c["main"], "test", D["d_test"], D["codes"])
+        # 主結果（2026-10-27 起為 SA）；T.FOLDS 的 main 仍是原主結果，另列一列
+        mpat = f"runs/**/*{BEST if fi == 0 else BEST_F2}_s*/predictions/{{}}_predictions.csv"
+        Mv, sv = T.preds(mpat, "val", D["d_val"], D["codes"])
+        Mt, st = T.preds(mpat, "test", D["d_test"], D["codes"])
         if not len(sv) or sv != st:
-            print(f"[skip] 準度小表 {f}（主 arm 的 val / test 預測檔對不上）")
+            print(f"[skip] 準度小表 {f}（主結果的 val / test 預測檔對不上）")
             continue
-        rows = [(f"**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", len(sv),
+        rows = [(f"**{MAIN_LABEL}**", len(sv),
                  [evaluate(Mv[i], Yv, Mt[i], Yt) for i in range(len(sv))]),
                 (ENSEMBLE[0][0], len(sv), [evaluate(Mv.mean(0), Yv, Mt.mean(0), Yt)])]
+        Pv, spv = T.preds(c["main"], "val", D["d_val"], D["codes"])
+        Pt, spt = T.preds(c["main"], "test", D["d_test"], D["codes"])
+        if len(spv) and spv == spt:
+            rows.append((PRIOR_LABEL, len(spv), [evaluate(Pv[i], Yv, Pt[i], Yt) for i in range(len(spv))]))
         g = RL.grids(c["cfg"])
         peers, others = RL.relations(D["codes"])
         nu = D["us_train"].shape[1]
@@ -1128,9 +1141,9 @@ def _acc_block():
     base = np.concatenate([F["base"] for F in folds.values()])
     mloss = np.concatenate([F["loss"] for F in folds.values()])
     mhit = np.concatenate([F["hit"] for F in folds.values()])
-    out += ["", f"### 兩折合併（{len(base)} 天，對 MAGNET 本版的種子平均）", "",
-            f"MAGNET 本版兩折合併：`R²_oos` {1 - mloss.sum() / base.sum():+.4f}、"
-            f"命中率 {np.nanmean(mhit) * 100:.2f}%。差 = 該列 − MAGNET 本版，**正值代表該列較好**。", "",
+    out += ["", f"### 兩折合併（{len(base)} 天，對主結果的種子平均）", "",
+            f"主結果兩折合併：`R²_oos` {1 - mloss.sum() / base.sum():+.4f}、"
+            f"命中率 {np.nanmean(mhit) * 100:.2f}%。差 = 該列 − 主結果，**正值代表該列較好**。", "",
             "| 方法 | R²_oos 差 ↑ | 逐日 p | 命中率差（百分點）↑ | 逐日 p |",
             "|---|---:|---:|---:|---:|"]
     labs = [lab for lab, _, _ in next(iter(folds.values()))["rows"][1:]]
@@ -1183,10 +1196,10 @@ def main() -> None:
     out.append("由 `scripts/results_table.py` 產生。universe = tw50（US 30 / TW 50，"
                "配對 7 檔），**第一折** walk-forward test 246 天（2024-12-26 ~ 2025-12-30）。第二折的獨立驗證見下方專節——**單折排名會翻轉，兩節必須一起看**。")
     out.append("")
-    out.append(f"統計基準 = **{BEST}**（本專案目前最佳）。"
+    out.append(f"統計基準 = **{BEST}**，即主結果「MAGNET（+ 同產業關係）」（2026-10-27 起；台股層內圖改為同產業關係卷積，看過 §79 的消融之後選的，數字偏高，proposal §80、§83）。原主結果（不帶關係，`{PRIOR}` / `{PRIOR_F2}`）保留為""「MAGNET 不帶關係（原主結果）」一列。"
                "**主指標是 IC，第二指標是 RankIC**（2026-10-17，依教授建議只留一到兩個指標）："
                "主表只列這兩個指標與它們的逐日檢定（`逐日 p (IC)`、`逐日 p (RankIC)`，"
-               "都是 MAGNET 本版對該列）。ICIR、Rank ICIR、跨種子檢定、組合讀法、校準診斷、"
+               "都是主結果對該列）。ICIR、Rank ICIR、跨種子檢定、組合讀法、校準診斷、"
                "§43 的集成分析與準度小表都移到附錄，數字與檢定都沒有改。差值欄不列，自己減得出來。")
     out.append("")
     out.append("**主表與附錄 B（2026-10-16，依教授建議）**：兩折的主表只放 MAGNET 自身的各版本與消融，"
@@ -1275,11 +1288,11 @@ def main() -> None:
         out += F2_MAIN_HEAD
         out += [line for lab, line in f2_sig if lab not in SUPPLEMENT]
     out.append("")
-    out.append("**判定（§38）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
+    out.append("**判定（§38，原主結果）**：對自家基準 ΔIC +0.0308 / ΔRankIC +0.0262，"
                "10/10 種子，**逐日檢定兩個指標都過**（0.0004 / 0.0036）——"
                "本專案第一次有架構改動在逐日層級對自家基準顯著。")
     out.append("")
-    out.append("**但（§40）**：對線性 baseline（見附錄 B）**不成立**。§40 當時 IC 名目領先每一個"
+    out.append("**但（§40，原主結果）**：對線性 baseline（見附錄 B）**不成立**。§40 當時 IC 名目領先每一個"
                "（+0.0055 ~ +0.0203）卻無一顯著；RankIC 與 R2 ridge 恰好打平"
                "（+0.0000），並輸給 KTW+（−0.0115）。"
                "§67 加入兩個線性 baseline 之後（2026-10-13），IC 輸關係型線性（−0.0088，p 0.32）、"
@@ -1291,16 +1304,18 @@ def main() -> None:
     hb = _holdout_block()
     if hb is not None:
         hdays, hlines, has_sa = hb
-        out.append("## 2026 保留期（凍結的第一折模型，§75）")
+        out.append("## 2026 保留期（凍結的第一折模型，§75、§81）")
         out.append("")
         out.append(f"評估窗 **{hdays[0]} ~ {hdays[-1]}**（{len(hdays)} 天），資料在 2026-10-18 下載，§75 的登記檢驗只用這一次"
-                   "（事前登記，proposal §75）。模型是第一折已訓練好的兩個 arm（各 10 顆種子），不重訓、不調參。"
-                   "`配對 p` 是關係型對主 arm 的同種子配對 t 檢定（登記的判準），`逐日 p` 是種子平均的逐日差的 HAC 檢定。"
-                   "**登記的判定：主判準（IC）與第二指標（RankIC）都未通過，主結果不改。**")
+                   "（事前登記，proposal §75）。§75 登記的是前四列的兩個 arm（第一折已訓練好的模型，各 10 顆種子），不重訓、不調參。"
+                   "`配對 p` 是投影後版本對原主結果（不帶關係）的同種子配對 t 檢定（登記的判準），`逐日 p` 是種子平均的逐日差的 HAC 檢定。"
+                   "**§75 登記的判定：主判準（IC）與第二指標（RankIC）都未通過（當時主結果不改）。**")
         if has_sa:
             out.append("")
             out.append("最後兩列是 2026-10-26 加的**探索性第二次評估**（規則先寫好，proposal §81）：凍結的 SA（自身 + 同產業，§80）"
-                       "對主 arm。這是看過 §75 的結果之後才做的同一假設的第二次檢驗，不是確認；配對 p 括號內是 Bonferroni x2。")
+                       "對原主結果。這是看過 §75 的結果之後才做的同一假設的第二次檢驗，不是確認；配對 p 括號內是 Bonferroni x2。"
+                       "SA 自 2026-10-27 起是主結果（§83）：**主結果在 2026 年只有這一次探索性的數字**，"
+                       "要寫成「探索性的第二次評估，與原主結果分不出差別」，不能寫成保留期確認。")
         out.append("")
         out += hlines
         out.append("")
@@ -1409,8 +1424,8 @@ def main() -> None:
     out.append("")
     out.append("我們另外建構、又不是出自文獻的對照：吃同一組昨日報酬的線性模型"
                "（KTW+、R2、TW+、關係型、兩區塊）與空模型 RC，2026-10-16 依教授建議由主表移來。"
-               "欄位定義、統計基準與檢定都和主表與附錄 A 相同，`逐日 p` 仍是 MAGNET 本版對該列；"
-               "MAGNET 本版與 10 顆集成兩列只是參照，數字與主表相同。")
+               "欄位定義、統計基準與檢定都和主表與附錄 A 相同，`逐日 p` 仍是主結果對該列；"
+               "主結果與其 10 顆集成兩列只是參照，數字與主表相同。")
     out.append("")
     for title, lines in (("B1. 第一折：IC 與 RankIC", main_table(app_rows)),
                          ("B2. 第一折：ICIR 與跨種子檢定", other_table(app_rows)),
@@ -1418,7 +1433,7 @@ def main() -> None:
                          ("B4. 第一折：校準診斷", cal_table(app_rows))):
         out += [f"### {title}", ""] + lines + [""]
     if f2 is not None:
-        refs = {"**MAGNET 本版（F1 + 無A₂ + rank 1.0）**", ENSEMBLE[0][0]}
+        refs = {f"**{MAIN_LABEL}**", ENSEMBLE[0][0]}
 
         def app2(xs):
             return [line for lab, line in xs if lab in SUPPLEMENT or lab in refs]
@@ -1459,8 +1474,8 @@ def main() -> None:
                f"重算的 test 預測與存檔一致才採用（相對差 ≤ {ACC_TOL:g}）。")
     out.append("")
     out.append("**箭頭：↑ 越高越好，↓ 越低越好。** p 值是雙尾、沒有方向，誰比較好看合併表的差值欄。"
-               f"`{ANCHOR}` 列的兩個 p 是 MAGNET 本版對它的檢定（`R²_oos` 是否大於 0、命中率是否大於 50%），"
-               "其餘列的 p 都是該列對 MAGNET 本版。")
+               f"`{ANCHOR}` 列的兩個 p 是主結果對它的檢定（`R²_oos` 是否大於 0、命中率是否大於 50%），"
+               "其餘列的 p 都是該列對主結果。")
     out.append("")
     ab = _acc_block()
     if ab is None:
@@ -1594,7 +1609,7 @@ def main() -> None:
     out.append("### 準度小表的欄")
     out.append("")
     out.append("下標 `d` 表示扣掉當天 50 檔的橫截面平均；`b` 只用 val 擬合（`b = Σ y_d·y_hat_d / Σ y_hat_d²`）。"
-               "MAGNET 本版逐 seed 算完再平均（`± sd` 為跨 seed），檢定用跨 seed 平均後的逐日序列；"
+               "MAGNET 各版本逐 seed 算完再平均（`± sd` 為跨 seed），檢定用跨 seed 平均後的逐日序列；"
                "集成列先平均 10 顆的預測再定尺度。日子的取捨同訊號層（50 檔 `y` 完全相同的日子跳過）。")
     out.append("")
     out.append("| 欄 | 算式 | 方向 |")
@@ -1609,10 +1624,14 @@ def main() -> None:
     out.append("| `逐日 p（R²_oos）` | 逐日橫截面 MSE 差的 HAC 雙尾檢定（Diebold–Mariano 檢定），"
                "lag 同訊號層 | 無方向 |")
     out.append("| `逐日 p（命中率）` | 逐日命中率差的 HAC 雙尾檢定 | 無方向 |")
-    out.append("| `R²_oos 差` / `命中率差`（合併表） | 該列 − MAGNET 本版，兩折的日子一起算；"
+    out.append("| `R²_oos 差` / `命中率差`（合併表） | 該列 − 主結果，兩折的日子一起算；"
                "正值代表該列較好 | **↑ 越高越好**（站在該列的立場） |")
     out.append("")
     out.append("## 讀表注意")
+    out.append("")
+    out.append("**2026-10-27 起主結果改為「MAGNET（+ 同產業關係）」（SA，proposal §83）。**下列各條多數寫於此前，"
+               "其中的「本版」「主結果 arm」指不帶關係的原主結果（表中「MAGNET 不帶關係（原主結果）」那一列）；"
+               "換成 SA 之後的檢定數字以主表與附錄為準，兩者的比較見 proposal §78 – §83。")
     out.append("")
     out.append("- **欄名的 ↑ / ↓ 是「其他條件相同下哪個方向較好」**，"
                "**不是說該欄可以單獨拿來排名**。有四類欄位**刻意沒有箭頭**：<br>"
@@ -1626,7 +1645,7 @@ def main() -> None:
                "**兩者都看不到這個比值**，所以它是規範選擇不是缺陷"
                "（proposal §57.11、§60.7）；<br>"
                "(4) **準度小表的 `逐日 p（R²_oos）` / `逐日 p（命中率）`**——雙尾檢定，"
-               "**方向看合併表的差值欄**。那裡有線性 baseline 贏過 MAGNET 本版的格子，"
+               "**方向看合併表的差值欄**。那裡有線性 baseline 贏過主結果的格子，"
                "不能套用 (2) 的「基準贏過該列」。")
     out.append("- **`MDD ↓` 的箭頭尤其不等於可以拿來排名**（見下方 MDD 那條）："
                "它兩折的名次會翻轉。箭頭只說明方向，不背書該欄的可靠度。")
@@ -1780,7 +1799,7 @@ def main() -> None:
                "（變異數分解獨立給出 17.7%）。理論 IC(S) = IC(1)·sqrt(S·SNR/(1+S·SNR))，"
                "SNR=4.54，預測 S=1->10 增益 +0.0101，實測 +0.0088。"
                "**論文兩個都要報。**")
-    out.append("- **主表的「MAGNET 本版（10 顆集成）」列**（2026-10-11 加）就是 §43 (A) 的"
+    out.append("- **主表的「MAGNET（+ 同產業關係，10 顆集成）」列**（2026-10-11 加，2026-10-27 起改為主結果的集成）就是 §43 (A) 的"
                "「先平均預測再算 IC」：10 顆種子的 `y_hat` 逐 (日, 檔) 平均成一條序列，"
                "再照其他列的算法算每一欄。`n` 記平均了幾顆種子，但只有一條序列，"
                "所以沒有 `± sd`、跨種子欄為「—」；`逐日 p` 是它對統計基準"
