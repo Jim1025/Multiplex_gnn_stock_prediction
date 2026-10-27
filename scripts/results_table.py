@@ -62,6 +62,8 @@ PRIOR = "tw50_betaF1nA2r1"      # 原主結果（不帶關係），2026-10-27 �
 PRIOR_F2 = "f2_best"
 MAIN_LABEL = "MAGNET（+ 同產業關係，主結果）"
 PRIOR_LABEL = "MAGNET 不帶關係（原主結果）"
+# 主結果自己的單市場消融（2026-10-27 事前登記，proposal §83.3）。依登記不進主表，只在「讀表注意」說明，數字由 run 算
+SMKT_SA = ("tw50_smktSA", "f2_smktSA")
 
 # (顯示名稱, arm 或 glob, 類別, 備註)
 # 子列（「└」）的名稱要自己看得懂：表依 IC 排序，子列常不在母列正下方，
@@ -565,6 +567,58 @@ def fmt(v, nd=4, signed=True):
         return "—"
     return f"{v:+.{nd}f}" if signed else f"{v:.{nd}f}"
 
+
+def _smkt_sa_note(base: dict) -> str | None:
+    """「讀表注意」裡主結果自己的單市場消融（SMKT_SA，proposal §83.3）。缺 run 時回傳 None。
+
+    兩折都是同種子配對：主結果 − 單市場的差、為正的種子數、配對 p、跨市場佔主結果的比例。
+    第一折的逐種子 IC / RankIC 與主表同口徑（neural_stats）；第二折的評估窗截到 2024-12-25，
+    逐日略過規則同 _fold2_rows（§77）。兩折的數字都與登記分析 `scripts/sa_single_market_eval.py` 相同。
+    """
+    def f2_seeds(arm, cut="2024-12-25"):
+        out = {}
+        for s, d in find_seeds(arm).items():
+            f = os.path.join(d, "predictions", "test_predictions.csv")
+            if not os.path.exists(f):
+                continue
+            ic, ric = [], []
+            for t, g in pd.read_csv(f).groupby("target_date"):
+                if str(t)[:10] > cut or g.y.nunique() == 1 or g.y_hat.nunique() == 1:
+                    continue
+                ic.append(np.corrcoef(g.y_hat, g.y)[0, 1])
+                ric.append(stats.spearmanr(g.y_hat, g.y).statistic)
+            out[s] = (float(np.mean(ic)), float(np.nanmean(ric)))
+        return {"IC": {s: v[0] for s, v in out.items()}, "RankIC": {s: v[1] for s, v in out.items()}}
+
+    abl1 = neural_stats(SMKT_SA[0])
+    full2, abl2 = f2_seeds(BEST_F2), f2_seeds(SMKT_SA[1])
+    if abl1 is None or not full2["IC"] or not abl2["IC"]:
+        return None
+    folds = [({"IC": base["per_ic"], "RankIC": base["per_ric"]},
+              {"IC": abl1["per_ic"], "RankIC": abl1["per_ric"]}),
+             (full2, abl2)]
+    res = {}
+    for i, (full, abl) in enumerate(folds):
+        common = sorted(set(full["IC"]) & set(abl["IC"]), key=int)
+        for k in ("IC", "RankIC"):
+            x = np.array([full[k][s] for s in common])
+            y = np.array([abl[k][s] for s in common])
+            d = x - y
+            res[i, k] = dict(abl=y.mean(), d=d.mean(), pos=int((d > 0).sum()), n=len(d),
+                             p=float(stats.ttest_rel(x, y).pvalue), share=d.mean() / x.mean())
+
+    def diffs(k):
+        return "/ ".join(f"{res[i, k]['d']:+.4f}（{res[i, k]['pos']}/{res[i, k]['n']} 為正，"
+                          f"配對 p {res[i, k]['p']:.1e}）" for i in (0, 1))
+    return ("- **主結果自己的單市場消融**（2026-10-27 事前登記，proposal §83.3；依登記不進主表）："
+            f"`{SMKT_SA[0]}` / `{SMKT_SA[1]}` 的 IC {res[0, 'IC']['abl']:+.4f} / {res[1, 'IC']['abl']:+.4f}、"
+            f"RankIC {res[0, 'RankIC']['abl']:+.4f} / {res[1, 'RankIC']['abl']:+.4f}（第一折 / 第二折）。"
+            f"主結果 − 單市場：IC {diffs('IC')}；RankIC {diffs('RankIC')}。"
+            f"**跨市場佔主結果 IC 的 {res[0, 'IC']['share']:.0%} / {res[1, 'IC']['share']:.0%}、"
+            f"RankIC 的 {res[0, 'RankIC']['share']:.0%} / {res[1, 'RankIC']['share']:.0%}**"
+            "（上一條的 92% 是原主結果第一折的數字，第二折見 proposal §64.8）。"
+            "主表「單市場消融（不帶關係的版本）」那一列是原主結果的消融：它的逐日 p 是主結果對該列，"
+            "跨了兩個 arm，不是主結果自己的消融。")
 
 
 def _fold2_rows():
@@ -1779,6 +1833,9 @@ def main() -> None:
                "淨值：主結果 arm **ΔIC +0.1004**（10/10 種子、逐日 HAC p 3.3e-06）、"
                "前一版 arm +0.0961（10/10、3.2e-07）——"
                "**佔模型表現的 92%，切掉後低於常數對照。** 詳見 proposal §41。")
+    smkt_note = _smkt_sa_note(base)
+    if smkt_note:
+        out.append(smkt_note)
     out.append("- **`LSTM only` 不能當單市場對照。** 它是另一個架構（無 GAT、無融合閘門、"
                "無 beta 層），差異裡混了「沒有跨市場」與「少三個模組」。"
                "要回答教授建議 1，用的是上面兩個 `disable_a12` 的消融 arm。")
