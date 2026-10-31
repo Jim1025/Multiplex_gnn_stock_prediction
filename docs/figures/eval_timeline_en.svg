@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 900" width="1800" height="900" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<rect width="1800" height="900" fill="#ffffff"/>
+<text x="70.0" y="80.0" font-size="34" text-anchor="start" fill="#1f2933" font-weight="bold" font-style="normal">Walk-forward evaluation windows</text>
+<text x="70.0" y="118.0" font-size="20" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">Two non-overlapping test periods; the 2026 window was used after model selection (exploratory)</text>
+<line x1="260.0" y1="180" x2="260.0" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="260.0" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2019</text>
+<line x1="442.4" y1="180" x2="442.4" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="442.4" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2020</text>
+<line x1="625.4" y1="180" x2="625.4" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="625.4" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2021</text>
+<line x1="807.8" y1="180" x2="807.8" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="807.8" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2022</text>
+<line x1="990.2" y1="180" x2="990.2" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="990.2" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2023</text>
+<line x1="1172.7" y1="180" x2="1172.7" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1172.7" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2024</text>
+<line x1="1355.6" y1="180" x2="1355.6" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1355.6" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2025</text>
+<line x1="1538.1" y1="180" x2="1538.1" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1538.1" y="730.0" font-size="20" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">2026</text>
+<text x="230.0" y="268.0" font-size="24" text-anchor="end" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1 (main)</text>
+<rect x="310.0" y="234" width="856.2" height="52" rx="4" fill="#cbd2d9"/>
+<rect x="1166.7" y="234" width="185.4" height="52" rx="4" fill="#7d8a99"/>
+<rect x="1352.6" y="234" width="184.4" height="52" rx="4" fill="#b45309"/>
+<text x="738.1" y="268.0" font-size="20" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">Train</text>
+<text x="1259.4" y="268.0" font-size="20" text-anchor="middle" fill="#ffffff" font-weight="bold" font-style="normal">Val</text>
+<text x="1444.8" y="268.0" font-size="20" text-anchor="middle" fill="#ffffff" font-weight="bold" font-style="normal">Test</text>
+<text x="1537.1" y="316.0" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">test 2024-12-26 to 2025-12-30</text>
+<text x="230.0" y="428.0" font-size="24" text-anchor="end" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2</text>
+<rect x="310.0" y="394" width="668.8" height="52" rx="4" fill="#cbd2d9"/>
+<rect x="980.3" y="394" width="185.9" height="52" rx="4" fill="#7d8a99"/>
+<rect x="1166.7" y="394" width="185.4" height="52" rx="4" fill="#b45309"/>
+<text x="644.4" y="428.0" font-size="20" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">Train</text>
+<text x="1073.2" y="428.0" font-size="20" text-anchor="middle" fill="#ffffff" font-weight="bold" font-style="normal">Val</text>
+<text x="1259.4" y="428.0" font-size="20" text-anchor="middle" fill="#ffffff" font-weight="bold" font-style="normal">Test</text>
+<text x="1166.7" y="476.0" font-size="18" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">test 2023-12-20 to 2024-12-25</text>
+<text x="230.0" y="588.0" font-size="24" text-anchor="end" fill="#1f2933" font-weight="bold" font-style="normal">2026 window</text>
+<rect x="1538.6" y="554" width="143.5" height="52" rx="4" fill="none" stroke="#b45309" stroke-width="2.5" stroke-dasharray="9,7"/>
+<text x="1524.6" y="588.0" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">frozen fold-1 models, exploratory</text>
+<text x="1682.0" y="636.0" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">2026-01-02 to 2026-10-16</text>
+<rect x="260" y="782" width="34" height="22" rx="3" fill="#cbd2d9"/>
+<text x="306.0" y="800.0" font-size="20" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Train</text>
+<rect x="460" y="782" width="34" height="22" rx="3" fill="#7d8a99"/>
+<text x="506.0" y="800.0" font-size="20" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Validation</text>
+<rect x="660" y="782" width="34" height="22" rx="3" fill="#b45309"/>
+<text x="706.0" y="800.0" font-size="20" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Test</text>
+<rect x="860" y="782" width="34" height="22" rx="3" fill="none" stroke="#b45309" stroke-width="2.5" stroke-dasharray="6,4"/>
+<text x="906.0" y="800.0" font-size="20" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Exploratory (not a clean holdout)</text>
+<text x="70.0" y="860.0" font-size="17" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">No shuffling; all models of a fold are trained and selected on the same train / validation days.</text>
+</svg>

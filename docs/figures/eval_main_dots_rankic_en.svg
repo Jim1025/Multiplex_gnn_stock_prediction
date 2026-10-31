@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 900" width="1800" height="900" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<rect width="1800" height="900" fill="#ffffff"/>
+<text x="60.0" y="70.0" font-size="34" text-anchor="start" fill="#1f2933" font-weight="bold" font-style="normal">MAGNET vs literature methods (RankIC)</text>
+<text x="60.0" y="106.0" font-size="20" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">Both test periods; dots are seed means, bars are seed SD</text>
+<text x="750.0" y="160.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1: 2024-12-26 to 2025-12-30</text>
+<line x1="552.7" y1="172" x2="552.7" y2="780" stroke="#9aa5b1" stroke-width="1.5"/>
+<text x="552.7" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.00</text>
+<line x1="693.6" y1="172" x2="693.6" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="693.6" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.05</text>
+<line x1="834.5" y1="172" x2="834.5" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="834.5" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.10</text>
+<line x1="975.5" y1="172" x2="975.5" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="975.5" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.15</text>
+<line x1="899.9" y1="172" x2="899.9" y2="780" stroke="#b45309" stroke-width="1.5" stroke-dasharray="5,5"/>
+<text x="1450.0" y="160.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2: 2023-12-20 to 2024-12-25</text>
+<line x1="1252.7" y1="172" x2="1252.7" y2="780" stroke="#9aa5b1" stroke-width="1.5"/>
+<text x="1252.7" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.00</text>
+<line x1="1393.6" y1="172" x2="1393.6" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1393.6" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.05</text>
+<line x1="1534.5" y1="172" x2="1534.5" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1534.5" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.10</text>
+<line x1="1675.5" y1="172" x2="1675.5" y2="780" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="1675.5" y="808.0" font-size="18" text-anchor="middle" fill="#5b6672" font-weight="normal" font-style="normal">0.15</text>
+<line x1="1673.2" y1="172" x2="1673.2" y2="780" stroke="#b45309" stroke-width="1.5" stroke-dasharray="5,5"/>
+<text x="410.0" y="197.0" font-size="19" text-anchor="end" fill="#b45309" font-weight="bold" font-style="normal">MAGNET (main) †</text>
+<line x1="892.6" y1="190" x2="907.3" y2="190" stroke="#1f2933" stroke-width="2"/>
+<circle cx="899.9" cy="190" r="9" fill="#b45309"/>
+<line x1="1656.9" y1="190" x2="1689.5" y2="190" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1673.2" cy="190" r="9" fill="#b45309"/>
+<text x="410.0" y="252.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] LASSO</text>
+<circle cx="806.6" cy="245" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1643.3" cy="245" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="410.0" y="285.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] RF</text>
+<circle cx="802.1" cy="278" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1567.2" cy="278" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="318.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] ens-med</text>
+<circle cx="801.6" cy="311" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1612.6" cy="311" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="410.0" y="351.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] ens-avg</text>
+<circle cx="797.9" cy="344" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1596.5" cy="344" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="410.0" y="384.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] RIDGE</text>
+<circle cx="787.2" cy="377" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1616.8" cy="377" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="410.0" y="417.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] OLS</text>
+<circle cx="784.7" cy="410" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<circle cx="1613.7" cy="410" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="410.0" y="450.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] AdaBoost</text>
+<circle cx="751.4" cy="443" r="7" fill="#9aa5b1"/>
+<circle cx="1557.4" cy="443" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="483.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] XGBoost</text>
+<circle cx="711.4" cy="476" r="7" fill="#9aa5b1"/>
+<circle cx="1425.8" cy="476" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="516.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] LightGBM</text>
+<circle cx="704.3" cy="509" r="7" fill="#9aa5b1"/>
+<circle cx="1508.6" cy="509" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="549.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">[24] SVM</text>
+<circle cx="664.3" cy="542" r="7" fill="#9aa5b1"/>
+<circle cx="1396.5" cy="542" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="604.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">MEIG [1]</text>
+<line x1="585.1" y1="597" x2="610.5" y2="597" stroke="#1f2933" stroke-width="2"/>
+<circle cx="597.8" cy="597" r="7" fill="#9aa5b1"/>
+<line x1="1210.2" y1="597" x2="1273.3" y2="597" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1241.7" cy="597" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="637.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">HATS [12]</text>
+<line x1="562.9" y1="630" x2="600.1" y2="630" stroke="#1f2933" stroke-width="2"/>
+<circle cx="581.5" cy="630" r="7" fill="#9aa5b1"/>
+<line x1="1276.7" y1="630" x2="1350.0" y2="630" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1313.3" cy="630" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="670.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">HGT [14]</text>
+<line x1="567.7" y1="663" x2="586.3" y2="663" stroke="#1f2933" stroke-width="2"/>
+<circle cx="577.0" cy="663" r="7" fill="#9aa5b1"/>
+<line x1="1345.2" y1="663" x2="1412.2" y2="663" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1378.7" cy="663" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="703.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">MAN-SF [11]</text>
+<line x1="549.3" y1="696" x2="598.4" y2="696" stroke="#1f2933" stroke-width="2"/>
+<circle cx="573.9" cy="696" r="7" fill="#9aa5b1"/>
+<line x1="1311.6" y1="696" x2="1383.8" y2="696" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1347.7" cy="696" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="736.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">Adv-ALSTM [10]</text>
+<line x1="563.2" y1="729" x2="571.0" y2="729" stroke="#1f2933" stroke-width="2"/>
+<circle cx="567.1" cy="729" r="7" fill="#9aa5b1"/>
+<line x1="1271.6" y1="729" x2="1366.3" y2="729" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1319.0" cy="729" r="7" fill="#9aa5b1"/>
+<text x="410.0" y="769.0" font-size="19" text-anchor="end" fill="#1f2933" font-weight="normal" font-style="normal">DeltaLag [13]</text>
+<line x1="518.6" y1="762" x2="553.6" y2="762" stroke="#1f2933" stroke-width="2"/>
+<circle cx="536.1" cy="762" r="7" fill="#9aa5b1"/>
+<line x1="1228.8" y1="762" x2="1316.1" y2="762" stroke="#1f2933" stroke-width="2"/>
+<circle cx="1272.5" cy="762" r="7" fill="#9aa5b1"/>
+<circle cx="80" cy="842" r="9" fill="#b45309"/>
+<text x="98.0" y="848.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">MAGNET main result</text>
+<circle cx="340" cy="842" r="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="3"/>
+<text x="358.0" y="848.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Tie: not significant after Holm</text>
+<circle cx="680" cy="842" r="7" fill="#9aa5b1"/>
+<text x="698.0" y="848.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Significantly lower than MAGNET (Holm, 16 methods per fold)</text>
+<text x="60.0" y="882.0" font-size="16" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">† Chosen after the ablation study (post hoc); its numbers are biased upward. Neural baselines untuned, 3 seeds; [24] learners are deterministic.</text>
+</svg>
