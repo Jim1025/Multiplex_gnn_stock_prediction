@@ -3,9 +3,11 @@ gen_eval_figures.py — Performance evaluation 的三張圖（英文版，2:1）
 
     eval_timeline_en.svg      兩折 walk-forward 的 train / val / test 與 2026 探索性窗的時間軸
     eval_main_dots_en.svg     主結果對文獻方法：兩折並列的點圖（預設 IC，--metric rankic 換 RankIC）
-    eval_ablation_en.svg      主結果、不帶關係、單市場消融：兩折 x 兩指標的長條圖
+    eval_ablation_en.svg      主結果、不帶關係、美股層內圖關閉、單市場消融：兩折 x 兩指標的長條圖
 
-數字一律從 docs/results_table.md 的兩張主表讀，不寫死。[24] 的「tie / worse」由主表的逐日 p
+數字一律從 docs/results_table.md 的兩張主表讀，不寫死；美股層內圖關閉不在主表，讀
+docs/figures/data/eval_us_graph_off.json（由 sa_us_graph_eval.py --write 產生）。
+長條除了顏色也用填充樣式（實心、斜線、點、橫線）區分，黑白印製時仍分得出來。[24] 的「tie / worse」由主表的逐日 p
 依 16 個文獻方法做 Holm（每折每指標一族）算出，與 best_vs_literature.py 同一規則。
 切分日期取自 data/graphs/snapshots_tw50 的檔名（依 configs/base.yaml 的 split 索引與第二折的 903 / 1150）。
 
@@ -16,6 +18,7 @@ gen_eval_figures.py — Performance evaluation 的三張圖（英文版，2:1）
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -39,6 +42,8 @@ L24 = ["LASSO", "RIDGE", "OLS", "ens-med", "ens-avg", "RF", "AdaBoost", "LightGB
 MAIN_ROW = "**MAGNET（+ 同產業關係，主結果）**"
 PRIOR_ROW = "MAGNET 不帶關係（原主結果）"
 SINGLE_ROW = "單市場消融（主結果）"
+US_OFF_ROW = "美股層內圖關閉"
+US_OFF_JSON = OUT_DIR / "data" / "eval_us_graph_off.json"
 
 TEXTS: list[tuple[float, float, float, str, str]] = []   # (x, y, size, anchor, text) 供碰撞檢查
 
@@ -136,21 +141,21 @@ def fig_timeline() -> str:
     import datetime as dt
 
     t0, t1 = dt.date(2019, 1, 1), dt.date(2026, 12, 31)
-    X0, X1 = 260, 1720
+    X0, X1 = 260, 1260
 
     def X(s):
         d = dt.date.fromisoformat(s)
         return X0 + (X1 - X0) * (d - t0).days / (t1 - t0).days
 
-    b = [text(70, 80, "Walk-forward evaluation windows", 34, weight="bold"),
-         text(70, 118, "Two non-overlapping test periods; the 2026 window was used after model selection (exploratory)",
+    b = [text(70, 150, "Walk-forward evaluation windows", 34, weight="bold"),
+         text(70, 180, "Two non-overlapping test periods; the 2026 window was used after model selection (exploratory)",
               20, fill=GREY)]
     for yr in range(2019, 2027):
         x = X(f"{yr}-01-01")
-        b.append(f'<line x1="{x:.1f}" y1="180" x2="{x:.1f}" y2="700" stroke="#e4e7eb" stroke-width="1.5"/>')
-        b.append(text(x, 730, str(yr), 20, "middle", GREY))
+        b.append(f'<line x1="{x:.1f}" y1="250" x2="{x:.1f}" y2="500" stroke="#e4e7eb" stroke-width="1.5"/>')
+        b.append(text(x, 530, str(yr), 20, "middle", GREY))
     colors = {"Train": "#cbd2d9", "Validation": "#7d8a99", "Test": MAIN}
-    rows = [("Fold 1 (main)", 1, 260), ("Fold 2", 2, 420)]
+    rows = [("Fold 1 (main)", 1, 310), ("Fold 2", 2, 420)]
     for label, f, y in rows:
         a, b_, c, d_, e, g = sd[f]
         b.append(text(230, y + 8, label, 24, "end", weight="bold"))
@@ -160,24 +165,14 @@ def fig_timeline() -> str:
         b.append(text((X(a) + X(b_)) / 2, y + 8, "Train", 20, "middle", INK))
         b.append(text((X(c) + X(d_)) / 2, y + 8, "Val", 20, "middle", "#ffffff", "bold"))
         b.append(text((X(e) + X(g)) / 2, y + 8, "Test", 20, "middle", "#ffffff", "bold"))
-        b.append(text(X(e), y + 56, f"test {e} to {g}", 18, "start" if f == 2 else "end", GREY)
-                 if f == 2 else text(X(g), y + 56, f"test {e} to {g}", 18, "end", GREY))
+      
     y = 580
-    b.append(text(230, y + 8, "2026 window", 24, "end", weight="bold"))
-    x1, x2 = X("2026-01-02"), X("2026-10-16")
-    b.append(f'<rect x="{x1:.1f}" y="{y - 26}" width="{x2 - x1:.1f}" height="52" rx="4" fill="none" '
-             f'stroke="{MAIN}" stroke-width="2.5" stroke-dasharray="9,7"/>')
-    b.append(text(x1 - 14, y + 8, "frozen fold-1 models, exploratory", 18, "end", GREY))
-    b.append(text(x2, y + 56, "2026-01-02 to 2026-10-16", 18, "end", GREY))
     lx = 260
     for kind in ("Train", "Validation", "Test"):
-        b.append(f'<rect x="{lx}" y="782" width="34" height="22" rx="3" fill="{colors[kind]}"/>')
-        b.append(text(lx + 46, 800, kind, 20))
+        b.append(f'<rect x="{lx}" y="580" width="34" height="22" rx="3" fill="{colors[kind]}"/>')
+        b.append(text(lx + 46, 600, kind, 20))
         lx += 200
-    b.append(f'<rect x="{lx}" y="782" width="34" height="22" rx="3" fill="none" stroke="{MAIN}" '
-             f'stroke-width="2.5" stroke-dasharray="6,4"/>')
-    b.append(text(lx + 46, 800, "Exploratory (not a clean holdout)", 20))
-    b.append(text(70, 860, "No shuffling; all models of a fold are trained and selected on the same train / validation days.",
+    b.append(text(70, 660, "No shuffling; all models of a fold are trained and selected on the same train / validation days.",
                   17, fill=GREY))
     return svg_wrap(b)
 
@@ -251,18 +246,50 @@ def fig_dots(tab, metric: str) -> str:
 
 
 # ---------------------------------------------------------------- 圖 3：消融長條圖
+def load_us_off(tab) -> None:
+    """把 sa_us_graph_eval.py 寫出的種子平均與 SD 併進 tab，列名 US_OFF_ROW。"""
+    folds = json.loads(US_OFF_JSON.read_text())["folds"]
+    for f in (1, 2):
+        tab[f][US_OFF_ROW] = {k: folds[str(f)][k] for k in ("ic", "ic_sd", "rk", "rk_sd")}
+
+
+# 每個 arm 一種填充：(顏色, 樣式)。樣式在 defs 裡定義成 pattern。
+PATTERNS = {
+    "solid": "",
+    "diag": '<path d="M0,12 L12,0 M-3,3 L3,-3 M9,15 L15,9" stroke="{c}" stroke-width="3"/>',
+    "dots": '<circle cx="4" cy="4" r="2.4" fill="{c}"/><circle cx="10" cy="10" r="2.4" fill="{c}"/>',
+    "horiz": '<path d="M0,3 L12,3 M0,9 L12,9" stroke="{c}" stroke-width="2.2"/>',
+}
+
+
+def fill_defs(arms) -> tuple[str, dict]:
+    defs, fills = [], {}
+    for i, (_, row, col, pat) in enumerate(arms):
+        if pat == "solid":
+            fills[row] = col
+            continue
+        pid = f"pat{i}"
+        defs.append(f'<pattern id="{pid}" width="12" height="12" patternUnits="userSpaceOnUse">'
+                    f'<rect width="12" height="12" fill="#ffffff"/>{PATTERNS[pat].format(c=col)}</pattern>')
+        fills[row] = f"url(#{pid})"
+    return "<defs>" + "".join(defs) + "</defs>", fills
+
+
 def fig_ablation(tab) -> str:
-    arms = [("MAGNET (main) †", MAIN_ROW, MAIN),
-            ("Without same-industry relations (previous main)", PRIOR_ROW, "#d69e5e"),
-            ("Single market: cross-market links off", SINGLE_ROW, WORSE)]
+    load_us_off(tab)
+    arms = [("MAGNET", MAIN_ROW, MAIN, "solid"),
+            ("Without TW same-industry relations (self-loops only)", PRIOR_ROW, "#b45309", "diag"),
+            ("US intra-layer graph off (self-loops only)", US_OFF_ROW, TIE, "dots"),
+            ("Single market: cross-market links off", SINGLE_ROW, "#52606d", "horiz")]
     groups = [(1, "ic", "Fold 1  IC"), (1, "rk", "Fold 1  RankIC"), (2, "ic", "Fold 2  IC"), (2, "rk", "Fold 2  RankIC")]
-    base, top, hi = 720, 200, 0.18
-    gx0, gw, bw = 160, 400, 96
+    base, top, hi = 700, 200, 0.18
+    gx0, gw, bw, gap = 160, 400, 74, 12
+    defs, fills = fill_defs(arms)
 
     def Y(v):
         return base - (base - top) * v / hi
 
-    b = [text(60, 70, "Ablation: where the gain comes from", 34, weight="bold"),
+    b = [defs, text(60, 70, "Ablation: where the gain comes from", 34, weight="bold"),
          text(60, 106, "Seed means with seed SD (10 seeds each)", 20, fill=GREY)]
     for t in (0.0, 0.05, 0.10, 0.15):
         y = Y(t)
@@ -272,22 +299,22 @@ def fig_ablation(tab) -> str:
     for gi, (f, k, lab) in enumerate(groups):
         cx = gx0 + gw * gi + gw / 2
         b.append(text(cx, base + 40, lab, 22, "middle", weight="bold"))
-        for ai, (_, row, col) in enumerate(arms):
+        for ai, (_, row, _c, _p) in enumerate(arms):
             r = tab[f][row]
             v, sdv = r[k], r[k + "_sd"]
-            x = cx + (ai - 1) * (bw + 14) - bw / 2
-            b.append(f'<rect x="{x:.1f}" y="{Y(v):.1f}" width="{bw}" height="{base - Y(v):.1f}" fill="{col}"/>')
+            x = cx + (ai - (len(arms) - 1) / 2) * (bw + gap) - bw / 2
+            b.append(f'<rect x="{x:.1f}" y="{Y(v):.1f}" width="{bw}" height="{base - Y(v):.1f}" fill="{fills[row]}" '
+                     f'stroke="{INK}" stroke-width="1.5"/>')
             xm = x + bw / 2
             b.append(f'<line x1="{xm:.1f}" y1="{Y(v - sdv):.1f}" x2="{xm:.1f}" y2="{Y(v + sdv):.1f}" '
                      f'stroke="{INK}" stroke-width="2"/>')
             b.append(text(xm, Y(v + sdv) - 10, f"{v:.3f}", 17, "middle"))
-    lx, ly = 160, 818
-    for lab, _, col in arms:
-        b.append(f'<rect x="{lx}" y="{ly - 18}" width="26" height="22" fill="{col}"/>')
-        b.append(text(lx + 36, ly, lab, 19))
-        lx += 36 + _tw(19, lab) + 50
-    b.append(text(60, H - 22, "† Chosen after the ablation study (post hoc): the gap to the previous main result "
-                  "is not evidence for the relational layer.", 16, fill=GREY))
+    for i, (lab, row, _c, _p) in enumerate(arms):           # 圖例兩欄兩列
+        lx, ly = 160 + 820 * (i % 2), 790 + 36 * (i // 2)
+        b.append(f'<rect x="{lx}" y="{ly - 20}" width="40" height="26" fill="{fills[row]}" stroke="{INK}" stroke-width="1.5"/>')
+        b.append(text(lx + 52, ly, lab, 19))
+#   b.append(text(60, H - 42, "† Chosen after the ablation study (post hoc): the gap to the previous main result "
+#                  "is not evidence for the relational layer.", 16, fill=GREY))
     return svg_wrap(b)
 
 

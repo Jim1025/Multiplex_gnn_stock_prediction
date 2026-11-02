@@ -1,60 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 900" width="1800" height="900" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
 <rect width="1800" height="900" fill="#ffffff"/>
+<defs><pattern id="pat1" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#ffffff"/><path d="M0,12 L12,0 M-3,3 L3,-3 M9,15 L15,9" stroke="#b45309" stroke-width="3"/></pattern><pattern id="pat2" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#ffffff"/><circle cx="4" cy="4" r="2.4" fill="#2b6cb0"/><circle cx="10" cy="10" r="2.4" fill="#2b6cb0"/></pattern><pattern id="pat3" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#ffffff"/><path d="M0,3 L12,3 M0,9 L12,9" stroke="#52606d" stroke-width="2.2"/></pattern></defs>
 <text x="60.0" y="70.0" font-size="34" text-anchor="start" fill="#1f2933" font-weight="bold" font-style="normal">Ablation: where the gain comes from</text>
 <text x="60.0" y="106.0" font-size="20" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">Seed means with seed SD (10 seeds each)</text>
-<line x1="140" y1="720.0" x2="1760" y2="720.0" stroke="#9aa5b1" stroke-width="1.5"/>
-<text x="130.0" y="726.0" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.00</text>
-<line x1="140" y1="575.6" x2="1760" y2="575.6" stroke="#e4e7eb" stroke-width="1.5"/>
-<text x="130.0" y="581.6" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.05</text>
-<line x1="140" y1="431.1" x2="1760" y2="431.1" stroke="#e4e7eb" stroke-width="1.5"/>
-<text x="130.0" y="437.1" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.10</text>
-<line x1="140" y1="286.7" x2="1760" y2="286.7" stroke="#e4e7eb" stroke-width="1.5"/>
-<text x="130.0" y="292.7" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.15</text>
-<text x="360.0" y="760.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1  IC</text>
-<rect x="202.0" y="394.4" width="96" height="325.6" fill="#b45309"/>
-<line x1="250.0" y1="405.7" x2="250.0" y2="383.2" stroke="#1f2933" stroke-width="2"/>
-<text x="250.0" y="373.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.113</text>
-<rect x="312.0" y="405.1" width="96" height="314.9" fill="#d69e5e"/>
-<line x1="360.0" y1="419.8" x2="360.0" y2="390.4" stroke="#1f2933" stroke-width="2"/>
-<text x="360.0" y="380.4" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.109</text>
-<rect x="422.0" y="647.8" width="96" height="72.2" fill="#9aa5b1"/>
-<line x1="470.0" y1="653.8" x2="470.0" y2="641.7" stroke="#1f2933" stroke-width="2"/>
-<text x="470.0" y="631.7" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.025</text>
-<text x="760.0" y="760.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1  RankIC</text>
-<rect x="602.0" y="364.1" width="96" height="355.9" fill="#b45309"/>
-<line x1="650.0" y1="371.6" x2="650.0" y2="356.6" stroke="#1f2933" stroke-width="2"/>
-<text x="650.0" y="346.6" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.123</text>
-<rect x="712.0" y="397.6" width="96" height="322.4" fill="#d69e5e"/>
-<line x1="760.0" y1="411.5" x2="760.0" y2="383.7" stroke="#1f2933" stroke-width="2"/>
-<text x="760.0" y="373.7" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.112</text>
-<rect x="822.0" y="550.4" width="96" height="169.6" fill="#9aa5b1"/>
-<line x1="870.0" y1="557.4" x2="870.0" y2="543.5" stroke="#1f2933" stroke-width="2"/>
-<text x="870.0" y="533.5" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.059</text>
-<text x="1160.0" y="760.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2  IC</text>
-<rect x="1002.0" y="254.6" width="96" height="465.4" fill="#b45309"/>
-<line x1="1050.0" y1="265.3" x2="1050.0" y2="243.9" stroke="#1f2933" stroke-width="2"/>
-<text x="1050.0" y="233.9" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.161</text>
-<rect x="1112.0" y="276.0" width="96" height="444.0" fill="#d69e5e"/>
-<line x1="1160.0" y1="287.2" x2="1160.0" y2="264.7" stroke="#1f2933" stroke-width="2"/>
-<text x="1160.0" y="254.7" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.154</text>
-<rect x="1222.0" y="547.5" width="96" height="172.5" fill="#9aa5b1"/>
-<line x1="1270.0" y1="560.0" x2="1270.0" y2="535.1" stroke="#1f2933" stroke-width="2"/>
-<text x="1270.0" y="525.1" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.060</text>
-<text x="1560.0" y="760.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2  RankIC</text>
-<rect x="1402.0" y="289.0" width="96" height="431.0" fill="#b45309"/>
-<line x1="1450.0" y1="305.7" x2="1450.0" y2="272.2" stroke="#1f2933" stroke-width="2"/>
-<text x="1450.0" y="262.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.149</text>
-<rect x="1512.0" y="312.4" width="96" height="407.6" fill="#d69e5e"/>
-<line x1="1560.0" y1="328.6" x2="1560.0" y2="296.2" stroke="#1f2933" stroke-width="2"/>
-<text x="1560.0" y="286.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.141</text>
-<rect x="1622.0" y="488.6" width="96" height="231.4" fill="#9aa5b1"/>
-<line x1="1670.0" y1="497.8" x2="1670.0" y2="479.4" stroke="#1f2933" stroke-width="2"/>
-<text x="1670.0" y="469.4" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.080</text>
-<rect x="160" y="800" width="26" height="22" fill="#b45309"/>
-<text x="196.0" y="818.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">MAGNET (main) †</text>
-<rect x="397.05" y="800" width="26" height="22" fill="#d69e5e"/>
-<text x="433.1" y="818.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Without same-industry relations (previous main)</text>
-<rect x="956.3399999999999" y="800" width="26" height="22" fill="#9aa5b1"/>
-<text x="992.3" y="818.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Single market: cross-market links off</text>
-<text x="60.0" y="878.0" font-size="16" text-anchor="start" fill="#5b6672" font-weight="normal" font-style="normal">† Chosen after the ablation study (post hoc): the gap to the previous main result is not evidence for the relational layer.</text>
+<line x1="140" y1="700.0" x2="1760" y2="700.0" stroke="#9aa5b1" stroke-width="1.5"/>
+<text x="130.0" y="706.0" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.00</text>
+<line x1="140" y1="561.1" x2="1760" y2="561.1" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="130.0" y="567.1" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.05</text>
+<line x1="140" y1="422.2" x2="1760" y2="422.2" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="130.0" y="428.2" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.10</text>
+<line x1="140" y1="283.3" x2="1760" y2="283.3" stroke="#e4e7eb" stroke-width="1.5"/>
+<text x="130.0" y="289.3" font-size="18" text-anchor="end" fill="#5b6672" font-weight="normal" font-style="normal">0.15</text>
+<text x="360.0" y="740.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1  IC</text>
+<rect x="194.0" y="386.9" width="74" height="313.1" fill="#b45309" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="231.0" y1="397.8" x2="231.0" y2="376.1" stroke="#1f2933" stroke-width="2"/>
+<text x="231.0" y="366.1" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.113</text>
+<rect x="280.0" y="397.2" width="74" height="302.8" fill="url(#pat1)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="317.0" y1="411.4" x2="317.0" y2="383.1" stroke="#1f2933" stroke-width="2"/>
+<text x="317.0" y="373.1" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.109</text>
+<rect x="366.0" y="414.6" width="74" height="285.4" fill="url(#pat2)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="403.0" y1="424.1" x2="403.0" y2="405.1" stroke="#1f2933" stroke-width="2"/>
+<text x="403.0" y="395.1" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.103</text>
+<rect x="452.0" y="630.6" width="74" height="69.4" fill="url(#pat3)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="489.0" y1="636.4" x2="489.0" y2="624.7" stroke="#1f2933" stroke-width="2"/>
+<text x="489.0" y="614.7" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.025</text>
+<text x="760.0" y="740.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 1  RankIC</text>
+<rect x="594.0" y="357.8" width="74" height="342.2" fill="#b45309" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="631.0" y1="365.0" x2="631.0" y2="350.6" stroke="#1f2933" stroke-width="2"/>
+<text x="631.0" y="340.6" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.123</text>
+<rect x="680.0" y="390.0" width="74" height="310.0" fill="url(#pat1)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="717.0" y1="403.3" x2="717.0" y2="376.7" stroke="#1f2933" stroke-width="2"/>
+<text x="717.0" y="366.7" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.112</text>
+<rect x="766.0" y="396.4" width="74" height="303.6" fill="url(#pat2)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="803.0" y1="403.3" x2="803.0" y2="389.5" stroke="#1f2933" stroke-width="2"/>
+<text x="803.0" y="379.5" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.109</text>
+<rect x="852.0" y="536.9" width="74" height="163.1" fill="url(#pat3)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="889.0" y1="543.6" x2="889.0" y2="530.3" stroke="#1f2933" stroke-width="2"/>
+<text x="889.0" y="520.3" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.059</text>
+<text x="1160.0" y="740.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2  IC</text>
+<rect x="994.0" y="252.5" width="74" height="447.5" fill="#b45309" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1031.0" y1="262.8" x2="1031.0" y2="242.2" stroke="#1f2933" stroke-width="2"/>
+<text x="1031.0" y="232.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.161</text>
+<rect x="1080.0" y="273.1" width="74" height="426.9" fill="url(#pat1)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1117.0" y1="283.9" x2="1117.0" y2="262.2" stroke="#1f2933" stroke-width="2"/>
+<text x="1117.0" y="252.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.154</text>
+<rect x="1166.0" y="269.7" width="74" height="430.3" fill="url(#pat2)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1203.0" y1="285.1" x2="1203.0" y2="254.3" stroke="#1f2933" stroke-width="2"/>
+<text x="1203.0" y="244.3" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.155</text>
+<rect x="1252.0" y="534.2" width="74" height="165.8" fill="url(#pat3)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1289.0" y1="546.1" x2="1289.0" y2="522.2" stroke="#1f2933" stroke-width="2"/>
+<text x="1289.0" y="512.2" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.060</text>
+<text x="1560.0" y="740.0" font-size="22" text-anchor="middle" fill="#1f2933" font-weight="bold" font-style="normal">Fold 2  RankIC</text>
+<rect x="1394.0" y="285.6" width="74" height="414.4" fill="#b45309" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1431.0" y1="301.7" x2="1431.0" y2="269.4" stroke="#1f2933" stroke-width="2"/>
+<text x="1431.0" y="259.4" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.149</text>
+<rect x="1480.0" y="308.1" width="74" height="391.9" fill="url(#pat1)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1517.0" y1="323.6" x2="1517.0" y2="292.5" stroke="#1f2933" stroke-width="2"/>
+<text x="1517.0" y="282.5" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.141</text>
+<rect x="1566.0" y="298.0" width="74" height="402.0" fill="url(#pat2)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1603.0" y1="310.5" x2="1603.0" y2="285.5" stroke="#1f2933" stroke-width="2"/>
+<text x="1603.0" y="275.5" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.145</text>
+<rect x="1652.0" y="477.5" width="74" height="222.5" fill="url(#pat3)" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="1689.0" y1="486.4" x2="1689.0" y2="468.6" stroke="#1f2933" stroke-width="2"/>
+<text x="1689.0" y="458.6" font-size="17" text-anchor="middle" fill="#1f2933" font-weight="normal" font-style="normal">0.080</text>
+<rect x="160" y="770" width="40" height="26" fill="#b45309" stroke="#1f2933" stroke-width="1.5"/>
+<text x="212.0" y="790.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">MAGNET</text>
+<rect x="980" y="770" width="40" height="26" fill="url(#pat1)" stroke="#1f2933" stroke-width="1.5"/>
+<text x="1032.0" y="790.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Without TW same-industry relations (self-loops only)</text>
+<rect x="160" y="806" width="40" height="26" fill="url(#pat2)" stroke="#1f2933" stroke-width="1.5"/>
+<text x="212.0" y="826.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">US intra-layer graph off (self-loops only)</text>
+<rect x="980" y="806" width="40" height="26" fill="url(#pat3)" stroke="#1f2933" stroke-width="1.5"/>
+<text x="1032.0" y="826.0" font-size="19" text-anchor="start" fill="#1f2933" font-weight="normal" font-style="normal">Single market: cross-market links off</text>
 </svg>
