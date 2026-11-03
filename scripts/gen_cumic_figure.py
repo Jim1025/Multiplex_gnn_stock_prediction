@@ -44,9 +44,9 @@ def load_series(metric: str, tab) -> dict:
     out = {}
     for f in (1, 2):
         best = max(G.NEURAL, key=lambda n: tab[f][n][key])
-        specs = [("MAGNET (main) †", G.MAIN_ROW, "main"),
-                 ("[24] LASSO (best [24] learner, tied)", "[24] 二部圖 LASSO", "lasso"),
-                 (f"{best} (best neural baseline)", best, "neural")]
+        specs = [("MAGNET", G.MAIN_ROW, "main"),
+                 ("LASSO [24] (best [24] learner)", "[24] 二部圖 LASSO", "lasso"),
+                 (f"{best} (best of other single market baseline)", best, "neural")]
         rows = []
         for lab, row, kind in specs:
             if f == 1:
@@ -83,14 +83,14 @@ def fig_cum(series: dict, metric: str) -> str:
     hi = float(np.ceil(max(c.max() for c in allc) / 10) * 10)
     lo = min(0.0, float(np.floor(min(c.min() for c in allc) / 5) * 5))
     top, base = 190, 700
-    panels = {1: (150, 860), 2: (1020, 1730)}
+    panels = {2: (150, 830), 1: (990, 1700)}       # 依時間由左到右：第二折 2024、第一折 2025
 
     def Y(v):
         return base - (base - top) * (v - lo) / (hi - lo)
 
     b = [text(60, 70, f"Cumulative daily {mname} over the test period", 34, weight="bold"),
-         text(60, 106, f"Running sum of the seed-mean daily {mname}; a steady slope means the edge is not "
-              "concentrated in a few days", 20, fill=GREY)]
+         text(60, 106, f"Running sum of the seed-mean daily {mname}; slope = mean daily {mname}, so end value = mean × "
+              f"{len(series[1][0][2])} trading days", 20, fill=GREY)]
     for f, (x0, x1) in panels.items():
         rows = series[f]
         d0 = dt.date.fromisoformat(rows[0][1][0])
@@ -99,7 +99,7 @@ def fig_cum(series: dict, metric: str) -> str:
         def X(s, x0=x0, x1=x1, d0=d0, d1=d1):
             return x0 + (x1 - x0) * (dt.date.fromisoformat(s) - d0).days / (d1 - d0).days
 
-        b.append(text(x0, 160, f"Fold {f}  ({rows[0][1][0]} to {rows[0][1][-1]})", 22, weight="bold"))
+        b.append(text(x0, 160, f"Fold {f} ({d1.year})", 22, weight="bold"))
         for t in np.arange(np.ceil(lo / 10) * 10, hi + 1e-9, 10):
             y = Y(t)
             b.append(f'<line x1="{x0}" y1="{y:.1f}" x2="{x1}" y2="{y:.1f}" '
@@ -112,6 +112,10 @@ def fig_cum(series: dict, metric: str) -> str:
                 b.append(f'<line x1="{x:.1f}" y1="{base}" x2="{x:.1f}" y2="{base + 8}" stroke="{GREY}" stroke-width="1.5"/>')
                 b.append(text(x, base + 32, q.strftime("%Y-%m"), 17, "middle", GREY))
             q = (q.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        b.append(text((x0 + x1) / 2, base + 62, "Test-period trading date (year-month)", 17, "middle", GREY))
+        yc = (top + base) / 2                             # 縱軸標題：旋轉 90 度，不經 text() 所以不進碰撞檢查
+        b.append(f'<text x="{x0 - 52}" y="{yc:.1f}" font-size="17" text-anchor="middle" fill="{GREY}" '
+                 f'transform="rotate(-90 {x0 - 52} {yc:.1f})">Cumulative {mname} (sum of daily {mname}, unitless)</text>')
         ends = []
         for lab, dates, v, kind in rows:
             col, sw, dash = STYLE[kind]
@@ -119,26 +123,24 @@ def fig_cum(series: dict, metric: str) -> str:
             pts = " ".join(f"{X(d):.1f},{Y(y):.1f}" for d, y in zip(dates, c))
             b.append(f'<polyline points="{pts}" fill="none" stroke="{col}" stroke-width="{sw}" '
                      f'stroke-linejoin="round"{f" stroke-dasharray=\"{dash}\"" if dash else ""}/>')
-            ends.append([Y(c[-1]), c[-1], col])
+            ends.append([Y(c[-1]), c[-1], col, float(np.nanmean(v))])
         ends.sort()
-        for k in range(1, len(ends)):                    # 終點標籤至少相隔 24px
-            ends[k][0] = max(ends[k][0], ends[k - 1][0] + 24)
-        for y, val, col in ends:
+        for k in range(1, len(ends)):                    # 終點標籤（兩行）至少相隔 42px
+            ends[k][0] = max(ends[k][0], ends[k - 1][0] + 42)
+        for y, val, col, m in ends:
             b.append(text(x1 + 10, y + 6, f"{val:.1f}", 18, fill=col, weight="bold"))
-    b.append(text(150, base + 62, f"Cumulative {mname}", 17, fill=GREY))
+            b.append(text(x1 + 10, y + 24, f"mean {m:.3f}", 14, fill=col))
     ly = 812
     n1, n2 = (series[f][2][0].split(" (")[0] for f in (1, 2))
-    labs = [series[1][0][0], "[24] LASSO (best [24] learner, tied)", f"Best neural in fold ({n1} / {n2})"]
+    labs = [series[1][0][0], "LASSO [24] (best [24] learner)", f"Best of other single market baseline (fold 2: {n2} / fold 1: {n1})"]
     for k, ((_, _, _, kind), lab) in enumerate(zip(series[1], labs)):
         col, sw, dash = STYLE[kind]
-        lx = 150 + [0, 400, 860][k]
+        lx = 150 + [0, 300, 700][k]
         b.append(f'<line x1="{lx}" y1="{ly - 6}" x2="{lx + 60}" y2="{ly - 6}" stroke="{col}" stroke-width="{sw}"'
                  f'{f" stroke-dasharray=\"{dash}\"" if dash else ""}/>')
         b.append(text(lx + 72, ly, lab, 19))
     b.append(text(60, H - 42, f"Best neural baseline = highest table {mname} among the six neural baselines in that fold; "
                   "untuned, 3 seeds. MAGNET 10 seeds; [24] deterministic.",
-                  16, fill=GREY))
-    b.append(text(60, H - 16, "† Chosen after the ablation study (post hoc); its numbers are biased upward.",
                   16, fill=GREY))
     return svg_wrap(b)
 
