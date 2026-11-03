@@ -205,9 +205,12 @@ def _figure(M: np.ndarray, tw: list[str], ind: list[str], out: Path,
                  f'text-anchor="end">{name}</text>')
         p.append(f'<text transform="translate({mid},{pad-8}) rotate(-90)" '
                  f'font-size="11" fill="#1f2933" text-anchor="start">{name}</text>')
+    # 有台股層關係卷積的 arm（rgcn*，§79 起）在台股層用了產業分組，「模型沒拿到產業標籤」不再成立；B 本身仍不直接讀標籤
+    label_note = ("industry labels used only by the TW-layer relation conv"
+                  if "rgcn" in arm else "no industry label was given to the model")
     p.append(f'<text x="{pad}" y="{H-8}" font-size="12" fill="#5b6672">'
-             f'cosine between columns of B, averaged over {n_seed} seeds  ({arm})'
-             f'   —  no industry label was given to the model</text>')
+             f'cosine between columns of B, mean of {n_seed} seeds  ({arm})'
+             f'   —  {label_note}</text>')
     p.append("</svg>")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(p))
