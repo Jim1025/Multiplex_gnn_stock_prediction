@@ -174,8 +174,9 @@ def _figure(M: np.ndarray, tw: list[str], ind: list[str], out: Path,
     Z = M[np.ix_(order, order)].copy()
     np.fill_diagonal(Z, 1.0)
     v = float(np.nanmax(np.abs(Z[~np.eye(len(Z), dtype=bool)])))
-    cell, pad = 13, 132
-    W = H = pad + cell * len(tw) + 26
+    cell, pad = 13, 150                       # 英文產業名較長，留白從 132 加到 150
+    H = pad + cell * len(tw) + 26
+    W = H + 70                                # 欄標籤斜 60 度，右側多留空間給最後幾個標籤
     p = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
          f'font-family="Helvetica Neue, Helvetica, Arial, sans-serif">',
          f'<rect width="{W}" height="{H}" fill="#ffffff"/>']
@@ -199,12 +200,18 @@ def _figure(M: np.ndarray, tw: list[str], ind: list[str], out: Path,
     segs, st = [], 0
     for b in bounds + [len(order)]:
         segs.append((ind[order[st]], st, b)); st = b
+    # 標籤用英文，對照表與 gen_interpretability_figure.py 共用（延遲匯入：該檔反向匯入本檔）
+    from gen_interpretability_figure import IND_EN
+    unknown = sorted({n for n, _, _ in segs if n not in IND_EN})
+    if unknown:
+        raise SystemExit(f"IND_EN 缺少這些產業的英文：{unknown}")
     for name, s0, s1 in segs:
+        name = IND_EN[name].replace("&", "&amp;")
         mid = pad + (s0 + s1) / 2 * cell
         p.append(f'<text x="{pad-8}" y="{mid+4}" font-size="11" fill="#1f2933" '
                  f'text-anchor="end">{name}</text>')
-        p.append(f'<text transform="translate({mid},{pad-8}) rotate(-90)" '
-                 f'font-size="11" fill="#1f2933" text-anchor="start">{name}</text>')
+        p.append(f'<text transform="translate({mid},{pad-8}) rotate(-60)" '
+                 f'font-size="10" fill="#1f2933" text-anchor="start">{name}</text>')
     # 有台股層關係卷積的 arm（rgcn*，§79 起）在台股層用了產業分組，「模型沒拿到產業標籤」不再成立；B 本身仍不直接讀標籤
     label_note = ("industry labels used only by the TW-layer relation conv"
                   if "rgcn" in arm else "no industry label was given to the model")
