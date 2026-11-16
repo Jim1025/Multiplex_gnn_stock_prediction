@@ -48,6 +48,17 @@ Cross-Market Return Forecasting", arXiv:2603.10559
     .venv/bin/python scripts/bipartite_screen.py --scheme rolling --out runs/linear
     .venv/bin/python scripts/bipartite_screen.py --config configs/tw50_fold2.yaml --scheme rolling --out runs_f2
     .venv/bin/python scripts/bipartite_screen.py --scheme walkforward --tau 2
+
+原文自己做過的兩組對照（2026-11-16 加入；方法本身不動，只換預測特徵，預設值與之前逐位相同）：
+    --source tw     同市場對照（原文 §5.2.2 的 Graph-Based Same-Market Baseline）：來源與目標都是台股，
+                    落後 1 天，篩邊與模型不變
+    --source both   來源 = 美股 + 台股（原文 Appendix E）
+    --lag l         輸入時效（原文 §5.4、Figure 14b）：圖仍用 t−1 的來源報酬建，特徵換成來源市場
+                    往前數第 l 個交易日的報酬，l = 2, 3, ...
+    這些變體的目錄名多一段（例如 bipartite_srcTW_rolling_t2_LASSO、bipartite_lag2_rolling_t2_LASSO），
+    不會被 results_table.py 的 *_bipartite_rolling_t2_* 當成主表的 [24]。
+    .venv/bin/python scripts/bipartite_screen.py --scheme rolling --out runs/linear --source tw
+    .venv/bin/python scripts/bipartite_screen.py --scheme rolling --out runs/linear --lag 2
 """
 
 from __future__ import annotations
@@ -142,15 +153,18 @@ def winsorize_by(a: np.ndarray, ref: np.ndarray, q: float) -> np.ndarray:
     return np.clip(a, lo, hi)
 
 
-def fit_predict(Xtr, Ytr, Xte, tau, mdl_names, spec, standardize=True):
+def fit_predict(Xtr, Ytr, Xte, tau, mdl_names, spec, standardize=True, Xscr=None):
     """
     對每個目標股票：t 檢定篩邊 -> 在被選中的來源股票上擬合 -> 預測。
 
     篩不到任何邊時退回截距（視窗均值）——這是 tau 的直接後果，
     不是實作缺陷，原文的稀疏化本來就允許空鄰域。
+
+    Xscr：篩邊用的來源特徵（與 Xtr 同一段視窗）。省略時用 Xtr 自己。--lag > 1 時傳落後 1 天的
+    來源報酬：原文的時效實驗（§5.4）圖仍照 t−1 建，只有擬合與預測的特徵換成較舊的那一天。
     """
     n_y = Ytr.shape[1]
-    T = tstats(Xtr, Ytr)
+    T = tstats(Xtr if Xscr is None else Xscr, Ytr)
     out = {m: np.empty((Xte.shape[0], n_y)) for m in mdl_names}
     n_edges = 0
     for j in range(n_y):
@@ -200,7 +214,15 @@ def main() -> None:
     ap.add_argument("--no-standardize", action="store_true",
                     help="關閉特徵標準化（原文未載明；預設開啟，見 fit_predict 註解）")
     ap.add_argument("--out", default="runs")
+    ap.add_argument("--source", choices=["us", "tw", "both"], default="us",
+                    help="預測特徵取自哪個市場：us = 美股（預設，主表的 [24]）；tw = 台股（原文的同市場對照）；"
+                         "both = 美股 + 台股（原文 Appendix E）")
+    ap.add_argument("--lag", type=int, default=1,
+                    help="特徵取來源市場往前數第幾個交易日的報酬（預設 1 = 最近一天）。大於 1 時圖仍用落後 1 天的"
+                         "報酬建（原文 §5.4）")
     args = ap.parse_args()
+    if args.lag < 1:
+        raise ValueError("--lag 必須 >= 1")
 
     cfg = yaml.safe_load(open(ROOT / args.config))
     bc = (cfg.get("baselines") or {}).get("bipartite")
@@ -213,9 +235,10 @@ def main() -> None:
     unknown = [m for m in names if m not in spec]
     if unknown:
         raise ValueError(f"config 的 baselines.bipartite.models 沒有 {unknown}")
+    # 序列長度只需要蓋到 --lag；預設（lag = 1）時與 config 的 T_history 相同，行為不變
     kw = dict(snapshot_dir=cfg["data"]["snapshot_dir"],
               features_dir=cfg["data"]["features_dir"],
-              T=cfg["model"]["lstm"]["T_history"],
+              T=max(int(cfg["model"]["lstm"]["T_history"]), args.lag),
               config_path=args.config)
     ds_all = MultiplexDataset(split="all", **kw)
     n_te = len(MultiplexDataset(split="test", **kw))
@@ -227,12 +250,17 @@ def main() -> None:
     unpaired = [j for j, i in enumerate(pair_index) if i < 0]
 
     N = len(ds_all)
-    X = np.empty((N, ds_all.n_l1), dtype=np.float64)   # 來源市場：t-1 的日報酬
+    src_keys = {"us": ["x_seq_L1"], "tw": ["x_seq_L2"], "both": ["x_seq_L1", "x_seq_L2"]}[args.source]
+    n_src = sum({"x_seq_L1": ds_all.n_l1, "x_seq_L2": ds_all.n_l2}[k] for k in src_keys)
+    X = np.empty((N, n_src), dtype=np.float64)         # 擬合與預測用：來源市場往前數第 lag 個交易日的報酬
+    X1 = X if args.lag == 1 else np.empty((N, n_src), dtype=np.float64)   # 篩邊用：落後 1 天（lag = 1 時同一份）
     Y = np.empty((N, ds_all.n_l2), dtype=np.float64)   # 目標市場：t 的報酬
     dates = []
     for i in range(N):
         s = ds_all[i]
-        X[i] = s["x_seq_L1"][-1, :, RET].numpy()
+        X[i] = np.concatenate([s[k][-args.lag, :, RET].numpy() for k in src_keys])
+        if args.lag > 1:
+            X1[i] = np.concatenate([s[k][-1, :, RET].numpy() for k in src_keys])
         Y[i] = s["y"].numpy()
         dates.append(s["target_date"])
     dates = np.asarray(dates)
@@ -241,9 +269,11 @@ def main() -> None:
     # 是截尾後的，test 期 2–3% 的列被截，[24] 的 IC 因此略為偏高。截尾只用在擬合（原文 §3）。
     Y_raw = Y.copy()
     X = winsorize_by(X, X[:n_tr], winsor)              # 百分位只用訓練期
+    X1 = X if args.lag == 1 else winsorize_by(X1, X1[:n_tr], winsor)
     Y = winsorize_by(Y, Y[:n_tr], winsor)
+    src_label = {"us": "美股", "tw": "台股", "both": "美股 + 台股"}[args.source]
     print(f"[24] N={N} 天，train {n_tr} / val {n_va} / test {n_te}，"
-          f"來源 {ds_all.n_l1} 檔 -> 目標 {ds_all.n_l2} 檔")
+          f"來源 {src_label} {n_src} 檔（落後 {args.lag} 天）-> 目標 {ds_all.n_l2} 檔")
     print(f"     scheme={args.scheme}  tau={tau}  window={window}  "
           f"refit_every={refit_every}  models={names}")
 
@@ -255,24 +285,31 @@ def main() -> None:
             t = te0 + blk
             lo = max(0, t - window)
             out, ne = fit_predict(X[lo:t], Y[lo:t], X[t:t + refit_every],
-                                  tau, names, spec, not args.no_standardize)
+                                  tau, names, spec, not args.no_standardize,
+                                  Xscr=None if args.lag == 1 else X1[lo:t])
             edges.append(ne)
             for m in names:
                 P[m][blk:blk + out[m].shape[0]] = out[m]
     else:
         out, ne = fit_predict(X[:n_tr], Y[:n_tr], X[te0:te0 + n_te],
-                              tau, names, spec, not args.no_standardize)
+                              tau, names, spec, not args.no_standardize,
+                              Xscr=None if args.lag == 1 else X1[:n_tr])
         edges.append(ne)
         for m in names:
             P[m][:] = out[m]
 
-    tot_pairs = ds_all.n_l1 * ds_all.n_l2
+    tot_pairs = n_src * ds_all.n_l2
     print(f"     選中的邊：平均 {np.mean(edges):.0f} / {tot_pairs} "
           f"（{np.mean(edges)/tot_pairs:.1%}），{len(edges)} 次重建，{time.time()-t0:.0f}s")
 
     Yte = Y_raw[te0:te0 + n_te]
     dte = dates[te0:te0 + n_te]
     stamp = time.strftime("%Y%m%d_%H%M")
+    # 變體（非預設的來源或落後天數）在目錄名與 tag 多一段，避免被當成主表的 [24]（results_table.py 取
+    # *_bipartite_rolling_t2_* 的最新一批）。預設時 variant 為空字串，目錄名與之前相同。
+    variant = "".join([{"us": "", "tw": "srcTW", "both": "srcUSTW"}[args.source],
+                       f"lag{args.lag}" if args.lag != 1 else ""])
+    kind = f"bipartite_{variant}_{args.scheme}" if variant else f"bipartite_{args.scheme}"
     print(f"\n{'model':10s} {'test IC':>9s} {'RankIC':>9s} {'paired7':>9s} {'unpair43':>9s}")
     preds = {}
     for m in names:
@@ -286,14 +323,15 @@ def main() -> None:
         icu, _ = daily_ic(Yh, Yte, unpaired)
         print(f"{m:10s} {ic:+9.4f} {ric:+9.4f} {icp:+9.4f} {icu:+9.4f}")
         # tau 進目錄名：掃 tau 時 stamp 只到分鐘，不帶 tau 會互相覆蓋
-        d = ROOT / args.out / f"{stamp}_bipartite_{args.scheme}_t{tau:g}_{m}"
+        d = ROOT / args.out / f"{stamp}_{kind}_t{tau:g}_{m}"
         (d / "predictions").mkdir(parents=True, exist_ok=True)
         rows = [(dte[t], tw_codes[j], Yh[t, j], Yte[t, j])
                 for t in range(n_te) for j in range(len(tw_codes))]
         pd.DataFrame(rows, columns=["target_date", "ticker", "y_hat", "y"]).to_csv(
             d / "predictions" / "test_predictions.csv", index=False)
-        json.dump({"slug": d.name, "tag": f"bipartite_{args.scheme}_{m}",
+        json.dump({"slug": d.name, "tag": f"{kind}_{m}",
                    "status": "FINISHED", "scheme": args.scheme, "model": m,
+                   "source": args.source, "lag": args.lag, "n_sources": n_src,
                    "tau": tau, "window": window, "refit_every": refit_every,
                    "models_in_ensemble": names,
                    "hyperparameters": spec.get(m) if m in spec else None,
@@ -301,7 +339,7 @@ def main() -> None:
                    "test_metrics": {"IC": ic, "RankIC": ric,
                                     "IC_paired7": icp, "IC_unpaired43": icu}},
                   open(d / "meta.json", "w"), indent=2, ensure_ascii=False)
-    print(f"\n[24] 預測已寫入 {args.out}/{stamp}_bipartite_{args.scheme}_*/")
+    print(f"\n[24] 預測已寫入 {args.out}/{stamp}_{kind}_*/")
 
 
 if __name__ == "__main__":
