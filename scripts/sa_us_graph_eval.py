@@ -6,7 +6,8 @@ empty_both 再把 A₁ 只留 self-loop，GAT_L1 的參數與計算圖不變，�
 兩折各 10 顆種子，tag tw50_noA1SA_s*、f2_noA1SA_s*。不是事前登記的實驗，為口試備詢而跑。
 
 輸出（每折）：SA 與 noA1SA 的 IC / RankIC 種子平均與 SD、同種子配對 t p、種子平均逐日 IC 差的 HAC p。
---write：把種子平均與 SD 寫到 docs/figures/data/eval_us_graph_off.json，供 gen_eval_figures.py 畫消融圖。
+--write：把種子平均與 SD 寫到 docs/figures/data/eval_us_graph_off.json。原本供 gen_eval_figures.py 的消融圖讀取，
+        那張圖已刪除（6ebf7f0）；現行的消融圖是 gen_discussion_figures.py 的 eval_plan_ablation.svg，第一折 IC 直接寫在程式裡。
 --validate：把 noA1SA 換成 smktSA，SA / 單市場的平均應與主表相同（+0.1127 / +0.0250，第二折 +0.1611 / +0.0597）。
 
 用法：
