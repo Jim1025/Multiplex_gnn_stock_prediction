@@ -231,6 +231,7 @@ def train(
     tw_relational_relations: Optional[list] = None,
     tw_relational_no_self:   Optional[bool] = None,
     tw_relational_shuffle_seed: Optional[int] = None,
+    us_lag:            Optional[int]   = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -504,6 +505,13 @@ def train(
                                       tw_relational_no_self, tw_relational_shuffle_seed)):
         raise ValueError("--tw-relational-placement / -blocks / -relations / -no-self / -shuffle-seed "
                          "必須與 --tw-relational 一起用")
+    if us_lag is not None:
+        # 美股層輸入落後天數（評估議題 3，proposal_1209 §2）。寫進 cfg["data"]，
+        # config_snapshot.yaml 會記錄，之後用快照重建資料集時自動帶到。
+        if us_lag < 1:
+            raise ValueError(f"--us-lag 需 >= 1，當前為 {us_lag}")
+        cfg["data"]["us_lag"] = int(us_lag)
+        _overrides.append(f"us_lag={us_lag}")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -531,15 +539,16 @@ def train(
     snap_dir = d_cfg["snapshot_dir"]
     feat_dir = d_cfg["features_dir"]
 
+    us_lag_ds = int(d_cfg.get("us_lag", 1))
     train_ds = MultiplexDataset(snapshot_dir=snap_dir, features_dir=feat_dir,
                                  T=cfg["model"]["lstm"]["T_history"],
-                                 split="train", config_path=config_path)
+                                 split="train", config_path=config_path, us_lag=us_lag_ds)
     val_ds   = MultiplexDataset(snapshot_dir=snap_dir, features_dir=feat_dir,
                                  T=cfg["model"]["lstm"]["T_history"],
-                                 split="val", config_path=config_path)
+                                 split="val", config_path=config_path, us_lag=us_lag_ds)
     test_ds  = MultiplexDataset(snapshot_dir=snap_dir, features_dir=feat_dir,
                                  T=cfg["model"]["lstm"]["T_history"],
-                                 split="test", config_path=config_path)
+                                 split="test", config_path=config_path, us_lag=us_lag_ds)
 
     common_loader_kwargs = dict(
         batch_size=batch_size,
@@ -1077,6 +1086,8 @@ def _parse_args() -> argparse.Namespace:
                    help="model.tw_relational.self_term = false：2b 不含自身項（元件消融，§79；須搭配 --tw-relational）")
     p.add_argument("--tw-relational-shuffle-seed", type=int, default=None,
                    help="model.tw_relational.shuffle_seed：打亂產業標籤的安慰劑（§79；須搭配 --tw-relational）")
+    p.add_argument("--us-lag", type=int, default=None,
+                   help="data.us_lag：美股層輸入落後幾個美股交易日（預設 1；圖、台股輸入與標籤不變，proposal_1209 §2）")
     return p.parse_args()
 
 
@@ -1128,6 +1139,7 @@ if __name__ == "__main__":
         tw_relational_relations=args.tw_relational_relations,
         tw_relational_no_self=args.tw_relational_no_self,
         tw_relational_shuffle_seed=args.tw_relational_shuffle_seed,
+        us_lag=args.us_lag,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

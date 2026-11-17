@@ -112,6 +112,12 @@ class MultiplexDataset(Dataset):
                            未指定時取 base.yaml 的 data.universe。
                            必須與 snapshot_dir 是同一個 universe 建的，
                            建構時會檢查。
+        us_lag (int):      美股層輸入落後幾個美股交易日（評估議題 3，proposal_1209 §2）。
+                           1 = 預設，取 target_date 之前最後 T 列；l > 1 時整個視窗再往前移 l − 1 列，
+                           最後一列是 target_date 之前倒數第 l 列。只影響 x_seq_L1：
+                           台股層輸入、圖（快照的邊）與標籤都不變。
+                           未指定時取 config 的 data.us_lag（沒有這個鍵就是 1），
+                           所以用某個 run 的 config_snapshot.yaml 重建資料集時會自動帶到。
 
     每筆樣本（dict）：
         x_seq_L1        : [T, n1, F]  Float32
@@ -137,6 +143,7 @@ class MultiplexDataset(Dataset):
         split: str = "train",
         config_path: str = "configs/base.yaml",
         universe: Universe | str | None = None,
+        us_lag: int | None = None,
     ) -> None:
         super().__init__()
 
@@ -161,6 +168,13 @@ class MultiplexDataset(Dataset):
             universe = cfg["data"].get("universe", DEFAULT_UNIVERSE)
         if isinstance(universe, str):
             universe = load_universe(universe)
+
+        # ── 美股輸入落後天數：明確傳入的參數 > config 的 data.us_lag > 1 ──
+        if us_lag is None:
+            us_lag = cfg["data"].get("us_lag", 1)
+        if int(us_lag) != us_lag or int(us_lag) < 1:
+            raise ValueError(f"us_lag 需為 >= 1 的整數，當前為 {us_lag!r}")
+        self.us_lag = int(us_lag)
 
         self.universe    = universe
         self.adr_tickers = list(universe.us_nodes)
@@ -200,6 +214,7 @@ class MultiplexDataset(Dataset):
             f"[MultiplexDataset] split={split:<5} | n_samples={len(self.snapshot_files):<5} "
             f"| T={T} | F={F} | universe={self.universe.name} "
             f"| n_l1={self.n_l1} n_l2={self.n_l2}"
+            + (f" | us_lag={self.us_lag}" if self.us_lag != 1 else "")
         )
 
     # ------------------------------------------------------------------
@@ -257,7 +272,8 @@ class MultiplexDataset(Dataset):
         target_date = pd.Timestamp(target_date_str)
 
         # ── 動態組裝 T 步歷史序列（嚴格 Look-ahead 守護） ─────────
-        x_seq_L1 = self._build_sequence(self._adr_dfs, self.adr_tickers, target_date)  # [T, n1, F]
+        x_seq_L1 = self._build_sequence(self._adr_dfs, self.adr_tickers, target_date,
+                                        lag=self.us_lag)                               # [T, n1, F]
         x_seq_L2 = self._build_sequence(self._tw_dfs,  self.tw_codes,    target_date)  # [T, n2, F]
 
         # ── 從快照讀邊資訊與標籤 ─────────────────────────────────
@@ -301,9 +317,13 @@ class MultiplexDataset(Dataset):
         dfs:     dict[str, pd.DataFrame],
         tickers: list[str],
         target_date: pd.Timestamp,
+        lag: int = 1,
     ) -> Tensor:
         """
         從各 ticker 的 CSV 截取 < target_date 的最後 T 列，組成 [T, len(tickers), F]。
+
+        lag > 1 時先丟掉 < target_date 的最後 lag − 1 列再取 T 列（視窗往過去移，
+        只會用到更舊的資料，不會碰到 target_date 或之後）。lag = 1 與原本逐位元相同。
 
         兩層各自呼叫一次；tickers 長度不必相同（tw50 下為 30 與 50）。
 
@@ -322,6 +342,8 @@ class MultiplexDataset(Dataset):
         for ticker in tickers:
             df = dfs[ticker]
             past = df.loc[df.index < target_date]
+            if lag > 1:
+                past = past.iloc[:-(lag - 1)]
             window = past.iloc[-self.T:].to_numpy(dtype=np.float32)  # [t, F]，t ≤ T
 
             t = window.shape[0]
