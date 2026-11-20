@@ -1,41 +1,53 @@
-<svg viewBox="0 0 820 500" xmlns="http://www.w3.org/2000/svg" font-family="'Times New Roman','Nimbus Roman',Georgia,serif">
-  <rect width="820" height="500" fill="#ffffff"/>
-  <line x1="20" y1="18" x2="800" y2="18" stroke="#000" stroke-width="2"/>
+<svg viewBox="0 0 570 589" xmlns="http://www.w3.org/2000/svg" font-family="'Times New Roman','Nimbus Roman',Georgia,serif">
+  <rect width="570" height="589" fill="#ffffff"/>
+  <line x1="20" y1="18" x2="550" y2="18" stroke="#000" stroke-width="2"/>
   <text x="24" y="44" font-size="17" font-weight="bold">Algorithm 2</text>
-  <text x="140" y="44" font-size="17">Phase 2 — Two-tier Coupling &amp; Gated Fusion</text>
-  <line x1="20" y1="56" x2="800" y2="56" stroke="#000" stroke-width="1"/>
-
-  <!-- Input -->
+  <text x="140" y="44" font-size="17">Phase 2 — Factor-exposure Coupling &amp; Gated Fusion</text>
+  <line x1="20" y1="56" x2="550" y2="56" stroke="#000" stroke-width="1"/>
   <text x="24" y="84" font-size="15" font-weight="bold">Input:</text>
-  <text x="98" y="84" font-size="15" font-style="italic">Latent states h&#8321; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8321;&#215;d&#8242;</tspan>,  h&#8322; &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;d&#8242;</tspan></text>
-  <text x="98" y="107" font-size="15" font-style="italic">Pairing p(&#183;);  candidate mask M;  weights B;  gate params W<tspan baseline-shift="sub" font-size="10">g</tspan>, b<tspan baseline-shift="sub" font-size="10">g</tspan></text>
-  <!-- Output -->
-  <text x="24" y="135" font-size="15" font-weight="bold">Output:</text>
-  <text x="98" y="135" font-size="15" font-style="italic">Fused state h<tspan baseline-shift="sub" font-size="10">f</tspan> &#8712; R<tspan baseline-shift="super" font-size="10" font-style="normal">n&#8322;&#215;d&#8242;</tspan>;  readouts g, B<tspan baseline-shift="sub" font-size="10">eff</tspan></text>
-
-  <g font-size="15">
-    <g text-anchor="end">
-      <text x="50" y="170">1:</text><text x="50" y="194">2:</text><text x="50" y="218">3:</text>
-      <text x="50" y="242">4:</text><text x="50" y="266">5:</text><text x="50" y="290">6:</text>
-      <text x="50" y="314">7:</text><text x="50" y="338">8:</text><text x="50" y="362">9:</text>
-      <text x="50" y="386">10:</text><text x="50" y="410">11:</text><text x="50" y="434">12:</text>
-      <text x="50" y="458">13:</text>
-    </g>
-    <g font-style="italic">
-      <text x="60" y="170">B<tspan baseline-shift="sub" font-size="10">eff</tspan> &#8592; B &#8857; M</text>
-      <text x="60" y="194"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n&#8322; <tspan font-style="normal" font-weight="bold">do</tspan></text>
-      <text x="80" y="218"><tspan font-style="normal" font-weight="bold">if</tspan> p(j) exists <tspan font-style="normal" font-weight="bold">then</tspan> ident<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; h<tspan baseline-shift="sub" font-size="10">1,p(j)</tspan></text>
-      <text x="80" y="242"><tspan font-style="normal" font-weight="bold">else</tspan> ident<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; 0</text>
-      <text x="80" y="266"><tspan font-style="normal" font-weight="bold">end if</tspan></text>
-      <text x="80" y="290">cand<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; &#931;<tspan baseline-shift="sub" font-size="10">i</tspan> B<tspan baseline-shift="sub" font-size="10">eff</tspan>[i, j] &#183; h<tspan baseline-shift="sub" font-size="10">1i</tspan></text>
-      <text x="80" y="314">&#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> &#8592; ident<tspan baseline-shift="sub" font-size="10">j</tspan> + cand<tspan baseline-shift="sub" font-size="10">j</tspan></text>
-      <text x="60" y="338"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
-      <text x="60" y="362"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n&#8322; <tspan font-style="normal" font-weight="bold">do</tspan></text>
-      <text x="80" y="386">g<tspan baseline-shift="sub" font-size="10">j</tspan> &#8592; &#963;( W<tspan baseline-shift="sub" font-size="10">g</tspan> [&#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> ; h<tspan baseline-shift="sub" font-size="10">2j</tspan>] + b<tspan baseline-shift="sub" font-size="10">g</tspan> )</text>
-      <text x="80" y="410">h<tspan baseline-shift="sub" font-size="10">f,j</tspan> &#8592; g<tspan baseline-shift="sub" font-size="10">j</tspan> &#8857; &#293;<tspan baseline-shift="sub" font-size="10">1j</tspan> + (1 &#8722; g<tspan baseline-shift="sub" font-size="10">j</tspan>) &#8857; h<tspan baseline-shift="sub" font-size="10">2j</tspan></text>
-      <text x="60" y="434"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
-      <text x="60" y="458"><tspan font-style="normal" font-weight="bold">return</tspan> h<tspan baseline-shift="sub" font-size="10">f</tspan>, (g, B<tspan baseline-shift="sub" font-size="10">eff</tspan>)</text>
-    </g>
-  </g>
-  <line x1="20" y1="476" x2="800" y2="476" stroke="#000" stroke-width="2"/>
+  <text x="98" y="84" font-size="15" font-style="italic">Latent states h<tspan baseline-shift="sub" font-size="10">1</tspan> ∈ R<tspan baseline-shift="super" font-size="10">n₁×d′</tspan>,  h<tspan baseline-shift="sub" font-size="10">2</tspan> ∈ R<tspan baseline-shift="super" font-size="10">n₂×d′</tspan></text>
+  <text x="98" y="107" font-size="15" font-style="italic">Pairing p(·)  <tspan font-style="normal">(7 ADR pairs)</tspan>;  mask M ∈ {0,1}<tspan baseline-shift="super" font-size="10">n₁×n₂</tspan>,  M<tspan baseline-shift="sub" font-size="10">ij</tspan> = 0 iff i = p(j)</text>
+  <text x="98" y="130" font-size="15" font-style="italic">Exposures α, γ ∈ R<tspan baseline-shift="super" font-size="10">n₂</tspan>;  residual coupling B ∈ R<tspan baseline-shift="super" font-size="10">n₁×n₂</tspan>;  gate params W<tspan baseline-shift="sub" font-size="10">g</tspan>, b<tspan baseline-shift="sub" font-size="10">g</tspan></text>
+  <text x="98" y="153" font-size="15" font-style="italic">Init:  B = 0,  α<tspan baseline-shift="sub" font-size="10">j</tspan> ~ N(1, 0.3²),  γ<tspan baseline-shift="sub" font-size="10">j</tspan> ~ N(0, 0.3²)</text>
+  <text x="24" y="181" font-size="15" font-weight="bold">Output:</text>
+  <text x="98" y="181" font-size="15" font-style="italic">Fused state h<tspan baseline-shift="sub" font-size="10">f</tspan> ∈ R<tspan baseline-shift="super" font-size="10">n₂×d′</tspan>;  readouts g, B<tspan baseline-shift="sub" font-size="10">eff</tspan></text>
+  <line x1="20" y1="197" x2="550" y2="197" stroke="#000" stroke-width="1"/>
+  <text x="50" y="223" font-size="15" text-anchor="end">1:</text>
+  <text x="60" y="223" font-size="15" font-style="italic">B<tspan baseline-shift="sub" font-size="10">eff</tspan> ← B ⊙ M</text>
+  <text x="50" y="247" font-size="15" text-anchor="end">2:</text>
+  <text x="60" y="247" font-size="15" font-style="italic">h̄<tspan baseline-shift="sub" font-size="10">1</tspan> ← (1 / n<tspan baseline-shift="sub" font-size="10">1</tspan>) Σ<tspan baseline-shift="sub" font-size="10">i</tspan> h<tspan baseline-shift="sub" font-size="10">1i</tspan></text>
+  <text x="310" y="247" font-size="13" fill="#1f4e8c">&#9655; US market state (cross-sectional mean)</text>
+  <text x="50" y="271" font-size="15" text-anchor="end">3:</text>
+  <text x="60" y="271" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n<tspan baseline-shift="sub" font-size="10">2</tspan> <tspan font-style="normal" font-weight="bold">do</tspan></text>
+  <text x="50" y="295" font-size="15" text-anchor="end">4:</text>
+  <text x="82" y="295" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">if</tspan> p(j) exists <tspan font-style="normal" font-weight="bold">then</tspan> id<tspan baseline-shift="sub" font-size="10">j</tspan> ← α<tspan baseline-shift="sub" font-size="10">j</tspan> · h<tspan baseline-shift="sub" font-size="10">1,p(j)</tspan></text>
+  <text x="310" y="295" font-size="13" fill="#1f4e8c">&#9655; ① ADR identity</text>
+  <text x="50" y="319" font-size="15" text-anchor="end">5:</text>
+  <text x="82" y="319" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">else</tspan> id<tspan baseline-shift="sub" font-size="10">j</tspan> ← 0</text>
+  <text x="50" y="343" font-size="15" text-anchor="end">6:</text>
+  <text x="82" y="343" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">end if</tspan></text>
+  <text x="50" y="367" font-size="15" text-anchor="end">7:</text>
+  <text x="82" y="367" font-size="15" font-style="italic">f<tspan baseline-shift="sub" font-size="10">j</tspan> ← γ<tspan baseline-shift="sub" font-size="10">j</tspan> · h̄<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+  <text x="310" y="367" font-size="13" fill="#1f4e8c">&#9655; ② market factor</text>
+  <text x="50" y="391" font-size="15" text-anchor="end">8:</text>
+  <text x="82" y="391" font-size="15" font-style="italic">r<tspan baseline-shift="sub" font-size="10">j</tspan> ← Σ<tspan baseline-shift="sub" font-size="10">i</tspan> B<tspan baseline-shift="sub" font-size="10">eff</tspan>[i, j] · (h<tspan baseline-shift="sub" font-size="10">1i</tspan> − h̄<tspan baseline-shift="sub" font-size="10">1</tspan>)</text>
+  <text x="310" y="391" font-size="13" fill="#1f4e8c">&#9655; ③ residual coupling</text>
+  <text x="50" y="415" font-size="15" text-anchor="end">9:</text>
+  <text x="82" y="415" font-size="15" font-style="italic">ĥ<tspan baseline-shift="sub" font-size="10">1j</tspan> ← id<tspan baseline-shift="sub" font-size="10">j</tspan> + f<tspan baseline-shift="sub" font-size="10">j</tspan> + r<tspan baseline-shift="sub" font-size="10">j</tspan></text>
+  <text x="310" y="415" font-size="13" fill="#1f4e8c">&#9655; US-side state for TW node j</text>
+  <text x="50" y="439" font-size="15" text-anchor="end">10:</text>
+  <text x="60" y="439" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+  <text x="50" y="463" font-size="15" text-anchor="end">11:</text>
+  <text x="60" y="463" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">for each</tspan> TW node j = 1 <tspan font-style="normal" font-weight="bold">to</tspan> n<tspan baseline-shift="sub" font-size="10">2</tspan> <tspan font-style="normal" font-weight="bold">do</tspan></text>
+  <text x="50" y="487" font-size="15" text-anchor="end">12:</text>
+  <text x="82" y="487" font-size="15" font-style="italic">g<tspan baseline-shift="sub" font-size="10">j</tspan> ← σ(W<tspan baseline-shift="sub" font-size="10">g</tspan> [ĥ<tspan baseline-shift="sub" font-size="10">1j</tspan> ; h<tspan baseline-shift="sub" font-size="10">2j</tspan>] + b<tspan baseline-shift="sub" font-size="10">g</tspan>)</text>
+  <text x="310" y="487" font-size="13" fill="#1f4e8c">&#9655; per-node, per-dimension gate</text>
+  <text x="50" y="511" font-size="15" text-anchor="end">13:</text>
+  <text x="82" y="511" font-size="15" font-style="italic">h<tspan baseline-shift="sub" font-size="10">f,j</tspan> ← g<tspan baseline-shift="sub" font-size="10">j</tspan> ⊙ ĥ<tspan baseline-shift="sub" font-size="10">1j</tspan> + (1 − g<tspan baseline-shift="sub" font-size="10">j</tspan>) ⊙ h<tspan baseline-shift="sub" font-size="10">2j</tspan></text>
+  <text x="310" y="511" font-size="13" fill="#1f4e8c">&#9655; fused state</text>
+  <text x="50" y="535" font-size="15" text-anchor="end">14:</text>
+  <text x="60" y="535" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">end for</tspan></text>
+  <text x="50" y="559" font-size="15" text-anchor="end">15:</text>
+  <text x="60" y="559" font-size="15" font-style="italic"><tspan font-style="normal" font-weight="bold">return</tspan> h<tspan baseline-shift="sub" font-size="10">f</tspan>, (g, B<tspan baseline-shift="sub" font-size="10">eff</tspan>)</text>
+  <line x1="20" y1="575" x2="550" y2="575" stroke="#000" stroke-width="2"/>
 </svg>
