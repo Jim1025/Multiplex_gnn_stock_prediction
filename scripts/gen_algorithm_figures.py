@@ -151,9 +151,10 @@ def phase1(out: Path) -> None:
             (1, "z_{2j} ← W₀ s_{2j} + (1 / |N(j)|) Σ_{k∈N(j)} W_{s} s_{2k} + b",
              "TW: self + same-industry mean (R-GCN)"),
             (0, "**end for**", ""),
-            (0, "h₁ ← LayerNorm(GELU(P₁ · z₁));   h₂ ← LayerNorm(GELU(P₂ · z₂))", "type-specific projection"),
+            (0, "h₁ ← LayerNorm(GELU(P₁ · z₁))", "type-specific projection"),
+            (0, "h₂ ← LayerNorm(GELU(P₂ · z₂))", ""),
             (0, "**return** h₁, h₂", ""),
-        ], width=770, comment_x=500)
+        ], width=650, comment_x=372)
 
 
 def phase2(out: Path) -> None:
