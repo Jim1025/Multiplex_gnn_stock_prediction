@@ -10,6 +10,8 @@ gen_discussion_figures.py — 評估章節的圖（英文，2:1）
     eval_plan_info_source.svg      議題 2 資訊來源：變因 = 只用台股 / 只用美股 / 台股 + 美股
     eval_plan_info_lag.svg         議題 3 資訊時效：變因 = 美股輸入落後 1–4 天
     eval_plan_market_state.svg     議題 4 市場狀態：變因 = 美股前一晚等權報酬絕對值的五分位
+    eval_plan_market_state_signed.svg （備用頁）議題 4 的延伸：變因 = 帶正負號的美股前一晚漲跌五分位
+                                   （docs/figures/data/eval_market_state_signed.json，proposal_1209 §5）
     eval_plan_ablation.svg         （備用頁）其他元件的消融，只拿掉誤差棒
     eval_plan_cum_ic.svg           （已不用）累積 IC，未改
 
@@ -300,6 +302,29 @@ def market_state(out):
                  f"so gaps smaller than about 0.05 are within noise.")
 
 
+def market_state_signed(out):
+    # 議題 4 的延伸（proposal_1209 §5）：Q1 跌最多、Q5 漲最多；兩端都是大波動，看傳導是否不對稱
+    d = _load("eval_market_state_signed.json")
+    methods = d["methods"]
+    key = {LASSO: "LASSO [24]"}
+    qs = [f"Q{c['q']}\n({c['mean']:+.1f}%)".replace("-", "−") for c in d["quintiles"]]
+    qs[0] = qs[0].replace("Q1", "Q1 drop")
+    qs[-1] = qs[-1].replace("Q5", "Q5 rally")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = range(len(qs))
+    for m, s in STYLE.items():
+        cells = methods[key.get(m, m)]["ic"]
+        ax.plot(x, [c["mean"] for c in cells], color=s["color"], ls=s["ls"], lw=2, marker=s["marker"], ms=6,
+                mfc=s["color"], mew=2, label=m)
+    ax.set_xticks(x, qs)
+    ax.set_xlabel("Last night's US move: quintile of signed equal-weighted US return (group mean)")
+    ax.set_ylabel("Mean daily IC (fold 1)")
+    ax.legend(frameon=False, ncol=2, loc="upper center")
+    _finish(fig, ax, out / "eval_plan_market_state_signed", "Effect of market state: drop vs. rally",
+            note="Each point averages about 49 days (standard error 0.01–0.04). Q5 − Q1 is not significant "
+                 "for any method (Welch t, p ≥ 0.35).")
+
+
 # ---------------------------------------------------------------- 備用頁
 
 def ablation(out):
@@ -352,7 +377,7 @@ def main():
     FMT = a.fmt
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    for f in (overall, info_source, info_lag, market_state, ablation, cum_ic):
+    for f in (overall, info_source, info_lag, market_state, market_state_signed, ablation, cum_ic):
         f(out)
     print(f"寫入 {out}（{FMT}）")
 

@@ -19,6 +19,8 @@ market_state_eval.py — 評估議題 4：依美股前一晚的波動幅度分�
 （組內雙尾 t 檢定；組內日子不連續，不做 HAC）；|m(t)| 與逐日 IC 的 Spearman 相關。
 --validate：只印四個方法的全期平均（須等於主表 0.1127 / 0.0250 / 0.1042 / 0.0061），不分組。
 --write：把結果寫到 docs/figures/data/eval_market_state.json，供 gen_discussion_figures.py 畫圖。
+--signed：延伸分析（登記：docs/proposal_1209_revision.md §5）。狀態改用帶正負號的 m(t)，Q1 跌最多、Q5 漲最多；
+          另報各方法 Q5 − Q1 的 Welch t 檢定。與 --write 合用時寫到 eval_market_state_signed.json。
 
 不需要 torch：只讀各 run 的 predictions/test_predictions*.csv 與 data/features/adr/*.csv。
 
@@ -53,6 +55,7 @@ METHODS = [("MAGNET", "neural", "tw50_rgcnSA"),
 EXPECT_IC = {"MAGNET": 0.1127, "MAGNET-single market": 0.0250, "LASSO [24]": 0.1042, "MEIG [1]": 0.0061}
 N_Q = 5
 OUT_JSON = ROOT / "docs" / "figures" / "data" / "eval_market_state.json"
+OUT_JSON_SIGNED = ROOT / "docs" / "figures" / "data" / "eval_market_state_signed.json"
 FEATURES = ROOT / "data" / "features" / "adr"
 
 
@@ -105,7 +108,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--validate", action="store_true", help="只印全期平均，與主表比對，不分組")
     ap.add_argument("--write", action="store_true", help=f"寫 {OUT_JSON.relative_to(ROOT)}")
+    ap.add_argument("--signed", action="store_true", help="依帶正負號的 m(t) 分組（proposal_1209 §5）")
     args = ap.parse_args()
+    out_json = OUT_JSON_SIGNED if args.signed else OUT_JSON
 
     dates, M = load_methods()
     print(f"第一折 test：{dates[0]} ~ {dates[-1]}，{len(dates)} 天\n")
@@ -123,18 +128,20 @@ def main() -> None:
         return
 
     m = us_move(dates)
-    state = np.abs(m)
+    state = m if args.signed else np.abs(m)
     q = quintile(state)
     res = dict(fold=1, n_days=int(len(dates)), start=str(dates[0]), end=str(dates[-1]),
-               definition="quintiles of |equal-weighted log return of the 30 US-layer nodes on the last US "
-                          "session before the TW target day|, ranked within the test period",
+               definition=("quintiles of the signed " if args.signed else "quintiles of |")
+                          + "equal-weighted log return of the 30 US-layer nodes on the last US "
+                          "session before the TW target day" + ("" if args.signed else "|")
+                          + ", ranked within the test period",
                quintiles=[], methods={}, diffs={}, spearman={})
 
-    print("\n分組（|m(t)|，%）：")
+    print("\n分組（" + ("m(t)" if args.signed else "|m(t)|") + "，%）：")
     for k in range(N_Q):
         s = state[q == k] * 100
         res["quintiles"].append(dict(q=k + 1, n=int((q == k).sum()), lo=float(s.min()), hi=float(s.max()),
-                                     mean=float(s.mean())))
+                                     mean=float(s.mean()), mean_abs=float(np.abs(s).mean())))
         print(f"  Q{k + 1}: {int((q == k).sum())} 天，|m| {s.min():.3f} ~ {s.max():.3f}（平均 {s.mean():.3f}）")
 
     for key, lab in (("ic", "IC"), ("ric", "RankIC")):
@@ -158,7 +165,20 @@ def main() -> None:
         print(f"  {a} − {b}")
         print("    " + "   ".join(f"Q{r['q']} {r['mean']:+.4f} (p {r['p']:.3f})" for r in rows))
 
-    print("\n|m(t)| 與逐日 IC 的 Spearman 相關（全期）：")
+    if args.signed:
+        print("\n不對稱：Q5（漲最多）− Q1（跌最多）的平均逐日 IC 差（Welch 雙尾 t 檢定）：")
+        a1, a5 = res["quintiles"][0]["mean_abs"], res["quintiles"][-1]["mean_abs"]
+        res["asymmetry_abs_m"] = dict(q1=a1, q5=a5, ratio=float(max(a1, a5) / min(a1, a5)))
+        print(f"  平均 |m|：Q1 {a1:.3f}%，Q5 {a5:.3f}%（比 {max(a1, a5) / min(a1, a5):.2f}）")
+        res["asymmetry"] = {}
+        for name, d in M.items():
+            x1 = d["ic"][q == 0]; x1 = x1[~np.isnan(x1)]
+            x5 = d["ic"][q == N_Q - 1]; x5 = x5[~np.isnan(x5)]
+            t = stats.ttest_ind(x5, x1, equal_var=False)
+            res["asymmetry"][name] = dict(diff=float(x5.mean() - x1.mean()), p=float(t.pvalue))
+            print(f"  {name:22s} {x5.mean() - x1.mean():+.4f}（p {t.pvalue:.3f}）")
+
+    print("\n" + ("m(t)" if args.signed else "|m(t)|") + " 與逐日 IC 的 Spearman 相關（全期）：")
     for name, d in M.items():
         okd = ~np.isnan(d["ic"])
         sp = stats.spearmanr(state[okd], d["ic"][okd])
@@ -166,9 +186,9 @@ def main() -> None:
         print(f"  {name:22s} rho {sp.statistic:+.3f}（p {sp.pvalue:.4f}）")
 
     if args.write:
-        OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-        OUT_JSON.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n")
-        print(f"\n寫入 {OUT_JSON.relative_to(ROOT)}")
+        out_json.parent.mkdir(parents=True, exist_ok=True)
+        out_json.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n")
+        print(f"\n寫入 {out_json.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
