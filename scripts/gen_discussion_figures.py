@@ -181,7 +181,7 @@ def overall(out):
     ax.set_xticks(xs, [r["label"] for r in rows], fontsize=11)
     # [24] 8 個學習器的組名，放在方法名稱下方
     bx0, bx1 = xs[2] - 0.35, xs[-2] + 0.35
-    ax.text((bx0 + bx1) / 2, -0.050, "Bipartite [24] (8 learners)", ha="center", va="top",
+    ax.text((bx0 + bx1) / 2, -0.030, "Bipartite [24] (8 learners)", ha="center", va="top",
             fontsize=11, color="#1f5f99")
     ax.set_xlim(xs[0] - 0.6, xs[-1] + 0.6)
     ax.set_ylim(-0.015, 0.18)
@@ -198,19 +198,21 @@ def overall(out):
 # ---------------------------------------------------------------- 議題 2：資訊來源
 
 def info_source(out):
-    # 變因 = 預測用的資訊來源。MAGNET 的「只用台股」就是單市場版本；MAGNET 沒有只用美股的版本（沒跑）；
+    # 變因 = 預測用的資訊來源。MAGNET 的「只用台股」就是單市場版本；「只用美股」是融合前把台股表示歸零的版本
+    # （proposal_1209 §7，docs/figures/data/eval_us_only.json）；
     # MEIG 原生是跨市場架構，拿掉任一市場等於改它的架構，所以只有台股 + 美股。
     # [24] 三種來源都是原文做過的設定：只用台股 = §5.2.2 同市場對照、只用美股 = 主設定（主表）、
     # 台股 + 美股 = Appendix E（proposal_1209 §1.3）。
     v = _load("eval_bipartite_variants.json")
     lasso, mag = v["models"]["LASSO"]["ic"], v["magnet"]
+    uso = _load("eval_us_only.json")["arms"]["MAGNET (US only)"]
     meig = _load("eval_input_lag.json")["methods"]["MEIG [1]"]["1"]
     srcs = ["TW only", "US only", "TW + US"]
     nan = float("nan")
     # (來源, 槽位) -> (方法, IC, 種子 SD)；None = 不存在，附上說明
     cell = {
         ("TW only", 0): ("MAGNET-single market", mag["tw50_smktSA"]["ic"], mag["tw50_smktSA"]["ic_sd"]),
-        ("US only", 0): None,
+        ("US only", 0): ("MAGNET", uso["ic"], uso["ic_sd"]),
         ("TW + US", 0): ("MAGNET", mag["tw50_rgcnSA"]["ic"], mag["tw50_rgcnSA"]["ic_sd"]),
         ("TW only", 1): (LASSO, lasso["tw"], nan),
         ("US only", 1): (LASSO, lasso["us"], nan),
@@ -219,7 +221,7 @@ def info_source(out):
         ("US only", 2): None,
         ("TW + US", 2): ("MEIG [1]", meig["ic"], meig["ic_sd"]),
     }
-    missing = {0: "not\nrun", 2: "n/a"}
+    missing = {2: "n/a"}
     fig, ax = plt.subplots(figsize=(10, 5))
     w = 0.26
     for i, s in enumerate(srcs):
@@ -240,8 +242,8 @@ def info_source(out):
     _method_legend(ax, loc="upper left")
     _finish(fig, ax, out / "eval_plan_info_source", "Effect of information source",
             note="[24] uses the source settings of its own paper: TW only = same-market baseline (Sec. 5.2.2), "
-                 "US only = main setting,\nTW + US = Appendix E. MEIG is cross-market by design. "
-                 "MAGNET with US only was not run.")
+                 "US only = main setting,\nTW + US = Appendix E. MAGNET with US only drops the TW representation "
+                 "before fusion (10 seeds). MEIG is cross-market by design.")
 
 
 # ---------------------------------------------------------------- 議題 3：資訊時效
