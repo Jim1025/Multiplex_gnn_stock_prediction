@@ -12,6 +12,8 @@ gen_discussion_figures.py — 評估章節的圖（英文，2:1）
     eval_plan_market_state.svg     議題 4 市場狀態：變因 = 美股前一晚等權報酬絕對值的五分位
     eval_plan_market_state_signed.svg （備用頁）議題 4 的延伸：變因 = 帶正負號的美股前一晚漲跌五分位
                                    （docs/figures/data/eval_market_state_signed.json，proposal_1209 §5）
+    eval_plan_stock_linkage.svg    議題 5 個股與美股的對應：變因 = 台股的分組（ADR 配對 / 未配對電子 / 金融 / 傳產，
+                                   另加未配對 43 檔合計），縱軸是逐檔 IC 貢獻的組內平均（proposal_1209 §6）
     eval_plan_ablation.svg         （備用頁）其他元件的消融，只拿掉誤差棒
     eval_plan_cum_ic.svg           （已不用）累積 IC，未改
 
@@ -21,6 +23,7 @@ gen_discussion_figures.py — 評估章節的圖（英文，2:1）
     資訊來源、資訊時效   docs/figures/data/eval_bipartite_variants.json（scripts/bipartite_variants_eval.py --write）
     資訊時效的 MAGNET、MEIG  docs/figures/data/eval_input_lag.json（scripts/input_lag_eval.py --write，proposal_1209 §2）
     市場狀態             docs/figures/data/eval_market_state.json（scripts/market_state_eval.py --write）
+    個股與美股的對應     docs/figures/data/eval_stock_linkage.json（scripts/stock_linkage_eval.py --write）
     消融                 docs/results_table.md 與 proposal_819 §83
 
     .venv/bin/python scripts/gen_discussion_figures.py [--fmt svg|png] [--out DIR]
@@ -325,6 +328,48 @@ def market_state_signed(out):
                  "for any method (Welch t, p ≥ 0.35).")
 
 
+# ---------------------------------------------------------------- 議題 5：個股與美股的對應
+
+def stock_linkage(out):
+    # 變因 = 台股與美股的對應關係（proposal_1209 §6）。逐日 IC 拆成每檔的 z(ŷ)·z(y) 相加，
+    # 長條是組內每檔的平均貢獻；方法在每檔都一樣好時，各組都等於它的全期 IC。
+    # 最右一組是三個未配對組合併的 43 檔，對應結論「其餘 43 檔分不出差別」，用虛線隔開。
+    d = _load("eval_stock_linkage.json")
+    lv = d["levels"]
+    key = {LASSO: "LASSO [24]"}
+    groups = [("ADR-paired", "ADR-paired"), ("Unpaired electronics", "Unpaired\nelectronics"),
+              ("Financials", "Financials"), ("Traditional", "Traditional"), ("Unpaired (all 43)", "All unpaired")]
+    labels = [f"{lab}\n({d['groups'][g]['n']})" for g, lab in groups]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    w = 0.2
+    se_max = 0.0
+    for gi, (g, _) in enumerate(groups):
+        x0 = gi + (0.25 if gi == len(groups) - 1 else 0.0)
+        for mi, m in enumerate(STYLE):
+            c = lv[key.get(m, m)]["ic"][g]
+            se_max = max(se_max, c["se"])
+            x = x0 + (mi - 1.5) * w
+            ax.bar(x, c["mean"], w * 0.9, color=STYLE[m]["color"], edgecolor=STYLE[m]["color"])
+            ax.text(x, max(c["mean"], 0) + 0.003, f"{c['mean']:.3f}".replace("-", "−"), ha="center",
+                    va="bottom", fontsize=7)
+    xs = [gi + (0.25 if gi == len(groups) - 1 else 0.0) for gi in range(len(groups))]
+    ax.axvline((xs[-2] + xs[-1]) / 2, color="#9ca3af", ls=":", lw=1.2)
+    ax.set_xticks(xs, labels)
+    ax.set_xlim(xs[0] - 0.55, xs[-1] + 0.55)
+    ax.set_ylim(-0.02, 0.33)
+    ax.set_xlabel("TW stocks grouped by their link to the US layer (fixed before the sample)")
+    ax.set_ylabel("Per-stock contribution to IC (fold 1)")
+    _method_legend(ax, loc="upper right", ncol=2)
+    b = d["contrasts"]["ic"]["B"]                                   # 配對股上 MAGNET − LASSO（登記的對比 B）
+    r = d["descriptive"]["ic"]["MAGNET - LASSO [24] | Unpaired (all 43)"]
+    _finish(fig, ax, out / "eval_plan_stock_linkage", "Effect of stock-level linkage",
+            note="Daily IC = mean over the 50 stocks of z(ŷ)·z(y); each bar averages that term over the group, "
+                 "so a method equally good on every stock\nshows its overall IC in every group. "
+                 f"MAGNET − [24]: {b['mean']:+.3f} per ADR-paired stock (HAC p {b['p_holm']:.3f} after Holm), "
+                 f"{r['mean']:+.3f} on the other 43 (p {r['p']:.2f}).\n"
+                 f"Seed means (MAGNET 10 seeds, MEIG 3 seeds); standard errors 0.01–{se_max:.2f}.".replace("-0", "−0"))
+
+
 # ---------------------------------------------------------------- 備用頁
 
 def ablation(out):
@@ -377,7 +422,7 @@ def main():
     FMT = a.fmt
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    for f in (overall, info_source, info_lag, market_state, market_state_signed, ablation, cum_ic):
+    for f in (overall, info_source, info_lag, market_state, market_state_signed, stock_linkage, ablation, cum_ic):
         f(out)
     print(f"寫入 {out}（{FMT}）")
 
