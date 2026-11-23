@@ -155,7 +155,7 @@ def market_state(out):
 def ablation(out):
     # 真實數字：proposal §83.3、§83.4、scripts/sa_us_graph_eval.py（第一折 IC，種子平均 ± 種子 SD）
     arms = [("MAGNET", 0.1127, 0.0039, None),
-            ("w/o relational\nTW graph", 0.1090, 0.0051, "//"),
+            ("w/o relational\nTW layer", 0.1090, 0.0051, "//"),
             ("w/o US\nintra-layer graph", 0.1027, 0.0034, ".."),
             ("MAGNET-\nsingle market", 0.0250, 0.0021, "--")]
     fig, ax = plt.subplots(figsize=(10, 5))
