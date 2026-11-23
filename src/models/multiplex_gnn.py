@@ -99,6 +99,12 @@ class MAGNET(nn.Module):
         # M6 Stage 0 ablation: 切斷 ADR → TW 跨層訊號（保留 fusion 結構）
         # 啟用時將 h_L1 在進 fusion 前歸零，h_fused = (1 - gate) * h_L2
         self.disable_a12 = bool(m_cfg.get("disable_a12", False))
+        # 評估議題 2「只用美股」（proposal_1209 §7）：disable_a12 的鏡像。啟用時將 h_L2 在進 fusion 前
+        # 歸零，h_fused = gate ⊙ ĥ_1，台股自身的輸入完全切斷；架構、參數量、計算圖不變。
+        # 不在輸入端把 x_seq_L2 歸零：兩層共用同一個 LSTM 與 input norm，那樣會改到美股側的正規化統計。
+        self.us_only = bool(m_cfg.get("us_only", False))
+        if self.us_only and self.disable_a12:
+            raise ValueError("us_only 與 disable_a12 不能同時開（兩者合起來沒有任何輸入）")
 
         # M8 Hierarchical A12: 弱連結第二層邊（strong = 身分配對，維持不動）
         #   mode = None       : 現行 MAGNET（無弱連結）
@@ -528,6 +534,8 @@ class MAGNET(nn.Module):
         # P10b 的快照早於這個鍵，④ 原本就只吃台股層。
         tlc = m_cfg.get("tw_lag_channel") or {}
         self.tw_lag_enabled = bool(tlc.get("enabled", False))
+        if self.tw_lag_enabled and self.us_only:
+            raise ValueError("us_only 與 tw_lag_channel 不能同時開（通道直接讀台股輸入，會繞過 h_L2 的歸零）")
         if self.tw_lag_enabled:
             if "blend_w" not in tlc:
                 raise ValueError("model.tw_lag_channel.blend_w 未設定（見 configs/base.yaml）")
@@ -714,6 +722,8 @@ class MAGNET(nn.Module):
             h_L1_in = h_L1.new_zeros(B, self.n_l2, h_L1.size(-1))
         else:
             h_L1_in = self._augment_weak(h_L1)             # [B, n2, d']
+        if self.us_only:                                   # 只用美股：台股表示歸零（見 __init__）
+            h_L2 = torch.zeros_like(h_L2)
         h_fused, alpha, gate = self.fusion(h_L1_in, h_L2)  # [B, n2, d']
 
         # ── Phase 3: 預測 ─────────────────────────────────────────────

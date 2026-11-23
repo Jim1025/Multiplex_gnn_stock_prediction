@@ -232,6 +232,7 @@ def train(
     tw_relational_no_self:   Optional[bool] = None,
     tw_relational_shuffle_seed: Optional[int] = None,
     us_lag:            Optional[int]   = None,
+    us_only:           Optional[bool]  = None,
     save_every_epoch:  bool            = False,
 ) -> str:
     """
@@ -512,6 +513,10 @@ def train(
             raise ValueError(f"--us-lag 需 >= 1，當前為 {us_lag}")
         cfg["data"]["us_lag"] = int(us_lag)
         _overrides.append(f"us_lag={us_lag}")
+    if us_only:
+        # 只用美股（評估議題 2，proposal_1209 §7）：disable_a12 的鏡像，h_L2 在進 fusion 前歸零。
+        cfg.setdefault("model", {})["us_only"] = True
+        _overrides.append("us_only=True")
     if _overrides:
         print(f"[cli-override] {', '.join(_overrides)}")
 
@@ -1088,6 +1093,9 @@ def _parse_args() -> argparse.Namespace:
                    help="model.tw_relational.shuffle_seed：打亂產業標籤的安慰劑（§79；須搭配 --tw-relational）")
     p.add_argument("--us-lag", type=int, default=None,
                    help="data.us_lag：美股層輸入落後幾個美股交易日（預設 1；圖、台股輸入與標籤不變，proposal_1209 §2）")
+    p.add_argument("--us-only", action="store_true", default=None,
+                   help="覆寫 cfg.model.us_only=True：h_L2 在進 fusion 前歸零，h_fused = gate ⊙ ĥ_1——"
+                        "即「只用美股」（--disable-a12 的鏡像，proposal_1209 §7）。架構、參數量、計算圖不變。")
     return p.parse_args()
 
 
@@ -1140,6 +1148,7 @@ if __name__ == "__main__":
         tw_relational_no_self=args.tw_relational_no_self,
         tw_relational_shuffle_seed=args.tw_relational_shuffle_seed,
         us_lag=args.us_lag,
+        us_only=args.us_only,
         save_every_epoch=args.save_every_epoch,
     )
     print(f"\nDone. MLflow run_id = {run_id}")

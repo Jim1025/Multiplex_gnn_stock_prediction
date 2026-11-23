@@ -1081,3 +1081,149 @@ MAGNET 主結果 +0.1127、單市場消融 +0.0250、MEIG +0.0061（都是落後
 ````
 
 </details>
+
+---
+
+## 7. 評估議題 2：MAGNET 只用美股（登記，2026-11-24；訓練中）
+
+使用者指示（2026-11-24）：補「MAGNET 只用美股」，第一折 10 顆種子，在背景跑並用 caffeinate 避免睡眠。
+目的：把議題 2 圖上 MAGNET 只用美股的空格補上，並回答 MAGNET 是否比 [24] 更能利用台股自身的資訊（兩者真正的差異點）。
+
+**範圍**
+
+- 只做第一折；主結果 SA 的指令只多一個 `--us-only`，baseline 不動（[24] 用 §1.3 既有的三個 run）。描述性分析，判準見 7.3 的登記。
+- 「只用美股」的定義：融合前把台股表示 h_L2 歸零（單市場消融 `disable_a12` 的鏡像），架構與參數量不變。
+
+### 7.1 狀態
+
+- 程式改動（預設值下行為不變）：
+  - `src/models/multiplex_gnn.py`：加 `model.us_only`；與 `disable_a12`、`tw_lag_channel` 同時開時拋錯。
+  - `src/train/train.py`：加 `--us-only`，寫進 `config_snapshot.yaml`。
+  - `tests/test_us_only.py`（新）：5 項。
+  - `scripts/run_us_only_queue.py`（新）：訓練佇列，沿用 `run_input_lag_queue.py` 的執行邏輯。
+- 訓練前的檢查都已通過（登記第 4 節）：
+  - 新測試 5 項與既有測試（`test_us_lag.py`、`test_model_sanity.py`，共 117 項）通過。
+  - 用改過的程式重評 SA s42，與存下的預測最大差 1.0e-16。
+- 訓練 2026-11-24 01:02:43 開始：先 `--stage check`（s42），通過設定比對後跑 `--stage rest`（其餘 9 顆，兩條並行）。
+  指令用 `caffeinate -i -m -s` 包住。當時用電池，所以 `-s` 不生效，只有 `-i` 防止閒置睡眠。
+- 結果與彙整程式在訓練完成後補上。
+
+### 7.2 重跑指令
+
+```bash
+.venv/bin/python -m pytest tests/test_us_only.py -v
+caffeinate -i -m -s sh -c '.venv/bin/python scripts/run_us_only_queue.py --stage check && .venv/bin/python scripts/run_us_only_queue.py --stage rest --workers 2'
+```
+
+### 7.3 附錄：事前登記原文（逐字）
+
+| 檔案 | 寫下時間 | SHA-256 |
+|---|---|---|
+| `reg_us_only_fold1.md`（登記本文，訓練前） | 2026-11-24 01:02:31 | `54fdb275c2cbfa15a415c73471da61c455a59f6fe51046009dd573c0270e8c55` |
+| `src/models/multiplex_gnn.py`（訓練開始前） | 同上 | `cd76786e644e95f36b2dd443cce07258955b51fde371b01f7ddb81037d6fe2dc` |
+| `src/train/train.py`（訓練開始前） | 同上 | `6c24f2bd00512a46bb2ed6ff0d78a68dd09b8d5614ba0dae245178ef07be0abc` |
+| `scripts/run_us_only_queue.py`（訓練開始前） | 同上 | `ef43d6d57a46d0a3f0957271dafb5e1d22d3624df5c5f7baea9bfb5768c5d4bf` |
+| `scripts/run_input_lag_queue.py`（沿用其函式，未改） | 同上 | `1bc8a7a8b0e3df5fccbe9d1cb274bebce75663a26343f4610c41c2dbbd165fef` |
+| `tests/test_us_only.py` | 同上 | `2464e9c38993346234fa250a1346180754ae5ebf01c41cb649341dd891a2ca1a` |
+
+- 時間是本機時鐘，由當時的指令寫下，沒有外部的時間證明；本檔 commit 之後才有 Git 的時間點。
+- 登記原文放在下面的程式碼區塊裡，一個字元都沒有改。把區塊內的文字原樣存成檔案（最後一行之後留一個換行），就能重算出上表的 SHA-256。
+
+<details><summary>reg_us_only_fold1.md</summary>
+
+````markdown
+# 登記：評估議題 2 的 MAGNET 只用美股（第一折，proposal_1209 §7）
+
+時間：2026-11-24（訓練前寫下，記本檔 SHA-256；程式的 SHA-256 在訓練開始前另記）。
+寫下時，沒有任何 MAGNET 只用美股的 run。
+
+## 0. 已知（寫在結果之前）
+
+第一折 test，IC / RankIC：
+
+| 方法 | 只用台股 | 只用美股 | 台股 + 美股 |
+|---|---|---|---|
+| MAGNET | +0.0250 / +0.0587（單市場消融 `tw50_smktSA`，10 顆） | 沒有 | +0.1127 / +0.1232（主結果 SA，10 顆） |
+| [24] LASSO | +0.0225 / +0.0305 | +0.1042 / +0.0901（主表） | +0.0987 / +0.0897（Appendix E） |
+
+- [24] 加入台股的增量（台股 + 美股 − 只用美股）：IC −0.0056（p 0.35）、RankIC −0.0004（p 0.95）（proposal_1209 §1.3）。
+- 同樣用台股 + 美股：MAGNET − LASSO IC +0.0140（p 0.42）、RankIC +0.0335（p 0.025）（§1.3，描述）。
+- 美股輸入落後 2 天以上時，MAGNET 回到單市場的水準（§2）；MAGNET 對 [24] LASSO（只用美股）的差距全部來自 7 檔 ADR 配對股（§6）。
+
+## 1. 範圍
+
+- 對應 `evaluation.pptx` 的議題 2（資訊來源），把圖上 MAGNET「只用美股」的空格補上。
+- 問題：
+  - (a) 對 MAGNET，台股自身的資訊（各檔前一天的報酬，經台股層的同產業關係卷積）在美股之外有沒有增量？
+  - (b) MAGNET 加入台股自身資訊的增量，是否大於 [24] 的增量？也就是 MAGNET 是否比 [24] 更能利用台股自身的資訊。
+  - (c) 兩者都只用美股時，MAGNET 是否勝過 [24]？
+- **只做第一折**（test 2024-12-26 ~ 2025-12-30，246 天）。
+- **模型不動**：主結果 SA 的指令（proposal_819 §79.9）只多一個 `--us-only`；架構、超參數、損失、早停、種子都照舊。
+  **baseline 不動**：[24] 用 §1.3 既有的三個 run，不重跑。
+- 主指標 IC，第二指標 RankIC。第一折 test 已經被看過很多次，這是**描述性**分析：p 值只用來決定敘述的用語。
+
+## 2. 「只用美股」的定義
+
+- `model.us_only = true`：融合前把台股表示 h_L2 歸零，h_fused = gate ⊙ ĥ_1。這是單市場消融（`disable_a12`，融合前把美股表示歸零）的鏡像。
+- 在 SA 裡，台股自身的輸入只經過 x_seq_L2 → LSTM → 台股層關係卷積 → 投影 → h_L2 這一條路。美股耦合（ADR 夥伴、市場因子、殘差耦合）只用美股表示，
+  所以歸零 h_L2 就完全切斷台股自身的資訊。融合的 gate 也只剩美股側的輸入。
+- 不在輸入端把 x_seq_L2 歸零：兩層共用同一個 LSTM 與 input norm，那樣會改到美股側的正規化統計。
+- 會直接讀台股輸入的另一條路（④ 線性通道 `tw_lag_channel`）在 SA 沒有開；程式在兩者同時開時拋錯。
+- 架構、參數量、計算圖不變：台股層照常計算，只是輸出不進融合。
+
+## 3. 訓練
+
+- 10 顆種子 {42, 7, 123, 11, 99, 314, 555, 777, 888, 2026}（與 SA 相同），tag `tw50_rgcnSAusonly_s{S}`。
+- 指令：`src.train.train --config runs/tw50/beta/20260829_0629_tw50_betaF1nA2r1_s42/config_snapshot.yaml --seed S --tag tw50_rgcnSAusonly_sS
+  --tw-relational --tw-relational-placement replace_gat_l2 --tw-relational-blocks 4 --tw-relational-relations same_industry --us-only`。
+- 由 `scripts/run_us_only_queue.py` 執行：先 `--stage check`（只跑 s42），通過後 `--stage rest`（其餘 9 顆，兩條並行）。用 `caffeinate -i -m -s` 包住。
+- 每個 run 只跑一次。非零結束碼或逾時只重跑一次並記錄；不調參、不挑種子；不論結果如何都報告全部的 run。
+
+## 4. 訓練前的檢查
+
+寫本登記時已經做完並通過：
+
+- `tests/test_us_only.py` 5 項通過：
+  - 預設值不變：用改過的程式重評 SA s42 的 `best.pt`（CPU），與存下的 test 預測（246 天 × 50 檔）最大差 1.0e-16。
+  - us_only 的 ŷ 與台股輸入無關（把 x_seq_L2 換成雜訊，ŷ 逐位元相同），但隨美股輸入改變；預設值下 ŷ 會隨台股輸入改變。
+  - 同一個種子初始化，us_only 與預設的參數完全相同。
+  - us_only 與 disable_a12、tw_lag_channel 同時開會拋錯。
+- 既有測試（`test_us_lag.py`、`test_model_sanity.py`）照舊通過。
+- 環境與 §2 相同（Python 3.14.10、torch 2.11.0、torch_geometric 2.7.0）；`src/` 從 §2 之後只多了本次的開關。
+  §2 的落後 1 天重現檢查（同一套程式與環境重訓 SA s42：+0.1163 對原 +0.1172）因此沿用，這次不再跑重現用的 run，
+  直接與既有的 SA、單市場消融比較。
+
+訓練時的檢查：
+
+- `--stage check` 的 s42 跑完後，它的 `config_snapshot.yaml` 與 SA s42 相比只能多出 `model.us_only: true`。不符就停，先找原因，不跑其餘種子。
+
+## 5. 報告
+
+- MAGNET 只用美股：IC、RankIC（種子平均 ± 種子標準差）、逐種子 IC；最佳 val IC 的種子平均。
+- 逐日序列：MAGNET 各版本是種子平均的逐日 IC（讀法同 `results_table.neural_stats`），LASSO 是單一 run 的逐日 IC。
+  檢定用 `results_table.paired_daily`（HAC，雙尾）。
+- 三個比較，IC 的三個 p 一起做 Holm；RankIC 另成一族：
+  - (a) MAGNET(台股 + 美股) − MAGNET(只用美股)。
+  - (b) [MAGNET(台股 + 美股) − MAGNET(只用美股)] − [LASSO(台股 + 美股) − LASSO(只用美股)]，逐日差的差。
+  - (c) MAGNET(只用美股) − LASSO(只用美股)。
+- 描述（不校正）：MAGNET(只用美股) − 單市場消融；10 顆種子裡，只用美股低於同種子 SA 的顆數。
+- LASSO 的三個 run：只用美股 `runs/linear/20261021_2130_bipartite_rolling_t2_LASSO`（主表）、
+  台股 + 美股 `runs/linear/20261116_1321_bipartite_srcUSTW_rolling_t2_LASSO`、只用台股 `runs/linear/20261116_1316_bipartite_srcTW_rolling_t2_LASSO`。
+
+## 6. 判讀（寫在結果之前；以 IC 為準，RankIC 方向相反時加註）
+
+| 說法 | 可以這樣寫的條件 | 不成立時的寫法 |
+|---|---|---|
+| MAGNET 比 [24] 更能利用台股自身的資訊 | (b) > 0 且 Holm 後 p < 0.05 | 「加入台股自身資訊的增量，MAGNET 與 [24] 分不出差別」；(b) < 0 且 Holm 後 p < 0.05 時寫「[24] 加入台股的增量較大」 |
+| 對 MAGNET，台股自身的資訊在美股之外仍有增量 | (a) > 0 且 Holm 後 p < 0.05 | 「對 MAGNET，加入台股自身的資訊分不出增量」；(a) < 0 且 Holm 後 p < 0.05 時寫「加入台股反而較差」 |
+| 同樣只用美股時，MAGNET 勝過 [24] | (c) > 0 且 Holm 後 p < 0.05 | 「同樣只用美股時分不出差別」；(c) < 0 且 Holm 後 p < 0.05 時寫「同樣只用美股時 [24] 較高」 |
+
+- 檢定力（寫在結果之前）：第一折 MAGNET − LASSO 的逐日 IC 差（+0.0085，p 0.61）對應標準誤約 0.017；(c) 是同一類比較，
+  80% 檢定力的最小可偵測差約 0.05。(b) 是差的差，標準誤不會比較小。所以 (b)、(c) 大概率不顯著，這件事在看結果之前就知道。
+  (a) 是同一個架構的兩個版本，逐日差的標準誤可能較小，但事先無法估。
+- (b) 的兩邊不對稱：MAGNET 是 10 顆種子的平均，LASSO 是單一個確定性的 run。
+- 不論結果：寫進 proposal_1209 §7；議題 2 的圖（`eval_plan_info_source.svg`）把 MAGNET「只用美股」的 not run 換成實測值。
+- 不做：第二折、調參、加種子、MEIG、其他「只用美股」的做法（例如輸入端歸零）、看過結果後改規則。
+````
+
+</details>
