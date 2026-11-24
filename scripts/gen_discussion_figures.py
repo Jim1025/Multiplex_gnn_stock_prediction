@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -90,24 +91,34 @@ F2_CUT = "2024-12-25"      # 第二折評估窗的最後一天（與 results_tab
 BIP_LEARNERS = ("LASSO", "RIDGE", "OLS", "RF", "AdaBoost", "LGBM", "XGBoost", "SVM")   # 依第一折 IC 排序
 
 
-def _f2_daily_ic(pattern: str):
-    """第二折逐 run 的逐日 IC。規則同 results_table._fold2_rows：只取 ≤ F2_CUT 的日子，
-    50 檔 y 或 y_hat 完全相同的日子略過，各 run 取共同日子。回傳 (日期, 陣列[run, 日])。"""
+MEIG_SEEDS = ("42", "7", "123")   # 簡報其他頁用的 3 顆；2026-11-24 新增的種子 11、99 不進這張圖
+
+
+def _seed_of(path: str) -> str | None:
+    m = re.search(r"_s(\d+)(?:/|$)", path)
+    return m.group(1) if m else None
+
+
+def _f2_daily_ic(pattern: str, seeds=None):
+    """第二折逐 run 的逐日 IC 與 RankIC。規則同 results_table._fold2_rows：只取 ≤ F2_CUT 的日子，
+    50 檔 y 或 y_hat 完全相同的日子略過，各 run 取共同日子。回傳 (日期, 陣列[run, 指標(0=IC, 1=RankIC), 日])。"""
     per = []
     for f in sorted(glob.glob(str(ROOT / pattern), recursive=True)):
+        if seeds is not None and _seed_of(f) not in seeds:
+            continue
         df = pd.read_csv(f)
         o = {}
         for d, g in df.groupby("target_date"):
             d = str(d)[:10]
             if d > F2_CUT or g.y.nunique() == 1 or g.y_hat.nunique() == 1:
                 continue
-            o[d] = np.corrcoef(g.y_hat, g.y)[0, 1]
+            o[d] = (np.corrcoef(g.y_hat, g.y)[0, 1], stats.spearmanr(g.y_hat, g.y).statistic)
         if o:
             per.append(o)
     if not per:
         raise FileNotFoundError(pattern)
     k = sorted(set.intersection(*[set(x) for x in per]))
-    return k, np.array([[x[d] for d in k] for x in per])
+    return k, np.array([[[x[d][i] for d in k] for i in (0, 1)] for x in per])
 
 
 def _f2_hac(d) -> float:
@@ -138,61 +149,86 @@ def _overall_rows() -> list[dict]:
     VB = np.nanmean(PB, axis=0)
     rows = []
     for label, style, group, (kind, key), f2_dir in specs:
-        st = R.neural_stats(key) if kind == "neural" else R.nonneural_stats(key)
-        p1 = None if key == R.BEST else R.paired_daily(base1, st, "ic")[1]
-        k, P = _f2_daily_ic(f"{f2_dir}/predictions/test_predictions.csv")
+        seeds = MEIG_SEEDS if key == "tw50_bl_meig" else None
+        if kind == "neural":
+            fs = R.find_seeds
+            if seeds is not None:     # 只取指定種子：暫時包住 find_seeds，算完還原
+                R.find_seeds = lambda arm, _f=fs: {s: d for s, d in _f(arm).items() if s in seeds}
+            try:
+                st = R.neural_stats(key)
+            finally:
+                R.find_seeds = fs
+        else:
+            st = R.nonneural_stats(key)
+        k, P = _f2_daily_ic(f"{f2_dir}/predictions/test_predictions.csv", seeds)
         V = np.nanmean(P, axis=0)
         ii = [k.index(d) for d in k if d in set(kb)]
         jj = [kb.index(d) for d in k if d in set(kb)]
-        sd2 = float(np.std(np.nanmean(P[:, ii], axis=1), ddof=1)) if P.shape[0] > 1 else np.nan
-        dd = VB[jj] - V[ii]
-        p2 = None if key == R.BEST else _f2_hac(dd[np.isfinite(dd)])
-        rows.append(dict(label=label, style=style, group=group,
-                         f1=(st["ic"], st["ic_sd"], p1, st["n"]),
-                         f2=(float(np.nanmean(V[ii])), sd2, p2, P.shape[0])))
+        row = dict(label=label, style=style, group=group)
+        for m, (mk, sdk, idx) in enumerate((("ic", "ic_sd", 0), ("ric", "ric_sd", 1))):
+            p1 = None if key == R.BEST else R.paired_daily(base1, st, mk)[1]
+            sd2 = float(np.std(np.nanmean(P[:, idx][:, ii], axis=1), ddof=1)) if P.shape[0] > 1 else np.nan
+            dd = VB[idx][jj] - V[idx][ii]
+            p2 = None if key == R.BEST else _f2_hac(dd[np.isfinite(dd)])
+            sfx = "" if idx == 0 else "_ric"
+            row["f1" + sfx] = (st[mk], st[sdk], p1, st["n"])
+            row["f2" + sfx] = (float(np.nanmean(V[idx][ii])), sd2, p2, P.shape[0])
+        rows.append(row)
     return rows
 
 
 def overall(out):
+    """上格 IC（主指標）、下格 RankIC（次要指標），共用 x 軸。"""
     rows = _overall_rows()
-    print("議題 1（對照 docs/results_table.md 兩折主表）：")
-    for r in rows:
-        (a, sa, pa, na), (b, sb, pb, nb) = r["f1"], r["f2"]
-        fp = (lambda p: "—" if p is None else f"{p:.4f}")
-        print(f"  {r['label'].replace(chr(10), ' '):22s} 第一折 {a:+.4f} ± {sa:.4f} p {fp(pa):>6s} (n {na})"
-              f" | 第二折 {b:+.4f} ± {sb:.4f} p {fp(pb):>6s} (n {nb})")
+    fp = (lambda p: "—" if p is None else f"{p:.4f}")
+    for sfx, nm in (("", "IC"), ("_ric", "RankIC")):
+        print(f"議題 1 {nm}（對照 docs/results_table.md 兩折主表）：")
+        for r in rows:
+            (a, sa, pa, na), (b, sb, pb, nb) = r["f1" + sfx], r["f2" + sfx]
+            print(f"  {r['label'].replace(chr(10), ' '):22s} 第一折 {a:+.4f} ± {sa:.4f} p {fp(pa):>6s} (n {na})"
+                  f" | 第二折 {b:+.4f} ± {sb:.4f} p {fp(pb):>6s} (n {nb})")
 
     # 實驗組 2 個、對照組 9 個（[24] 8 個學習器 + MEIG），等距排列
     xs = list(range(len(rows)))
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, (ax, bx) = plt.subplots(2, 1, figsize=(12, 7.6), sharex=True,
+                                 gridspec_kw=dict(height_ratios=(1, 0.75), hspace=0.12))
     w = 0.38
-    for x, r in zip(xs, rows):
-        c = STYLE[r["style"]]["color"]
-        for k, (fold, hatch) in enumerate((("f1", None), ("f2", "///"))):
-            ic, sd, p, _ = r[fold]
-            xx = x + (k - 0.5) * w
-            ax.bar(xx, ic, w * 0.92, color=c if hatch is None else "white", edgecolor=c, hatch=hatch, lw=1.3)
-            lab = f"{ic:.3f}".replace("-", "−")
-            top = max(ic, 0) + 0.003
-            ax.text(xx, top, lab, ha="center", va="bottom", fontsize=8,
-                    color="#111827" if r["style"] == "MAGNET" else "#374151",
-                    fontweight="bold" if r["style"] == "MAGNET" else "normal")
-
-    ax.set_xticks(xs, [r["label"] for r in rows], fontsize=11)
-    # [24] 8 個學習器的組名，放在方法名稱下方
+    for axx, sfx, label_all in ((ax, "", True), (bx, "_ric", False)):
+        for x, r in zip(xs, rows):
+            c = STYLE[r["style"]]["color"]
+            for k, (fold, hatch) in enumerate((("f1", None), ("f2", "///"))):
+                v = r[fold + sfx][0]
+                xx = x + (k - 0.5) * w
+                axx.bar(xx, v, w * 0.92, color=c if hatch is None else "white", edgecolor=c, hatch=hatch, lw=1.3)
+                # 下格只標 MAGNET 與 LASSO，避免數字擠在一起
+                if label_all or r["label"] in ("MAGNET", "LASSO"):
+                    axx.text(xx, max(v, 0) + 0.003, f"{v:.3f}".replace("-", "−"), ha="center", va="bottom",
+                             fontsize=8, color="#111827" if r["style"] == "MAGNET" else "#374151",
+                             fontweight="bold" if r["style"] == "MAGNET" else "normal")
+        axx.spines[["top", "right"]].set_visible(False)
+        axx.grid(axis="y", color="#e5e7eb")
+        axx.set_axisbelow(True)
+        axx.set_ylim(-0.015, 0.18)
+        axx.set_yticks([0, 0.05, 0.10, 0.15])
+    ax.set_ylabel("Test IC (primary)")
+    bx.set_ylabel("Test RankIC (secondary)")
+    bx.set_xticks(xs, [r["label"] for r in rows], fontsize=11)
     bx0, bx1 = xs[2] - 0.35, xs[-2] + 0.35
-    ax.text((bx0 + bx1) / 2, -0.030, "Bipartite [24] (8 learners)", ha="center", va="top",
+    bx.text((bx0 + bx1) / 2, -0.045, "Bipartite [24] (8 learners)", ha="center", va="top",
             fontsize=11, color="#1f5f99")
-    ax.set_xlim(xs[0] - 0.6, xs[-1] + 0.6)
-    ax.set_ylim(-0.015, 0.18)
-    ax.set_yticks([0, 0.05, 0.10, 0.15])
-    ax.set_ylabel("Test IC (mean of daily IC)")
+    bx.set_xlim(xs[0] - 0.6, xs[-1] + 0.6)
     ax.legend(handles=[Patch(fc="#6b7280", ec="#6b7280"), Patch(fc="white", ec="#6b7280", hatch="///")],
               labels=["Fold 1 (test 2025)", "Fold 2 (test 2024)"], frameon=False, ncol=2,
-              loc="upper right", bbox_to_anchor=(1.0, 0.93))
-    _finish(fig, ax, out / "eval_plan_overall", "Effect of test period: MAGNET vs. cross-market methods",
-            note="Seed means (MAGNET and MAGNET-single market 10 seeds, MEIG 3 seeds; each [24] learner one "
-                 "deterministic run).")
+              loc="upper right", bbox_to_anchor=(1.0, 0.98))
+    ax.set_title("Effect of test period: MAGNET vs. cross-market methods", loc="left", fontsize=15,
+                 fontweight="bold")
+    fig.text(0.01, 0.01, "Seed means (MAGNET and MAGNET-single market 10 seeds, MEIG 3 seeds; each [24] learner "
+             "one deterministic run). RankIC labels: MAGNET and LASSO only.", fontsize=10, color="#6b7280",
+             va="bottom")
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.savefig((out / "eval_plan_overall").with_suffix("." + FMT), dpi=220 if FMT == "png" else None,
+                facecolor="white")
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------- 議題 2：資訊來源
