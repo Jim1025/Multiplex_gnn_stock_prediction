@@ -21,7 +21,8 @@ gen_discussion_figures.py — 評估章節的圖（英文，2:1）
     整體比較             由預測檔重算，算法與 scripts/results_table.py 相同（第一折 neural_stats /
                          nonneural_stats / paired_daily；第二折照 _fold2_rows 的規則），執行時印出數字供對照主表
     資訊來源、資訊時效   docs/figures/data/eval_bipartite_variants.json（scripts/bipartite_variants_eval.py --write）
-    資訊時效的 MAGNET、MEIG  docs/figures/data/eval_input_lag.json（scripts/input_lag_eval.py --write，proposal_1209 §2）
+    資訊時效的 MAGNET        docs/figures/data/eval_input_lag.json（scripts/input_lag_eval.py --write，proposal_1209 §2）
+    資訊來源、資訊時效的 MEIG  docs/figures/data/eval_meig_10seeds.json（scripts/meig_seeds_eval.py --write，proposal_1209 §8）
     市場狀態             docs/figures/data/eval_market_state.json（scripts/market_state_eval.py --write）
     個股與美股的對應     docs/figures/data/eval_stock_linkage.json（scripts/stock_linkage_eval.py --write）
     消融                 docs/results_table.md 與 proposal_819 §83
@@ -91,7 +92,8 @@ F2_CUT = "2024-12-25"      # 第二折評估窗的最後一天（與 results_tab
 BIP_LEARNERS = ("LASSO", "RIDGE", "OLS", "RF", "AdaBoost", "LGBM", "XGBoost", "SVM")   # 依第一折 IC 排序
 
 
-MEIG_SEEDS = ("42", "7", "123")   # 簡報其他頁用的 3 顆；2026-11-24 新增的種子 11、99 不進這張圖
+# 登記的 10 顆（proposal_1209 §8：舊 3 顆加 2026-11-24 補的 7 顆）。之後若再多出種子也不會混進來
+MEIG_SEEDS = ("7", "42", "123", "11", "99", "314", "555", "777", "888", "2026")
 
 
 def _seed_of(path: str) -> str | None:
@@ -222,7 +224,7 @@ def overall(out):
               loc="upper right", bbox_to_anchor=(1.0, 0.98))
     ax.set_title("Effect of test period: MAGNET vs. cross-market methods", loc="left", fontsize=15,
                  fontweight="bold")
-    fig.text(0.01, 0.01, "Seed means (MAGNET and MAGNET-single market 10 seeds, MEIG 3 seeds; each [24] learner "
+    fig.text(0.01, 0.01, "Seed means (MAGNET, MAGNET-single market and MEIG 10 seeds each; each [24] learner "
              "one deterministic run). RankIC labels: MAGNET and LASSO only.", fontsize=10, color="#6b7280",
              va="bottom")
     fig.tight_layout(rect=(0, 0.04, 1, 1))
@@ -242,7 +244,7 @@ def info_source(out):
     v = _load("eval_bipartite_variants.json")
     lasso, mag = v["models"]["LASSO"]["ic"], v["magnet"]
     uso = _load("eval_us_only.json")["arms"]["MAGNET (US only)"]
-    meig = _load("eval_input_lag.json")["methods"]["MEIG [1]"]["1"]
+    meig = _load("eval_meig_10seeds.json")["settings"]["fold1"]
     srcs = ["TW only", "US only", "TW + US"]
     nan = float("nan")
     # (來源, 槽位) -> (方法, IC, 種子 SD)；None = 不存在，附上說明
@@ -287,18 +289,19 @@ def info_source(out):
 def info_lag(out):
     lags = [1, 2, 3, 4]
     # 全部是真實值（proposal_1209 §1.4、§2）。MAGNET 與 MEIG 的落後 2–4 天是重新訓練的延遲版
-    # （只換美股層輸入，圖、台股輸入與模型都不變；MAGNET 10 顆、MEIG 3 顆種子平均）。
+    # （只換美股層輸入，圖、台股輸入與模型都不變；MAGNET、MEIG 都是 10 顆種子平均，MEIG 見 proposal_1209 §8）。
     # 單市場版本不用美股、不受落後天數影響，畫成水平線，代表「跨市場資訊完全沒有作用」的水準。
     v = _load("eval_bipartite_variants.json")
     lasso, mag = v["models"]["LASSO"]["ic"], v["magnet"]
     nn = _load("eval_input_lag.json")["methods"]
+    mg = _load("eval_meig_10seeds.json")["settings"]
+    mg = {1: mg["fold1"], **{l: mg[f"lag{l}"] for l in lags[1:]}}
     ref = mag["tw50_smktSA"]["ic"]
     data = {
         "MAGNET": ([nn["MAGNET"][str(l)]["ic"] for l in lags], [nn["MAGNET"][str(l)]["ic_sd"] for l in lags]),
         "MAGNET-single market": ([ref] * 4, None),
         LASSO: ([lasso["us"], lasso["lag2"], lasso["lag3"], lasso["lag4"]], None),
-        "MEIG [1]": ([nn["MEIG [1]"][str(l)]["ic"] for l in lags],
-                     [nn["MEIG [1]"][str(l)]["ic_sd"] for l in lags]),
+        "MEIG [1]": ([mg[l]["ic"] for l in lags], [mg[l]["ic_sd"] for l in lags]),
     }
     fig, ax = plt.subplots(figsize=(10, 5))
     # MAGNET 落後 2 天以上與單市場重疊，畫在最上層，免得被單市場的方塊蓋住
@@ -316,7 +319,7 @@ def info_lag(out):
     ax.legend(frameon=False, loc="upper right")
     _finish(fig, ax, out / "eval_plan_info_lag", "Effect of information timeliness",
             note="Only the US input is lagged; graphs and TW input still use data up to t−1 (as in Sec. 5.4 of [24]).\n"
-                 "Seed means (MAGNET 10 seeds, MEIG 3 seeds).")
+                 "Seed means (MAGNET and MEIG 10 seeds each).")
 
 
 # ---------------------------------------------------------------- 議題 4：市場狀態
@@ -340,7 +343,8 @@ def market_state(out):
     ax.legend(frameon=False, ncol=2, loc="upper left")
     _finish(fig, ax, out / "eval_plan_market_state", "Effect of market state",
             note=f"Each point averages about 49 days; its standard error is 0.01–{se_max:.2f}, "
-                 f"so gaps smaller than about 0.05 are within noise.")
+                 f"so gaps smaller than about 0.05 are within noise.\n"
+                 f"Seed means (MAGNET 10 seeds, MEIG 3 seeds; computed before MEIG was extended to 10).")
 
 
 def market_state_signed(out):
@@ -363,7 +367,8 @@ def market_state_signed(out):
     ax.legend(frameon=False, ncol=2, loc="upper center")
     _finish(fig, ax, out / "eval_plan_market_state_signed", "Effect of market state: drop vs. rally",
             note="Each point averages about 49 days (standard error 0.01–0.04). Q5 − Q1 is not significant "
-                 "for any method (Welch t, p ≥ 0.35).")
+                 "for any method (Welch t, p ≥ 0.35).\n"
+                 "Seed means (MAGNET 10 seeds, MEIG 3 seeds; computed before MEIG was extended to 10).")
 
 
 # ---------------------------------------------------------------- 議題 5：個股與美股的對應
@@ -405,7 +410,8 @@ def stock_linkage(out):
                  "so a method equally good on every stock\nshows its overall IC in every group. "
                  f"MAGNET − [24]: {b['mean']:+.3f} per ADR-paired stock (HAC p {b['p_holm']:.3f} after Holm), "
                  f"{r['mean']:+.3f} on the other 43 (p {r['p']:.2f}).\n"
-                 f"Seed means (MAGNET 10 seeds, MEIG 3 seeds); standard errors 0.01–{se_max:.2f}.".replace("-0", "−0"))
+                 f"Seed means (MAGNET 10 seeds, MEIG 3 seeds, computed before MEIG was extended to 10); "
+                 f"standard errors 0.01–{se_max:.2f}.".replace("-0", "−0"))
 
 
 # ---------------------------------------------------------------- 備用頁
@@ -448,7 +454,7 @@ def cum_ic(out):
     ax.set_ylabel("Cumulative daily IC")
     ax.legend(frameon=False, loc="upper left")
     _finish(fig, ax, out / "eval_plan_cum_ic", "Temporal stability: cumulative daily IC",
-            note="Real results. MAGNET: 10-seed mean; MEIG: 3-seed mean.")
+            note="Real results. MAGNET and MEIG: 10-seed means.")
 
 
 def main():
