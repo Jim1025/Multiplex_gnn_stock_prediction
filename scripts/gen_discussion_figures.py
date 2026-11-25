@@ -9,11 +9,13 @@ gen_discussion_figures.py — 評估章節的圖（英文，2:1）
                                    [24] 列出全部 8 個學習器；取代原本的結果表 + 累積 IC 圖
     eval_plan_info_source.svg      議題 2 資訊來源：變因 = 只用台股 / 只用美股 / 台股 + 美股
     eval_plan_info_lag.svg         議題 3 資訊時效：變因 = 美股輸入落後 1–4 天
+    eval_plan_info_timing.svg      議題 3 的簡報版（2026-11-26）：(a) 同上；(b) 次日報酬切成隔夜跳空與盤中，
+                                   同一組預測對兩段的 IC（docs/figures/data/eval_check_overnight.json，proposal_1209 §9.4）
     eval_plan_market_state.svg     議題 4 市場狀態：變因 = 美股前一晚等權報酬絕對值的五分位
     eval_plan_market_state_signed.svg （備用頁）議題 4 的延伸：變因 = 帶正負號的美股前一晚漲跌五分位
                                    （docs/figures/data/eval_market_state_signed.json，proposal_1209 §5）
-    eval_plan_stock_linkage.svg    議題 5 個股與美股的對應：變因 = 台股的分組（ADR 配對 / 未配對電子 / 金融 / 傳產，
-                                   另加未配對 43 檔合計），縱軸是逐檔 IC 貢獻的組內平均（proposal_1209 §6）
+    eval_plan_stock_linkage.svg    議題 5 個股與美股的對應：變因 = 台股的分組（ADR 配對 7、未配對 43，虛線後是未配對依產業
+                                   拆成電子 / 金融 / 傳產），縱軸是逐檔 IC 貢獻的組內平均（proposal_1209 §6）
     eval_plan_ablation.svg         （備用頁）其他元件的消融，只拿掉誤差棒
     eval_plan_cum_ic.svg           （已不用）累積 IC，未改
 
@@ -322,6 +324,64 @@ def info_lag(out):
                  "Seed means (MAGNET and MEIG 10 seeds each).")
 
 
+def info_timing(out):
+    # 議題 3 的簡報版（2026-11-26）：兩格。
+    #   (a) 美股輸入落後 1–4 天，與 info_lag 同一份資料（MAGNET、MEIG 10 顆；[24] LASSO；單市場畫水平線）
+    #   (b) 次日報酬在台股 09:00 開盤切成隔夜跳空與盤中兩段，同一組預測對兩段各自的 IC
+    #       （docs/figures/data/eval_check_overnight.json，scripts/check_overnight.py --write，proposal_1209 §9.4）
+    # 兩格共用縱軸，總報酬的 IC（(a) 的 t−1）可以直接和隔夜、盤中比。
+    v = _load("eval_bipartite_variants.json")
+    lasso, mag = v["models"]["LASSO"]["ic"], v["magnet"]
+    nn = _load("eval_input_lag.json")["methods"]
+    mg = _load("eval_meig_10seeds.json")["settings"]
+    lags = [1, 2, 3, 4]
+    mg = {1: mg["fold1"], **{l: mg[f"lag{l}"] for l in lags[1:]}}
+    ref = mag["tw50_smktSA"]["ic"]
+    lag_ic = {
+        "MAGNET": [nn["MAGNET"][str(l)]["ic"] for l in lags],
+        "MAGNET-single market": [ref] * 4,
+        LASSO: [lasso["us"], lasso["lag2"], lasso["lag3"], lasso["lag4"]],
+        "MEIG [1]": [mg[l]["ic"] for l in lags],
+    }
+    ov = _load("eval_check_overnight.json")["methods"]
+    okey = {LASSO: "LASSO [24]"}
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10.5, 4.9), sharey=True, gridspec_kw=dict(width_ratios=(1.25, 1)))
+    zorder = {"MAGNET": 5, LASSO: 4, "MEIG [1]": 3, "MAGNET-single market": 2}
+    for m, ys in lag_ic.items():
+        s_ = STYLE[m]
+        a1.plot(lags, ys, color=s_["color"], ls=s_["ls"], lw=2, marker=s_["marker"], ms=6, mfc=s_["color"],
+                mew=2, zorder=zorder[m], label=m + (" (no US input)" if m == "MAGNET-single market" else ""))
+    a1.set_xticks(lags, ["t−1\n(default)", "t−2", "t−3", "t−4"])
+    a1.set_xlim(0.7, 4.3)
+    a1.set_xlabel("(a) Lag of US input (trading days)")
+    a1.set_ylabel("Test IC (fold 1)")
+    a1.legend(frameon=False, loc="upper right", fontsize=10)
+    w = 0.2
+    for xi, leg in enumerate(("gap", "int")):
+        for mi, m in enumerate(STYLE):
+            val = ov[okey.get(m, m)][f"ic_{leg}"]["mean"]
+            x = xi + (mi - 1.5) * w
+            a2.bar(x, val, w * 0.9, color=STYLE[m]["color"], edgecolor=STYLE[m]["color"])
+            a2.text(x, max(val, 0) + 0.003, f"{val:.3f}".replace("-", "−"), ha="center", va="bottom", fontsize=8)
+    a2.set_xticks([0, 1], ["Overnight\n13:30 → 09:00", "Intraday\n09:00 → 13:30"])
+    a2.set_xlim(-0.55, 1.55)
+    a2.set_xlabel("(b) Part of the next-day return (TW time)")
+    a2.set_ylim(-0.035, 0.19)
+    a1.set_title("Effect of information timeliness", loc="left", fontsize=15, fontweight="bold")
+    for ax in (a1, a2):
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(axis="y", color="#e5e7eb")
+        ax.set_axisbelow(True)
+    note = ("(a) Only the US input is lagged; graphs and TW input still use data up to t−1 (as in Sec. 5.4 of [24]). "
+            "(b) The same forecasts, scored against the\nmove before TW's 09:00 open and the move after it. "
+            "Seed means (MAGNET and MEIG 10 seeds each).")
+    fig.text(0.01, 0.01, note, fontsize=10, color="#6b7280", va="bottom")
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.savefig((out / "eval_plan_info_timing").with_suffix("." + FMT), dpi=220 if FMT == "png" else None,
+                facecolor="white")
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------- 議題 4：市場狀態
 
 def market_state(out):
@@ -376,42 +436,40 @@ def market_state_signed(out):
 def stock_linkage(out):
     # 變因 = 台股與美股的對應關係（proposal_1209 §6）。逐日 IC 拆成每檔的 z(ŷ)·z(y) 相加，
     # 長條是組內每檔的平均貢獻；方法在每檔都一樣好時，各組都等於它的全期 IC。
-    # 最右一組是三個未配對組合併的 43 檔，對應結論「其餘 43 檔分不出差別」，用虛線隔開。
+    # 2026-11-26 依教授意見重排：前兩欄是 50 檔依有無美股對應分成兩組（ADR 配對 7、未配對 43），
+    # 虛線之後是未配對 43 檔依產業拆開；命名統一用 ADR-paired / Unpaired，產業組不再單獨掛 unpaired。
+    # 圖註不放檢定（教授 11-25：名目值即可）。
     d = _load("eval_stock_linkage.json")
     lv = d["levels"]
     key = {LASSO: "LASSO [24]"}
-    groups = [("ADR-paired", "ADR-paired"), ("Unpaired electronics", "Unpaired\nelectronics"),
-              ("Financials", "Financials"), ("Traditional", "Traditional"), ("Unpaired (all 43)", "All unpaired")]
+    groups = [("ADR-paired", "ADR-paired"), ("Unpaired (all 43)", "Unpaired"),
+              ("Unpaired electronics", "Electronics"), ("Financials", "Financials"), ("Traditional", "Traditional")]
     labels = [f"{lab}\n({d['groups'][g]['n']})" for g, lab in groups]
+    xs = [0.0, 1.0, 2.35, 3.35, 4.35]
     fig, ax = plt.subplots(figsize=(10, 5))
     w = 0.2
-    se_max = 0.0
-    for gi, (g, _) in enumerate(groups):
-        x0 = gi + (0.25 if gi == len(groups) - 1 else 0.0)
+    for x0, (g, _) in zip(xs, groups):
         for mi, m in enumerate(STYLE):
             c = lv[key.get(m, m)]["ic"][g]
-            se_max = max(se_max, c["se"])
             x = x0 + (mi - 1.5) * w
             ax.bar(x, c["mean"], w * 0.9, color=STYLE[m]["color"], edgecolor=STYLE[m]["color"])
             ax.text(x, max(c["mean"], 0) + 0.003, f"{c['mean']:.3f}".replace("-", "−"), ha="center",
                     va="bottom", fontsize=7)
-    xs = [gi + (0.25 if gi == len(groups) - 1 else 0.0) for gi in range(len(groups))]
-    ax.axvline((xs[-2] + xs[-1]) / 2, color="#9ca3af", ls=":", lw=1.2)
+    ax.axvline((xs[1] + xs[2]) / 2, color="#9ca3af", ls=":", lw=1.2)
     ax.set_xticks(xs, labels)
     ax.set_xlim(xs[0] - 0.55, xs[-1] + 0.55)
     ax.set_ylim(-0.02, 0.33)
-    ax.set_xlabel("TW stocks grouped by their link to the US layer (fixed before the sample)")
+    # 第二層橫軸標籤：虛線左邊是 50 檔依有無對應分兩組，右邊是未配對 43 檔依產業拆開
+    for xc, txt in (((xs[0] + xs[1]) / 2, "All 50 stocks, by US counterpart"),
+                    (xs[3], "Unpaired stocks, by industry")):
+        ax.annotate(txt, xy=(xc, 0), xycoords=("data", "axes fraction"), xytext=(0, -46),
+                    textcoords="offset points", ha="center", va="top", fontsize=13)
     ax.set_ylabel("Per-stock contribution to IC (fold 1)")
-    _method_legend(ax, loc="upper right", ncol=2)
-    b = d["contrasts"]["ic"]["B"]                                   # 配對股上 MAGNET − LASSO（登記的對比 B）
-    r = d["descriptive"]["ic"]["MAGNET - LASSO [24] | Unpaired (all 43)"]
-    _finish(fig, ax, out / "eval_plan_stock_linkage", "Effect of stock-level linkage",
+    _method_legend(ax, loc="upper right", ncol=1)          # 單欄放右上，避開虛線
+    _finish(fig, ax, out / "eval_plan_stock_linkage", "Effect of US counterpart",
             note="Daily IC = mean over the 50 stocks of z(ŷ)·z(y); each bar averages that term over the group, "
                  "so a method equally good on every stock\nshows its overall IC in every group. "
-                 f"MAGNET − [24]: {b['mean']:+.3f} per ADR-paired stock (HAC p {b['p_holm']:.3f} after Holm), "
-                 f"{r['mean']:+.3f} on the other 43 (p {r['p']:.2f}).\n"
-                 f"Seed means (MAGNET 10 seeds, MEIG 3 seeds, computed before MEIG was extended to 10); "
-                 f"standard errors 0.01–{se_max:.2f}.".replace("-0", "−0"))
+                 "Seed means (MAGNET 10 seeds; MEIG 3 seeds, computed before MEIG was extended to 10).")
 
 
 # ---------------------------------------------------------------- 備用頁
@@ -466,7 +524,8 @@ def main():
     FMT = a.fmt
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    for f in (overall, info_source, info_lag, market_state, market_state_signed, stock_linkage, ablation, cum_ic):
+    for f in (overall, info_source, info_lag, info_timing, market_state, market_state_signed, stock_linkage,
+              ablation, cum_ic):
         f(out)
     print(f"寫入 {out}（{FMT}）")
 
